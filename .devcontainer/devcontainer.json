@@ -3,7 +3,7 @@
         "dockerfile": "./Dockerfile",
         "context": "."
     },
-    "workspaceFolder": "/workspaces/sys-frost",
+    "workspaceFolder": "/workspaces/sysml2frost",
     "customizations": {
         "vscode": {
             "settings": {

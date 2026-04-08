@@ -1,6 +1,6 @@
-site_name: sys_frost
-site_description: A simple template project.
-repo_name: sys-frost
+site_name: sysml2frost
+site_description: From SysML v2 models to Frost simulations of industrial plants
+repo_name: sysml2frost
 theme:
   name: material
   features:

@@ -10,10 +10,10 @@ RUN apk add --update --no-cache gcc musl-dev
 RUN pip install --no-cache-dir uv
 
 COPY README.md pyproject.toml uv.lock ./
-COPY sys_frost/ sys_frost
+COPY sysml2frost/ sysml2frost
 COPY examples/ examples
 
 RUN uv sync --locked --no-dev
-RUN python -m compileall -o 2 -f -j 0 /app/sys_frost/
+RUN python -m compileall -o 2 -f -j 0 /app/sysml2frost/
 
-CMD ["uv", "run", "python", "examples/say_hi.py"]
+CMD ["uv", "run", "python", "-m", "sysml2frost"]

@@ -1,11 +1,14 @@
 [project]
-name = "sys-frost"
+name = "sysml2frost"
 version = "0.0.0"
-description = "A simple template project."
-authors = [{ name = "glacier-project", email = "15906025+mariolibro@users.noreply.github.com" }]
-requires-python = ">=3.10,<4"
+description = "From SysML v2 models to Frost simulations of industrial plants"
+authors = [{ name = "Mario Libro", email = "mario.libro@univr.it" }]
+requires-python = ">=3.12,<4"
 readme = "README.md"
 license = "BSD-2-Clause"
+dependencies = [
+    "syside>=0.8.6",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -29,7 +32,7 @@ build-backend = "hatchling.build"
 [tool.ruff]
 # Google style uses 80 chars
 line-length = 80
-target-version = "py310"
+target-version = "py312"
 
 [tool.ruff.lint]
 # Google Python Style Guide compliant rules
@@ -67,7 +70,7 @@ convention = "google"
 
 [tool.ruff.lint.isort]
 # Google style: absolute imports, sorted
-known-first-party = ["sys_frost"]
+known-first-party = ["sysml2frost"]
 force-single-line = false
 
 [tool.ruff.format]
