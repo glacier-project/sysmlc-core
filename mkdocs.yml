@@ -1,6 +1,6 @@
-site_name: project_name
+site_name: sys_frost
 site_description: A simple template project.
-repo_name: python-template
+repo_name: sys-frost
 theme:
   name: material
   features:

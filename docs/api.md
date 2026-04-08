@@ -1,7 +1,7 @@
 # API Reference
 
-::: project_name
+::: sys_frost
 
 ## Module Reference
 
-::: project_name.greeter
+::: sys_frost.greeter

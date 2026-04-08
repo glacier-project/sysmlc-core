@@ -3,7 +3,7 @@
         "dockerfile": "./Dockerfile",
         "context": "."
     },
-    "workspaceFolder": "/workspaces/python-template",
+    "workspaceFolder": "/workspaces/sys-frost",
     "customizations": {
         "vscode": {
             "settings": {

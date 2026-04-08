@@ -1,4 +1,4 @@
-# Python Template
+# Sys Frost
 
 This template contains the standard structure for a Python repository for the Glacier project. The template is designed to be used as a starting point for new python projects with support for dockerized development and deployment.
 
@@ -10,7 +10,7 @@ After creating a new repository from this template, run:
 python scripts/bootstrap_template.py your-repository-name
 ```
 
-This renames the placeholder package directory, updates the package metadata, and rewrites the main `project_name` and `python-template` references across the repository. Use `--package-name`, `--project-title`, `--author`, `--author-email`, or `--description` if the defaults inferred from the repository name are not enough.
+This renames the placeholder package directory, updates the package metadata, and rewrites the main `project_name` and `sys-frost` references across the repository. Use `--package-name`, `--project-title`, `--author`, `--author-email`, or `--description` if the defaults inferred from the repository name are not enough.
 
 This template also includes a `Bootstrap Template` workflow that tries to
 rewrite placeholders automatically when the repository is created from
@@ -26,7 +26,7 @@ run the `Bootstrap Template` workflow manually from the Actions tab.
 
 - <code>Use this template > Create a new repository</code> : You can clone this template from the UI by clicking on the upper left repository button.
 - <code>Use this template > Open in codespace</code> : Alternatively, you can directly try it out in Github codespace. Codespace is a Github feature that allows you to develop directly in the cloud using VSCode devcontainer. For more information, please refer to <a href="https://docs.github.com/en/codespaces">Github Codespace</a>.
-- <code>git clone git@github.com:esd-univr/python-template.git</code> : Or, you can clone this template from the command line.
+- <code>git clone git@github.com:esd-univr/sys-frost.git</code> : Or, you can clone this template from the command line.
 
 ## Installation
 

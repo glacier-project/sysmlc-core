@@ -1,6 +1,6 @@
 import pytest
 
-from project_name.greeter import Greeter, Language
+from sys_frost.greeter import Greeter, Language
 
 
 @pytest.mark.parametrize(

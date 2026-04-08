@@ -1,8 +1,8 @@
 [project]
-name = "project_name"
+name = "sys-frost"
 version = "0.0.0"
 description = "A simple template project."
-authors = [{ name = "Mario Potato", email = "mario.potato@univr.it" }]
+authors = [{ name = "glacier-project", email = "15906025+mariolibro@users.noreply.github.com" }]
 requires-python = ">=3.10,<4"
 readme = "README.md"
 license = "BSD-2-Clause"
@@ -67,7 +67,7 @@ convention = "google"
 
 [tool.ruff.lint.isort]
 # Google style: absolute imports, sorted
-known-first-party = ["project_name"]
+known-first-party = ["sys_frost"]
 force-single-line = false
 
 [tool.ruff.format]
