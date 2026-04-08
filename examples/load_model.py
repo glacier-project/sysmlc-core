@@ -17,5 +17,6 @@ def main() -> None:
     print(f"Diagnostics: {diagnostics}")
     print()
 
+
 if __name__ == "__main__":
     main()
