@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/sysml-frozen.png" alt="SysML2Frost" width="400">
+  <img src="docs/assets/sysml2-frost.png" alt="SysML2Frost" width="400">
 </p>
 
 # SysML2Frost
