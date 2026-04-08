@@ -1,0 +1,24 @@
+{
+    "build": {
+        "dockerfile": "./Dockerfile",
+        "context": "."
+    },
+    "workspaceFolder": "/workspaces/python-template",
+    "customizations": {
+        "vscode": {
+            "settings": {
+                "terminal.integrated.defaultProfile.linux": "bash",
+                "terminal.integrated.profiles.linux": {
+                    "bash": {
+                        "path": "bash"
+                    }
+                },
+                "editor.tabSize": 4
+            },
+            "extensions": [
+                "ms-python.python",
+                "ms-python.vscode-pylance"            
+            ]
+        }
+    }
+}

@@ -1,0 +1,50 @@
+name: Test and build
+
+on:
+  push:
+    branches:
+    - main
+    - dev
+  pull_request:
+    branches:
+    - main
+    - dev
+jobs:
+  # quality assurance checks
+  qa:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: pre-commit/action@v3.0.1
+  test:
+    needs: qa
+    strategy:
+      fail-fast: false
+      matrix:
+        # uncomment the following line to test on all platforms
+        os: [ubuntu-latest]   #, "macos-latest", "windows-latest"]
+        python-version: ['3.10', '3.11', '3.12', '3.13']
+    runs-on: ${{ matrix.os }}
+    steps:
+    - uses: actions/checkout@v5
+    - name: Install uv and Python
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+        python-version: ${{ matrix.python-version }}
+    - name: Install project dependencies
+      run: uv sync --locked --all-extras
+    - name: Run tests
+      run: uv run tox run --skip-pkg-install --skip-env "(formatter|type|coverage)"
+      env:
+        TOX_GH_MAJOR_MINOR: ${{ matrix.python-version }}
+    - name: Run type checks
+      if: matrix.python-version == '3.10'
+      run: uv run tox run --skip-pkg-install -e type
+      env:
+        TOX_GH_MAJOR_MINOR: ${{ matrix.python-version }}
+    - name: Build documentation
+      if: matrix.python-version == '3.10'
+      run: uv run tox run --skip-pkg-install -e docs
+      env:
+        TOX_GH_MAJOR_MINOR: ${{ matrix.python-version }}
