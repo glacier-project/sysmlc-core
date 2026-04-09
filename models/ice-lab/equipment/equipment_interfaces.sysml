@@ -4,6 +4,7 @@ package EquipmentInterfaces {
          * action defs owned by the equipment, with typed parameters.
          * OPC-UA monitored variables are modeled as attributes.
          * OPC-UA node identifiers are attached via @OpcUaMethod / @OpcUaVariable.
+         * OPC-UA connection endpoints are attached to concrete equipment usages.
          */
 
     private import ScalarValues::*;
@@ -18,8 +19,6 @@ package EquipmentInterfaces {
     // ========================================================================
     part def FuncTestingEquipment :> ProductionEquipment {
         doc /* SPEA board test station */
-
-        attribute opcUaEndpoint : String = "opc.tcp://10.197.11.11:4840/";
 
         // --- OPC-UA Variables ---
 
@@ -95,8 +94,6 @@ package EquipmentInterfaces {
     part def MillingEquipment :> ProductionEquipment {
         doc /* CNC milling machine. */
 
-        attribute opcUaEndpoint : String = "opc.tcp://10.197.12.11:4840/";
-
         // --- OPC-UA Variables ---
 
         attribute mesBusy : Boolean {
@@ -151,8 +148,6 @@ package EquipmentInterfaces {
 
     part def RoboticCellEquipment :> ProductionEquipment {
         doc /* Siemens PLC coordinating ABB and KUKA robots. */
-
-        attribute opcUaEndpoint : String = "opc.tcp://10.197.14.21:4840/";
 
         // --- OPC-UA Variables: Cell Control ---
 
@@ -413,8 +408,6 @@ package EquipmentInterfaces {
     part def ETensilEquipment :> ProductionEquipment {
         doc /* Electric screwdriver */
 
-        attribute opcUaEndpoint : String = "opc.tcp://etensil-relay:4841/";
-
         // --- OPC-UA Variables ---
 
         attribute busy : Boolean {
@@ -466,8 +459,6 @@ package EquipmentInterfaces {
     part def QualityControlEquipment :> ProductionEquipment {
         doc /* Vision-based quality control camera for inspection. */
 
-        attribute opcUaEndpoint : String = "opc.tcp://10.197.15.11:4840/";
-
         // --- OPC-UA Variables ---
 
         attribute busy : Boolean {
@@ -514,8 +505,6 @@ package EquipmentInterfaces {
 
     part def WarehouseEquipment :> ProductionEquipment {
         doc /* Automated tray storage. */
-
-        attribute opcUaEndpoint : String = "opc.tcp://10.197.16.11:4840/";
 
         // --- OPC-UA Variables ---
 
@@ -569,8 +558,6 @@ package EquipmentInterfaces {
 
     part def ConveyorBeltEquipment :> ProductionEquipment {
         doc /* Siemens PLC controlling the closed-loop conveyor belt.*/
-
-        attribute opcUaEndpoint : String = "opc.tcp://10.197.17.11:59100/";
 
         // --- OPC-UA Variables ---
 
@@ -942,8 +929,6 @@ package EquipmentInterfaces {
 
     part def RbKairosEquipment :> ProductionEquipment {
         doc /* Robotnik RB Kairos autonomous mobile robot with UR5 arm.*/
-
-        attribute opcUaEndpoint : String;
 
         // --- OPC-UA Variables ---
 

@@ -6,6 +6,7 @@ package PlantTopology {
 
     private import ScalarValues::*;
     private import EquipmentInterfaces::*;
+    private import OpcUaBinding::*;
     private import ISA95EquipmentHierarchy::*;
     private import FuncTesting::*;
     private import Milling::*;
@@ -23,14 +24,18 @@ package PlantTopology {
     // ========================================================================
 
     part def Cell1_FunctionalTesting :> WorkCell {
-        part funcTesting : FuncTestingEquipment;
+        part funcTesting : FuncTestingEquipment {
+            @OpcUaConnection { endpoint = "opc.tcp://10.197.11.11:4840/"; }
+        }
 
         perform action testBoard : TestBoard;
         perform action customizeFirmware : CustomizeFirmware;
     }
 
     part def Cell2_Milling :> WorkCell {
-        part milling : MillingEquipment;
+        part milling : MillingEquipment {
+            @OpcUaConnection { endpoint = "opc.tcp://10.197.12.11:4840/"; }
+        }
 
         perform action startMillingMission : StartMillingMission;
         perform action startEngraveText : StartEngraveText;
@@ -38,8 +43,12 @@ package PlantTopology {
     }
 
     part def Cell4_RoboticAssembly :> WorkCell {
-        part roboticCell : RoboticCellEquipment;
-        part eTensil : ETensilEquipment;
+        part roboticCell : RoboticCellEquipment {
+            @OpcUaConnection { endpoint = "opc.tcp://10.197.14.21:4840/"; }
+        }
+        part eTensil : ETensilEquipment {
+            @OpcUaConnection { endpoint = "opc.tcp://etensil-relay:4841/"; }
+        }
 
         perform action pickFromPallet : PickFromPallet;
         perform action moveAndPlace : MoveAndPlace;
@@ -59,14 +68,18 @@ package PlantTopology {
     }
 
     part def Cell5_QualityControl :> WorkCell {
-        part qualityControl : QualityControlEquipment;
+        part qualityControl : QualityControlEquipment {
+            @OpcUaConnection { endpoint = "opc.tcp://10.197.15.11:4840/"; }
+        }
 
         perform action checkQualityCovers : CheckQualityCovers;
         perform action checkQualityLego : CheckQualityLego;
     }
 
     part def Cell6_Warehouse :> WorkCell {
-        part warehouse : WarehouseEquipment;
+        part warehouse : WarehouseEquipment {
+            @OpcUaConnection { endpoint = "opc.tcp://10.197.16.11:4840/"; }
+        }
 
         perform action showMessage : ShowMessage;
         perform action extractTray : ExtractTray;
@@ -74,7 +87,9 @@ package PlantTopology {
     }
 
     part def Cell7_ConveyorSystem :> WorkCell {
-        part conveyorBelt : ConveyorBeltEquipment;
+        part conveyorBelt : ConveyorBeltEquipment {
+            @OpcUaConnection { endpoint = "opc.tcp://10.197.17.11:59100/"; }
+        }
 
         perform action releasePallet : ReleasePallet;
         perform action movePalletToMainBelt : MovePalletToMainBelt;
@@ -102,10 +117,10 @@ package PlantTopology {
 
     part def MobileLogistics :> WorkCell {
         part rbKairosA : RbKairosEquipment {
-            attribute :>> opcUaEndpoint = "opc.tcp://10.197.20.31:4840/";
+            @OpcUaConnection { endpoint = "opc.tcp://10.197.20.31:4840/"; }
         }
         part rbKairosB : RbKairosEquipment {
-            attribute :>> opcUaEndpoint = "opc.tcp://10.197.20.32:4840/";
+            @OpcUaConnection { endpoint = "opc.tcp://10.197.20.32:4840/"; }
         }
 
         perform action startMission : StartRbKairosMission;

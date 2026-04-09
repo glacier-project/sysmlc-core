@@ -15,4 +15,9 @@ package OpcUaBinding {
         doc /* Binds an attribute to its OPC-UA monitored variable node. */
         attribute nodeId : String;
     }
+
+    metadata def OpcUaConnection {
+        doc /* Binds an equipment usage to its OPC-UA server endpoint. */
+        attribute endpoint : String;
+    }
 }
