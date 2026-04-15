@@ -18,7 +18,7 @@ package Warehouse {
 
         first start;
 
-        then action callShowMessage :> equipment.showMessage {
+        then perform action callShowMessage references equipment.showMessage {
             in :>> msg = ShowMessage::msg;
         }
 
@@ -47,7 +47,7 @@ package Warehouse {
 
         first start;
 
-        then action callExtractTray :> equipment.extractTray {
+        then perform action callExtractTray references equipment.extractTray {
             in :>> num = ExtractTray::trayNumber;
         }
 
@@ -86,7 +86,7 @@ package Warehouse {
 
         first start;
 
-        then action callSendBackTray :> equipment.sendBackTray;
+        then perform action callSendBackTray references equipment.sendBackTray;
 
         then mWaitDone;
         merge mWaitDone;

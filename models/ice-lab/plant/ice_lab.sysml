@@ -16,7 +16,6 @@ package PlantTopology {
     private import Warehouse::*;
     private import Conveyor::*;
     private import RbKairos::*;
-    private import RoboticCellStates::*;
     private import DemoLegoRecipe::*;
 
     // ========================================================================
@@ -28,8 +27,12 @@ package PlantTopology {
             @OpcUaConnection { endpoint = "opc.tcp://10.197.11.11:4840/"; }
         }
 
-        perform action testBoard : TestBoard;
-        perform action customizeFirmware : CustomizeFirmware;
+        action testBoard : TestBoard {
+            in ref :>> equipment = funcTesting;
+        }
+        action customizeFirmware : CustomizeFirmware {
+            in ref :>> equipment = funcTesting;
+        }
     }
 
     part def Cell2_Milling :> WorkCell {
@@ -37,9 +40,15 @@ package PlantTopology {
             @OpcUaConnection { endpoint = "opc.tcp://10.197.12.11:4840/"; }
         }
 
-        perform action startMillingMission : StartMillingMission;
-        perform action startEngraveText : StartEngraveText;
-        perform action waitMillingBusy : WaitMillingBusy;
+        action startMillingMission : StartMillingMission {
+            in ref :>> equipment = milling;
+        }
+        action startEngraveText : StartEngraveText {
+            in ref :>> equipment = milling;
+        }
+        action waitMillingBusy : WaitMillingBusy {
+            in ref :>> equipment = milling;
+        }
     }
 
     part def Cell4_RoboticAssembly :> WorkCell {
@@ -50,20 +59,36 @@ package PlantTopology {
             @OpcUaConnection { endpoint = "opc.tcp://etensil-relay:4841/"; }
         }
 
-        perform action pickFromPallet : PickFromPallet;
-        perform action moveAndPlace : MoveAndPlace;
-        perform action moveOverPallet : MoveOverPallet;
-        perform action placeToPallet : PlaceToPallet;
-        perform action submitRobotOperation : SubmitRobotOperation;
-        perform action abbPickBoardFromPallet : AbbPickBoardFromPallet;
-        perform action gadgetAssembly : GadgetAssembly;
-        perform action abbOperation : ABBOperation;
-
-        perform action doSingleScrew : EtensilDoSingleScrew;
-        perform action doUntight : EtensilDoUntight;
-
-        exhibit state plcStates : RoboticCellStates {
+        action pickFromPallet : PickFromPallet {
             in ref :>> equipment = roboticCell;
+        }
+        action moveAndPlace : MoveAndPlace {
+            in ref :>> equipment = roboticCell;
+        }
+        action moveOverPallet : MoveOverPallet {
+            in ref :>> equipment = roboticCell;
+        }
+        action placeToPallet : PlaceToPallet {
+            in ref :>> equipment = roboticCell;
+        }
+        action submitRobotOperation : SubmitRobotOperation {
+            in ref :>> equipment = roboticCell;
+        }
+        action abbPickBoardFromPallet : AbbPickBoardFromPallet {
+            in ref :>> equipment = roboticCell;
+        }
+        action gadgetAssembly : GadgetAssembly {
+            in ref :>> equipment = roboticCell;
+        }
+        action abbOperation : ABBOperation {
+            in ref :>> equipment = roboticCell;
+        }
+
+        action doSingleScrew : EtensilDoSingleScrew {
+            in ref :>> equipment = eTensil;
+        }
+        action doUntight : EtensilDoUntight {
+            in ref :>> equipment = eTensil;
         }
     }
 
@@ -72,8 +97,12 @@ package PlantTopology {
             @OpcUaConnection { endpoint = "opc.tcp://10.197.15.11:4840/"; }
         }
 
-        perform action checkQualityCovers : CheckQualityCovers;
-        perform action checkQualityLego : CheckQualityLego;
+        action checkQualityCovers : CheckQualityCovers {
+            in ref :>> equipment = qualityControl;
+        }
+        action checkQualityLego : CheckQualityLego {
+            in ref :>> equipment = qualityControl;
+        }
     }
 
     part def Cell6_Warehouse :> WorkCell {
@@ -81,9 +110,15 @@ package PlantTopology {
             @OpcUaConnection { endpoint = "opc.tcp://10.197.16.11:4840/"; }
         }
 
-        perform action showMessage : ShowMessage;
-        perform action extractTray : ExtractTray;
-        perform action rejectTray : RejectTray;
+        action showMessage : ShowMessage {
+            in ref :>> equipment = warehouse;
+        }
+        action extractTray : ExtractTray {
+            in ref :>> equipment = warehouse;
+        }
+        action rejectTray : RejectTray {
+            in ref :>> equipment = warehouse;
+        }
     }
 
     part def Cell7_ConveyorSystem :> WorkCell {
@@ -91,28 +126,64 @@ package PlantTopology {
             @OpcUaConnection { endpoint = "opc.tcp://10.197.17.11:59100/"; }
         }
 
-        perform action releasePallet : ReleasePallet;
-        perform action movePalletToMainBelt : MovePalletToMainBelt;
-        perform action clearPartOnPallet : ClearPartOnPallet;
-        perform action reservePallet : ReservePallet;
-        perform action setPartOnPallet : SetPartOnPallet;
+        action releasePallet : ReleasePallet {
+            in ref :>> equipment = conveyorBelt;
+        }
+        action movePalletToMainBelt : MovePalletToMainBelt {
+            in ref :>> equipment = conveyorBelt;
+        }
+        action clearPartOnPallet : ClearPartOnPallet {
+            in ref :>> equipment = conveyorBelt;
+        }
+        action reservePallet : ReservePallet {
+            in ref :>> equipment = conveyorBelt;
+        }
+        action setPartOnPallet : SetPartOnPallet {
+            in ref :>> equipment = conveyorBelt;
+        }
 
-        perform action callFreePallet : CallFreePalletToDestination;
-        perform action callFreePalletReserved : CallFreePalletToDestinationWithReservation;
-        perform action callFreePalletOfType : CallFreePalletOfTypeToDestination;
-        perform action callFreePalletOfTypeReserved : CallFreePalletOfTypeToDestinationWithReservation;
-        perform action setPalletToDestination : SetPalletToDestination;
-        perform action setPalletToDestinationReserved : SetPalletToDestinationWithReservation;
+        action callFreePallet : CallFreePalletToDestination {
+            in ref :>> equipment = conveyorBelt;
+        }
+        action callFreePalletReserved : CallFreePalletToDestinationWithReservation {
+            in ref :>> equipment = conveyorBelt;
+        }
+        action callFreePalletOfType : CallFreePalletOfTypeToDestination {
+            in ref :>> equipment = conveyorBelt;
+        }
+        action callFreePalletOfTypeReserved : CallFreePalletOfTypeToDestinationWithReservation {
+            in ref :>> equipment = conveyorBelt;
+        }
+        action setPalletToDestination : SetPalletToDestination {
+            in ref :>> equipment = conveyorBelt;
+        }
+        action setPalletToDestinationReserved : SetPalletToDestinationWithReservation {
+            in ref :>> equipment = conveyorBelt;
+        }
 
-        perform action waitAckLoadUnload : WaitAckLoadUnloadZone;
-        perform action waitAckBay : WaitAckBay;
+        action waitAckLoadUnload : WaitAckLoadUnloadZone {
+            in ref :>> equipment = conveyorBelt;
+        }
+        action waitAckBay : WaitAckBay {
+            in ref :>> equipment = conveyorBelt;
+        }
 
-        perform action readPalletContent : ReadPalletContent;
+        action readPalletContent : ReadPalletContent {
+            in ref :>> equipment = conveyorBelt;
+        }
 
-        perform action reserveFreePallet : ReserveFreePallet;
-        perform action reserveFreePalletOfType : ReserveFreePalletOfType;
-        perform action reserveFreePallet2 : ReserveFreePallet2;
-        perform action reserveFreePalletOfType2 : ReserveFreePalletOfType2;
+        action reserveFreePallet : ReserveFreePallet {
+            in ref :>> equipment = conveyorBelt;
+        }
+        action reserveFreePalletOfType : ReserveFreePalletOfType {
+            in ref :>> equipment = conveyorBelt;
+        }
+        action reserveFreePallet2 : ReserveFreePallet2 {
+            in ref :>> equipment = conveyorBelt;
+        }
+        action reserveFreePalletOfType2 : ReserveFreePalletOfType2 {
+            in ref :>> equipment = conveyorBelt;
+        }
     }
 
     part def MobileLogistics :> WorkCell {
@@ -123,8 +194,8 @@ package PlantTopology {
             @OpcUaConnection { endpoint = "opc.tcp://10.197.20.32:4840/"; }
         }
 
-        perform action startMission : StartRbKairosMission;
-        perform action waitOnControlBusy : WaitOnControlBusy;
+        action startMission : StartRbKairosMission;
+        action waitOnControlBusy : WaitOnControlBusy;
     }
 
     // ========================================================================
@@ -149,91 +220,57 @@ package PlantTopology {
 
             // Task 1: LD
             action :>> opLD {
-                perform action :>> reserve;
-                allocate reserve to cell7.reserveFreePalletOfType2;
+                action :>> reserve references cell7.reserveFreePalletOfType2;
             }
 
             // Task 2: RBTC
             action :>> opRBTC {
                 // Conveyor (Cell7)
-                perform action :>> routePallet1;
-                perform action :>> readShape1;
-                perform action :>> clearPart1;
-                perform action :>> movePallet1;
-                perform action :>> releasePallet1;
-                perform action :>> routePallet2;
-                perform action :>> readShape2;
-                perform action :>> clearPart2;
-                perform action :>> setPartShape2;
-                perform action :>> setPartShape1;
-                perform action :>> movePallet2;
+                action :>> routePallet1 references cell7.setPalletToDestination;
+                action :>> readShape1 references cell7.readPalletContent;
+                action :>> clearPart1 references cell7.clearPartOnPallet;
+                action :>> movePallet1 references cell7.movePalletToMainBelt;
+                action :>> releasePallet1 references cell7.releasePallet;
+                action :>> routePallet2 references cell7.setPalletToDestination;
+                action :>> readShape2 references cell7.readPalletContent;
+                action :>> clearPart2 references cell7.clearPartOnPallet;
+                action :>> setPartShape2 references cell7.setPartOnPallet;
+                action :>> setPartShape1 references cell7.setPartOnPallet;
+                action :>> movePallet2 references cell7.movePalletToMainBelt;
                 // Robotic (Cell4)
-                perform action :>> pick;
-                perform action :>> moveAndPlace;
-
-                allocate routePallet1 to cell7.setPalletToDestination;
-                allocate readShape1 to cell7.readPalletContent;
-                allocate routePallet2 to cell7.setPalletToDestination;
-                allocate readShape2 to cell7.readPalletContent;
-                allocate clearPart1 to cell7.clearPartOnPallet;
-                allocate clearPart2 to cell7.clearPartOnPallet;
-                allocate movePallet1 to cell7.movePalletToMainBelt;
-                allocate movePallet2 to cell7.movePalletToMainBelt;
-                allocate releasePallet1 to cell7.releasePallet;
-                allocate setPartShape1 to cell7.setPartOnPallet;
-                allocate setPartShape2 to cell7.setPartOnPallet;
-                allocate pick to cell4.pickFromPallet;
-                allocate moveAndPlace to cell4.moveAndPlace;
+                action :>> pick references cell4.pickFromPallet;
+                action :>> moveAndPlace references cell4.moveAndPlace;
             }
 
             // Task 3: QC
             action :>> opQC {
-                perform action :>> routePallet;
-                perform action :>> checkQuality;
-                perform action :>> movePallet;
-
-                allocate routePallet to cell7.setPalletToDestination;
-                allocate checkQuality to cell5.checkQualityLego;
-                allocate movePallet to cell7.movePalletToMainBelt;
+                action :>> routePallet references cell7.setPalletToDestination;
+                action :>> checkQuality references cell5.checkQualityLego;
+                action :>> movePallet references cell7.movePalletToMainBelt;
             }
 
             // Task 4: RESRVPALLET
             action :>> opRESRVPALLET {
-                perform action :>> reserve;
-                allocate reserve to cell7.reserveFreePalletOfType2;
+                action :>> reserve references cell7.reserveFreePalletOfType2;
             }
 
             // Task 5: DISASSEMBLE
             action :>> opDISASSEMBLE {
                 // Phase 1: Disassemble from pallet 2 (Cell7 conveyor + Cell4 robotic)
-                perform action :>> routeToRobot1;
-                perform action :>> pick;
-                perform action :>> clearPos1;
-                perform action :>> moveOver;
-                perform action :>> clearPos3;
-                perform action :>> setPartPos2;
-                perform action :>> moveP2ToMain;
-                perform action :>> releaseP2;
+                action :>> routeToRobot1 references cell7.setPalletToDestination;
+                action :>> pick references cell4.pickFromPallet;
+                action :>> clearPos1 references cell7.clearPartOnPallet;
+                action :>> moveOver references cell4.moveOverPallet;
+                action :>> clearPos3 references cell7.clearPartOnPallet;
+                action :>> setPartPos2 references cell7.setPartOnPallet;
+                action :>> moveP2ToMain references cell7.movePalletToMainBelt;
+                action :>> releaseP2 references cell7.releasePallet;
                 // Phase 2: Place onto fresh pallet 1 (Cell7 conveyor + Cell4 robotic)
-                perform action :>> routeToRobot2;
-                perform action :>> place;
-                perform action :>> setPartOnP1;
-                perform action :>> moveP1ToMain;
-                perform action :>> releaseP1;
-
-                allocate routeToRobot1 to cell7.setPalletToDestination;
-                allocate routeToRobot2 to cell7.setPalletToDestination;
-                allocate pick to cell4.pickFromPallet;
-                allocate place to cell4.placeToPallet;
-                allocate moveOver to cell4.moveOverPallet;
-                allocate clearPos1 to cell7.clearPartOnPallet;
-                allocate clearPos3 to cell7.clearPartOnPallet;
-                allocate setPartPos2 to cell7.setPartOnPallet;
-                allocate setPartOnP1 to cell7.setPartOnPallet;
-                allocate moveP2ToMain to cell7.movePalletToMainBelt;
-                allocate moveP1ToMain to cell7.movePalletToMainBelt;
-                allocate releaseP2 to cell7.releasePallet;
-                allocate releaseP1 to cell7.releasePallet;
+                action :>> routeToRobot2 references cell7.setPalletToDestination;
+                action :>> place references cell4.placeToPallet;
+                action :>> setPartOnP1 references cell7.setPartOnPallet;
+                action :>> moveP1ToMain references cell7.movePalletToMainBelt;
+                action :>> releaseP1 references cell7.releasePallet;
             }
         }
 

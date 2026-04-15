@@ -61,17 +61,6 @@ package DomainEnums {
         empty = 0;
     }
 
-    enum def RoboticCellState {
-        doc /* Observable PLC states for the robotic assembly cell.
-             * Published via the state port on each state entry.
-             */
-        enum UNINITIALIZED;
-        enum IDLE;
-        enum RUNNING;
-        enum DONE;
-        enum ERROR;
-    }
-
     enum def ConveyorDestination :> Integer {
         doc /* Byte codes identifying physical bay positions on the conveyor loop.
              Each value is the PLC address sent to setPalletDestination.

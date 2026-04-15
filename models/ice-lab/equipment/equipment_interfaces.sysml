@@ -4,14 +4,12 @@ package EquipmentInterfaces {
          * action defs owned by the equipment, with typed parameters.
          * OPC-UA monitored variables are modeled as attributes.
          * OPC-UA node identifiers are attached via @OpcUaMethod / @OpcUaVariable.
-         * OPC-UA connection endpoints are attached to concrete equipment usages.
          */
 
     private import ScalarValues::*;
     private import OpcUaBinding::*;
     private import RecipePrimitives::MachineFunction;
     private import DomainTypes::*;
-    private import DomainEnums::RoboticCellState;
     private import ISA95EquipmentHierarchy::ProductionEquipment;
 
     // ========================================================================
@@ -78,13 +76,13 @@ package EquipmentInterfaces {
             out accepted : Boolean;
         }
 
-        // --- Perform Actions ---
+        // --- Owned Actions ---
 
-        perform action boardIn : BoardIn;
-        perform action boardOut : BoardOut;
-        perform action startTest : StartTest;
-        perform action downloadFirmware : DownloadFirmware;
-        perform action showMessage : ShowMessage;
+        action boardIn : BoardIn;
+        action boardOut : BoardOut;
+        action startTest : StartTest;
+        action downloadFirmware : DownloadFirmware;
+        action showMessage : ShowMessage;
     }
 
     // ========================================================================
@@ -126,25 +124,15 @@ package EquipmentInterfaces {
             out accepted : Boolean;
         }
 
-        // --- Perform Actions ---
+        // --- Owned Actions ---
 
-        perform action startMission : StartMission;
-        perform action engraveText : EngraveText;
+        action startMission : StartMission;
+        action engraveText : EngraveText;
     }
 
     // ========================================================================
     // WC04 — Assembly / Disassembly (KUKA LBR iiwa 14, ABB YuMi, Siemens PLC)
     // ========================================================================
-
-    port def RoboticCellCmdPort {
-        doc /* Command interface: receives OPC-UA method calls. */
-        in cmd : MachineFunction;
-    }
-
-    port def RoboticCellStatePort {
-        doc /* State notification interface: publishes current PLC state. */
-        out cellState : RoboticCellState;
-    }
 
     part def RoboticCellEquipment :> ProductionEquipment {
         doc /* Siemens PLC coordinating ABB and KUKA robots. */
@@ -384,21 +372,17 @@ package EquipmentInterfaces {
             }
         }
 
-        // --- Perform Actions ---
+        // --- Owned Actions ---
 
-        perform action pickFromPallet : PickFromPallet;
-        perform action placeToPallet : PlaceToPallet;
-        perform action moveAndPlace : MoveAndPlace;
-        perform action moveOverPallet : MoveOverPallet;
-        perform action abbPickBoardFromPallet : AbbPickBoardFromPallet;
-        perform action gadgetAssembly : GadgetAssembly;
-        perform action submitRobotOperation : SubmitRobotOperation;
-        perform action clearBuffer : ClearBuffer;
+        action pickFromPallet : PickFromPallet;
+        action placeToPallet : PlaceToPallet;
+        action moveAndPlace : MoveAndPlace;
+        action moveOverPallet : MoveOverPallet;
+        action abbPickBoardFromPallet : AbbPickBoardFromPallet;
+        action gadgetAssembly : GadgetAssembly;
+        action submitRobotOperation : SubmitRobotOperation;
+        action clearBuffer : ClearBuffer;
 
-        // --- Behavioral Ports ---
-
-        port cmdPort : RoboticCellCmdPort;
-        port statePort : RoboticCellStatePort;
     }
 
     // ========================================================================
@@ -445,11 +429,11 @@ package EquipmentInterfaces {
             out isDone : Boolean;
         }
 
-        // --- Perform Actions ---
+        // --- Owned Actions ---
 
-        perform action doSingleScrew : DoSingleScrew;
-        perform action doUntight : DoUntight;
-        perform action lockETensil : LockETensil;
+        action doSingleScrew : DoSingleScrew;
+        action doUntight : DoUntight;
+        action lockETensil : LockETensil;
     }
 
     // ========================================================================
@@ -493,10 +477,10 @@ package EquipmentInterfaces {
             out result : Boolean;
         }
 
-        // --- Perform Actions ---
+        // --- Owned Actions ---
 
-        perform action checkQualityCovers : CheckQualityCovers;
-        perform action checkQualityLego : CheckQualityLego;
+        action checkQualityCovers : CheckQualityCovers;
+        action checkQualityLego : CheckQualityLego;
     }
 
     // ========================================================================
@@ -545,11 +529,11 @@ package EquipmentInterfaces {
             in msg : String;
         }
 
-        // --- Perform Actions ---
+        // --- Owned Actions ---
 
-        perform action extractTray : ExtractTray;
-        perform action sendBackTray : SendBackTray;
-        perform action showMessage : ShowMessage;
+        action extractTray : ExtractTray;
+        action sendBackTray : SendBackTray;
+        action showMessage : ShowMessage;
     }
 
     // ========================================================================
@@ -909,18 +893,18 @@ package EquipmentInterfaces {
             out result : Boolean;
         }
 
-        // --- Perform Actions ---
+        // --- Owned Actions ---
 
-        perform action setPalletDestination : SetPalletDestination;
-        perform action setPalletDestinationWithReservation : SetPalletDestinationWithReservation;
-        perform action callFreePalletTo : CallFreePalletTo;
-        perform action callFreePalletToWithReservation : CallFreePalletToWithReservation;
-        perform action callFreePalletOfTypeTo : CallFreePalletOfTypeTo;
-        perform action callFreePalletOfTypeToWithReservation : CallFreePalletOfTypeToWithReservation;
-        perform action reservePallet : ReservePallet;
-        perform action releasePallet : ReleasePallet;
-        perform action setPartOnPallet : SetPartOnPallet;
-        perform action clearPartOnPallet : ClearPartOnPallet;
+        action setPalletDestination : SetPalletDestination;
+        action setPalletDestinationWithReservation : SetPalletDestinationWithReservation;
+        action callFreePalletTo : CallFreePalletTo;
+        action callFreePalletToWithReservation : CallFreePalletToWithReservation;
+        action callFreePalletOfTypeTo : CallFreePalletOfTypeTo;
+        action callFreePalletOfTypeToWithReservation : CallFreePalletOfTypeToWithReservation;
+        action reservePallet : ReservePallet;
+        action releasePallet : ReleasePallet;
+        action setPartOnPallet : SetPartOnPallet;
+        action clearPartOnPallet : ClearPartOnPallet;
     }
 
     // ========================================================================
@@ -961,9 +945,9 @@ package EquipmentInterfaces {
             out accepted : Boolean;
         }
 
-        // --- Perform Actions ---
+        // --- Owned Actions ---
 
-        perform action startMission : StartMission;
-        perform action preemptRunningMission : PreemptRunningMission;
+        action startMission : StartMission;
+        action preemptRunningMission : PreemptRunningMission;
     }
 }

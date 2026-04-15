@@ -21,7 +21,7 @@ package Conveyor {
 
         first start;
 
-        then action callReleasePallet :> equipment.releasePallet {
+        then perform action callReleasePallet references equipment.releasePallet {
             in :>> palletNumber = ReleasePallet::palletNumber;
         }
 
@@ -46,7 +46,7 @@ package Conveyor {
 
         first start;
 
-        then action callSetDestination :> equipment.setPalletDestination {
+        then perform action callSetDestination references equipment.setPalletDestination {
             in :>> palletNumber = MovePalletToMainBelt::palletNumber;
             in constant :>> destination = mainBeltDestination;
         }
@@ -77,7 +77,7 @@ package Conveyor {
 
         first start;
 
-        then action callClearPart :> equipment.clearPartOnPallet {
+        then perform action callClearPart references equipment.clearPartOnPallet {
             in :>> palletNumber = ClearPartOnPallet::palletNumber;
             in :>> position = ClearPartOnPallet::position;
         }
@@ -101,7 +101,7 @@ package Conveyor {
 
         first start;
 
-        then action callReservePallet :> equipment.reservePallet {
+        then perform action callReservePallet references equipment.reservePallet {
             in :>> palletNumber = ReservePallet::palletNumber;
             in :>> reservationId = ReservePallet::reservationId;
         }
@@ -132,7 +132,7 @@ package Conveyor {
 
         first start;
 
-        then action callSetPart :> equipment.setPartOnPallet {
+        then perform action callSetPart references equipment.setPartOnPallet {
             in :>> palletNumber = SetPartOnPallet::palletNumber;
             in :>> position = SetPartOnPallet::position;
             in :>> partCode = SetPartOnPallet::partCode;
@@ -167,7 +167,7 @@ package Conveyor {
 
         first start;
 
-        then action callFreePallet :> equipment.callFreePalletTo {
+        then perform action callFreePallet references equipment.callFreePalletTo {
             in :>> destination = CallFreePalletToDestination::destination;
         }
 
@@ -208,7 +208,7 @@ package Conveyor {
 
         first start;
 
-        then action callFreePallet :> equipment.callFreePalletToWithReservation {
+        then perform action callFreePallet references equipment.callFreePalletToWithReservation {
             in :>> destination = CallFreePalletToDestinationWithReservation::destination;
             in :>> reservationId = CallFreePalletToDestinationWithReservation::reservationId;
         }
@@ -249,7 +249,7 @@ package Conveyor {
 
         first start;
 
-        then action callFreePallet :> equipment.callFreePalletOfTypeTo {
+        then perform action callFreePallet references equipment.callFreePalletOfTypeTo {
             in :>> destination = CallFreePalletOfTypeToDestination::destination;
             in :>> palletType = CallFreePalletOfTypeToDestination::palletType;
         }
@@ -292,7 +292,7 @@ package Conveyor {
 
         first start;
 
-        then action callFreePallet :> equipment.callFreePalletOfTypeToWithReservation {
+        then perform action callFreePallet references equipment.callFreePalletOfTypeToWithReservation {
             in :>> destination = CallFreePalletOfTypeToDestinationWithReservation::destination;
             in :>> palletType = CallFreePalletOfTypeToDestinationWithReservation::palletType;
             in :>> reservationId = CallFreePalletOfTypeToDestinationWithReservation::reservationId;
@@ -337,7 +337,7 @@ package Conveyor {
 
         first start;
 
-        then action callSetDest :> equipment.setPalletDestination {
+        then perform action callSetDest references equipment.setPalletDestination {
             in :>> palletNumber = SetPalletToDestination::palletNumber;
             in :>> destination = SetPalletToDestination::destination;
         }
@@ -380,7 +380,7 @@ package Conveyor {
 
         first start;
 
-        then action callSetDest :> equipment.setPalletDestinationWithReservation {
+        then perform action callSetDest references equipment.setPalletDestinationWithReservation {
             in :>> palletNumber = SetPalletToDestinationWithReservation::palletNumber;
             in :>> destination = SetPalletToDestinationWithReservation::destination;
             in :>> reservationId = SetPalletToDestinationWithReservation::reservationId;
@@ -710,7 +710,7 @@ package Conveyor {
                 else skipPallet;
 
             action doReserve;
-            then action reserve :> equipment.reservePallet {
+            then perform action reserve references equipment.reservePallet {
                 in :>> palletNumber = p.palletNumber;
                 in constant :>> reservationId = ReservationKind::processing;
             }
@@ -737,7 +737,7 @@ package Conveyor {
             else afterPhase2;
 
         merge mRetry;
-        then action callFreePallet :> equipment.callFreePalletToWithReservation {
+        then perform action callFreePallet references equipment.callFreePalletToWithReservation {
             in constant :>> destination = ConveyorDestination::bay5_warehouse;
             in constant :>> reservationId = ReservationKind::transport;
         }
@@ -771,7 +771,7 @@ package Conveyor {
 
         // Operator UI: show message, wait ack, set content
         action operatorUI;
-        then action showLoadMessage :> warehouseEquipment.showMessage {
+        then perform action showLoadMessage references warehouseEquipment.showMessage {
             in :>> msg = "Please load the configuration on the pallet, then press the ack button";
         }
 
@@ -795,7 +795,7 @@ package Conveyor {
             else skipPart1;
 
         action setPartPos1;
-        then action callSetPart1 :> equipment.setPartOnPallet {
+        then perform action callSetPart1 references equipment.setPartOnPallet {
             in :>> palletNumber = palletId;
             in constant :>> position = PalletSlot::pos1;
             in :>> partCode = ReserveFreePallet::contentPos1;
@@ -812,7 +812,7 @@ package Conveyor {
             else skipPart2;
 
         action setPartPos2;
-        then action callSetPart2 :> equipment.setPartOnPallet {
+        then perform action callSetPart2 references equipment.setPartOnPallet {
             in :>> palletNumber = palletId;
             in constant :>> position = PalletSlot::pos2;
             in :>> partCode = ReserveFreePallet::contentPos2;
@@ -829,7 +829,7 @@ package Conveyor {
             else skipPart3;
 
         action setPartPos3;
-        then action callSetPart3 :> equipment.setPartOnPallet {
+        then perform action callSetPart3 references equipment.setPartOnPallet {
             in :>> palletNumber = palletId;
             in constant :>> position = PalletSlot::pos3;
             in :>> partCode = ReserveFreePallet::contentPos3;
@@ -904,7 +904,7 @@ package Conveyor {
                 else skipPallet;
 
             action doReserve;
-            then action reserve :> equipment.reservePallet {
+            then perform action reserve references equipment.reservePallet {
                 in :>> palletNumber = p.palletNumber;
                 in constant :>> reservationId = ReservationKind::processing;
             }
@@ -931,7 +931,7 @@ package Conveyor {
             else afterPhase2;
 
         merge mRetry;
-        then action callFreePallet :> equipment.callFreePalletOfTypeToWithReservation {
+        then perform action callFreePallet references equipment.callFreePalletOfTypeToWithReservation {
             in constant :>> destination = ConveyorDestination::bay5_warehouse;
             in constant :>> reservationId = ReservationKind::transport;
             in :>> palletType = ReserveFreePalletOfType::palletType;
@@ -1024,7 +1024,7 @@ package Conveyor {
                 else skipPallet;
 
             action doReserve;
-            then action reserve :> equipment.reservePallet {
+            then perform action reserve references equipment.reservePallet {
                 in :>> palletNumber = p.palletNumber;
                 in constant :>> reservationId = ReservationKind::processing;
             }
@@ -1051,7 +1051,7 @@ package Conveyor {
             else afterPhase2;
 
         merge mRetry;
-        then action callFreePallet :> equipment.callFreePalletToWithReservation {
+        then perform action callFreePallet references equipment.callFreePalletToWithReservation {
             in constant :>> destination = ConveyorDestination::bay5_warehouse;
             in constant :>> reservationId = ReservationKind::transport;
         }
@@ -1146,7 +1146,7 @@ package Conveyor {
         merge mRandom3;
 
         // Operator UI: show message, wait ack
-        then action showLoadMessage :> warehouseEquipment.showMessage {
+        then perform action showLoadMessage references warehouseEquipment.showMessage {
             in :>> msg = "Please load the configuration on the pallet, then press the ack button";
         }
 
@@ -1168,7 +1168,7 @@ package Conveyor {
             else skipPart1;
 
         action setPartPos1;
-        then action callSetPart1 :> equipment.setPartOnPallet {
+        then perform action callSetPart1 references equipment.setPartOnPallet {
             in :>> palletNumber = palletId;
             in constant :>> position = PalletSlot::pos1;
             in :>> partCode = rContentPos1;
@@ -1185,7 +1185,7 @@ package Conveyor {
             else skipPart2;
 
         action setPartPos2;
-        then action callSetPart2 :> equipment.setPartOnPallet {
+        then perform action callSetPart2 references equipment.setPartOnPallet {
             in :>> palletNumber = palletId;
             in constant :>> position = PalletSlot::pos2;
             in :>> partCode = rContentPos2;
@@ -1202,7 +1202,7 @@ package Conveyor {
             else skipPart3;
 
         action setPartPos3;
-        then action callSetPart3 :> equipment.setPartOnPallet {
+        then perform action callSetPart3 references equipment.setPartOnPallet {
             in :>> palletNumber = palletId;
             in constant :>> position = PalletSlot::pos3;
             in :>> partCode = rContentPos3;
@@ -1215,7 +1215,7 @@ package Conveyor {
         merge mPart3;
 
         // Route to main belt
-        then action routeToMainBelt :> equipment.setPalletDestination {
+        then perform action routeToMainBelt references equipment.setPalletDestination {
             in :>> palletNumber = palletId;
             in constant :>> destination = ConveyorDestination::mainBelt;
         }
@@ -1281,7 +1281,7 @@ package Conveyor {
                 else skipPallet;
 
             action doReserve;
-            then action reserve :> equipment.reservePallet {
+            then perform action reserve references equipment.reservePallet {
                 in :>> palletNumber = p.palletNumber;
                 in constant :>> reservationId = ReservationKind::processing;
             }
@@ -1308,7 +1308,7 @@ package Conveyor {
             else afterPhase2;
 
         merge mRetry;
-        then action callFreePallet :> equipment.callFreePalletOfTypeToWithReservation {
+        then perform action callFreePallet references equipment.callFreePalletOfTypeToWithReservation {
             in constant :>> destination = ConveyorDestination::bay5_warehouse;
             in constant :>> reservationId = ReservationKind::transport;
             in :>> palletType = ReserveFreePalletOfType2::palletType;

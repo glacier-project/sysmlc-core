@@ -25,7 +25,7 @@ package QualityControl {
 
         first start;
 
-        then action callCheck :> equipment.checkQualityCovers {
+        then perform action callCheck references equipment.checkQualityCovers {
             in :>> color = CheckQualityCovers::color;
         }
 
@@ -58,7 +58,7 @@ package QualityControl {
 
         first start;
 
-        then action callCheck :> equipment.checkQualityLego {
+        then perform action callCheck references equipment.checkQualityLego {
             in :>> shape1 = CheckQualityLego::shape1;
             in :>> shape2 = CheckQualityLego::shape2;
             in :>> shape3 = CheckQualityLego::shape3;

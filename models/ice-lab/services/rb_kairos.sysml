@@ -27,7 +27,7 @@ package RbKairos {
 
         first start;
 
-        then action callStartMission :> rbKairos.startMission {
+        then perform action callStartMission references rbKairos.startMission {
             in :>> name = StartRbKairosMission::missionName;
         }
 

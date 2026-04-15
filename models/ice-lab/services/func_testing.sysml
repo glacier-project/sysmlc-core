@@ -25,7 +25,7 @@ package FuncTesting {
 
         first start;
 
-        then action callDownloadFirmware :> equipment.downloadFirmware {
+        then perform action callDownloadFirmware references equipment.downloadFirmware {
             in :>> sourceFilename = CustomizeFirmware::sourceFilename;
             in :>> customID = CustomizeFirmware::customID;
         }
@@ -61,7 +61,7 @@ package FuncTesting {
         first start;
 
         // --- Phase 1: BoardIn ---
-        then action callBoardIn :> equipment.boardIn;
+        then perform action callBoardIn references equipment.boardIn;
 
         then mWaitBoardIn;
         merge mWaitBoardIn;
@@ -80,7 +80,7 @@ package FuncTesting {
         then mBoardIn;
 
         // --- Phase 2: StartTest ---
-        action callStartTest :> equipment.startTest {
+        perform action callStartTest references equipment.startTest {
             in :>> serialNumber = TestBoard::serialNumber;
         }
 
@@ -95,7 +95,7 @@ package FuncTesting {
         }
 
         // --- Phase 3: BoardOut ---
-        then action callBoardOut :> equipment.boardOut;
+        then perform action callBoardOut references equipment.boardOut;
 
         then mWaitBoardOut;
         merge mWaitBoardOut;

@@ -58,7 +58,7 @@ package RoboticCell {
 
         first start;
 
-        then action callPickFromPallet :> equipment.pickFromPallet {
+        then perform action callPickFromPallet references equipment.pickFromPallet {
             in :>> posPick = PickFromPallet::posPick;
             in :>> itemShape = PickFromPallet::shape;
         }
@@ -103,7 +103,7 @@ package RoboticCell {
 
         first start;
 
-        then action callMoveAndPlace :> equipment.moveAndPlace {
+        then perform action callMoveAndPlace references equipment.moveAndPlace {
             in :>> posPickOnPallet = MoveAndPlace::posPickOnPallet;
             in :>> posPlaceOnPallet = MoveAndPlace::posPlaceOnPallet;
             in :>> posPickOnBuffer = MoveAndPlace::posPickOnBuffer;
@@ -143,7 +143,7 @@ package RoboticCell {
 
         first start;
 
-        then action callMoveOverPallet :> equipment.moveOverPallet {
+        then perform action callMoveOverPallet references equipment.moveOverPallet {
             in :>> posPick = MoveOverPallet::posPick;
             in :>> posPlace = MoveOverPallet::posPlace;
         }
@@ -181,7 +181,7 @@ package RoboticCell {
 
         first start;
 
-        then action callPlaceToPallet :> equipment.placeToPallet {
+        then perform action callPlaceToPallet references equipment.placeToPallet {
             in :>> posPickOnBuffer = PlaceToPallet::posPickOnBuffer;
             in :>> posPlaceOnPallet = PlaceToPallet::posPlaceOnPallet;
         }
@@ -235,7 +235,7 @@ package RoboticCell {
 
         first start;
 
-        then action callSubmitRobotOp :> equipment.submitRobotOperation {
+        then perform action callSubmitRobotOp references equipment.submitRobotOperation {
             in :>> programID = SubmitRobotOperation::programID;
             in :>> robotID = SubmitRobotOperation::robotID;
             in :>> srcAreaId = SubmitRobotOperation::srcAreaId;
@@ -279,7 +279,7 @@ package RoboticCell {
 
         first start;
 
-        then action callAbbPickBoard :> equipment.abbPickBoardFromPallet;
+        then perform action callAbbPickBoard references equipment.abbPickBoardFromPallet;
 
         then action waitDone : WaitRoboticCellDone {
             in ref :>> equipment = AbbPickBoardFromPallet::equipment;
@@ -321,7 +321,7 @@ package RoboticCell {
 
         first start;
 
-        then action callGadgetAssembly :> equipment.gadgetAssembly {
+        then perform action callGadgetAssembly references equipment.gadgetAssembly {
             in :>> phaseNumber = GadgetAssembly::phaseNumber;
             in :>> boardPosition = GadgetAssembly::boardPosition;
         }
@@ -364,7 +364,7 @@ package RoboticCell {
 
         first start;
 
-        then action callSubmitRobotOp :> equipment.submitRobotOperation {
+        then perform action callSubmitRobotOp references equipment.submitRobotOperation {
             in constant :>> programID = 2;
             in constant :>> robotID = 1;
             in :>> srcAreaId = ABBOperation::srcAreaId;

@@ -23,7 +23,7 @@ package ETensil {
 
         first start;
 
-        then action callDoSingleScrew :> equipment.doSingleScrew;
+        then perform action callDoSingleScrew references equipment.doSingleScrew;
 
         then mWaitDone;
         merge mWaitDone;
@@ -57,7 +57,7 @@ package ETensil {
 
         first start;
 
-        then action callDoUntight :> equipment.doUntight {
+        then perform action callDoUntight references equipment.doUntight {
             in :>> timeMs = EtensilDoUntight::timeMs;
         }
 

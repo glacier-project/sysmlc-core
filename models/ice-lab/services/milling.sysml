@@ -26,7 +26,7 @@ package Milling {
 
         first start;
 
-        then action callStartMission :> equipment.startMission {
+        then perform action callStartMission references equipment.startMission {
             in :>> missionName = StartMillingMission::mission_name;
         }
 
@@ -56,7 +56,7 @@ package Milling {
 
         first start;
 
-        then action callEngraveText :> equipment.engraveText {
+        then perform action callEngraveText references equipment.engraveText {
             in :>> text = StartEngraveText::text;
         }
 
