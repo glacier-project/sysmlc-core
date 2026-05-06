@@ -11,6 +11,7 @@ package EquipmentInterfaces {
     private import RecipePrimitives::MachineFunction;
     private import DomainTypes::*;
     private import ISA95EquipmentHierarchy::ProductionEquipment;
+    private import MillingCellBehavior::*;
 
     // ========================================================================
     // WC01 — Functional Testing (SPEA Flying Probe 4050S2)
@@ -89,8 +90,26 @@ package EquipmentInterfaces {
     // WC02 — Subtractive Manufacturing (Emco Concept Mill 105)
     // ========================================================================
 
+    part def MillingManipulator :> ProductionEquipment {
+        doc /* Internal manipulator moving the gadget between pallet and vise. */
+
+        attribute status : ManipulatorState;
+    }
+
+    part def EmcoConceptMill105 :> ProductionEquipment {
+        doc /* Compact CNC desktop milling machine. */
+
+        attribute status : MillingMachineState;
+        attribute doorState : DoorState;
+        attribute viseState : ViseState;
+        attribute spindleState : SpindleState;
+    }
+
     part def MillingEquipment :> ProductionEquipment {
-        doc /* CNC milling machine. */
+        doc /* Cell 2 PC. */
+
+        attribute status : MillingControllerState;
+        attribute currentText : String;
 
         // --- OPC-UA Variables ---
 

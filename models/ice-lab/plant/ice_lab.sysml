@@ -5,11 +5,14 @@ package PlantTopology {
          */
 
     private import ScalarValues::*;
+    private import ISQ::DurationValue;
+    private import SI::s;
     private import EquipmentInterfaces::*;
     private import OpcUaBinding::*;
     private import ISA95EquipmentHierarchy::*;
     private import FuncTesting::*;
     private import Milling::*;
+    private import MillingCellBehavior::*;
     private import RoboticCell::*;
     private import ETensil::*;
     private import QualityControl::*;
@@ -36,18 +39,59 @@ package PlantTopology {
     }
 
     part def Cell2_Milling :> WorkCell {
-        part milling : MillingEquipment {
+        doc /* Cell 2 milling workcell.
+             *
+             * The controller part is the public OPC-UA facade. The manipulator
+             * and millingMachine parts represent internal physical components
+             * used by the inferred behavior model.
+             */
+
+        part controller : MillingEquipment subsets equipment {
             @OpcUaConnection { endpoint = "opc.tcp://10.197.12.11:4840/"; }
+            attribute :>> status = MillingControllerState::idle;
+            attribute :>> currentText = "";
+            attribute :>> mesBusy = false;
+            attribute :>> mesLastResult = false;
+            attribute :>> currentMission = "";
+        }
+        part manipulator : MillingManipulator subsets equipment {
+            attribute :>> status = ManipulatorState::idle;
+        }
+        part millingMachine : EmcoConceptMill105 subsets equipment {
+            attribute :>> status = MillingMachineState::idle;
+            attribute :>> doorState = DoorState::closed;
+            attribute :>> viseState = ViseState::open;
+            attribute :>> spindleState = SpindleState::stopped;
         }
 
+        attribute gadgetLocation : GadgetLocation = GadgetLocation::onPallet;
+        attribute gadgetEngraved : Boolean = false;
+        attribute engravedText : String = "";
+        attribute palletPresent : Boolean = false;
+
         action startMillingMission : StartMillingMission {
-            in ref :>> equipment = milling;
+            in ref :>> equipment = controller;
         }
         action startEngraveText : StartEngraveText {
-            in ref :>> equipment = milling;
+            in ref :>> equipment = controller;
         }
         action waitMillingBusy : WaitMillingBusy {
-            in ref :>> equipment = milling;
+            in ref :>> equipment = controller;
+        }
+
+        exhibit state engravingStates : MillingCellEngravingStates {
+            in ref :>> equipment = controller;
+            inout :>> controllerState = controller.status;
+            inout :>> currentText = controller.currentText;
+            inout :>> manipulatorState = manipulator.status;
+            inout :>> machineState = millingMachine.status;
+            inout :>> doorState = millingMachine.doorState;
+            inout :>> viseState = millingMachine.viseState;
+            inout :>> spindleState = millingMachine.spindleState;
+            inout :>> gadgetLocation = Cell2_Milling::gadgetLocation;
+            inout :>> gadgetEngraved = Cell2_Milling::gadgetEngraved;
+            inout :>> engravedText = Cell2_Milling::engravedText;
+            inout :>> palletPresent = Cell2_Milling::palletPresent;
         }
     }
 
