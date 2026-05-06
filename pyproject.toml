@@ -33,6 +33,7 @@ build-backend = "hatchling.build"
 # Google style uses 80 chars
 line-length = 80
 target-version = "py312"
+extend-exclude = ["scratch"]
 
 [tool.ruff.lint]
 # Google Python Style Guide compliant rules
