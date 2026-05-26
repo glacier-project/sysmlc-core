@@ -20,12 +20,26 @@ def model() -> syside.Model:
     return load_syside_model(EXAMPLE.model_dir)
 
 
+@pytest.fixture(
+    scope="module",
+    params=[
+        "SM02::Machine",
+        "SM02::MachineNamed",
+        "SM02::MachinePortless",
+    ],
+    ids=["canonical", "named-payload", "no-via-port"],
+)
+def state_def_qn(request: pytest.FixtureRequest) -> str:
+    """Yield every signal-trigger ``accept`` form sm02 exercises."""
+    return request.param
+
+
 def test_only_idle_to_running_transition_is_declared(
     model: syside.Model,
+    state_def_qn: str,
 ) -> None:
-    """One ``Transition`` with ``source == "idle"`` and ``target
-    == "running"``."""
-    sc = build_statechart(model, EXAMPLE.state_def_qn)
+    """One ``Transition`` from ``idle`` to ``running``."""
+    sc = build_statechart(model, state_def_qn)
     assert len(sc.transitions) == 1
     only = sc.transitions[0]
     assert only.source == "idle"
@@ -34,6 +48,7 @@ def test_only_idle_to_running_transition_is_declared(
 
 def test_transition_event_is_payload_type_simple_name(
     model: syside.Model,
+    state_def_qn: str,
 ) -> None:
     """The transition's event is the payload type's simple name ``"Tick"``.
 
@@ -48,12 +63,13 @@ def test_transition_event_is_payload_type_simple_name(
         interpreted as the definition (type) of the payload parameter
         (not its name).
     """
-    sc = build_statechart(model, EXAMPLE.state_def_qn)
+    sc = build_statechart(model, state_def_qn)
     assert sc.transitions[0].event == "Tick"
 
 
 def test_transition_does_not_fire_without_queued_event(
     model: syside.Model,
+    state_def_qn: str,
 ) -> None:
     """A triggered transition does not fire spontaneously.
 
@@ -76,7 +92,7 @@ def test_transition_does_not_fire_without_queued_event(
     *triggered*, not eventless, and must NOT fire on source
     completion alone.
     """
-    sc = build_statechart(model, EXAMPLE.state_def_qn)
+    sc = build_statechart(model, state_def_qn)
     interp = Interpreter(sc)
     interp.execute()
     config = list(interp.configuration)
@@ -86,9 +102,10 @@ def test_transition_does_not_fire_without_queued_event(
 
 def test_queueing_tick_fires_transition_to_running(
     model: syside.Model,
+    state_def_qn: str,
 ) -> None:
     """Queueing the event named ``"Tick"`` fires the transition."""
-    sc = build_statechart(model, EXAMPLE.state_def_qn)
+    sc = build_statechart(model, state_def_qn)
     interp = Interpreter(sc)
     interp.execute()
     interp.queue("Tick")
