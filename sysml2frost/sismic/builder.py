@@ -66,7 +66,14 @@ class StatechartBuilder:
             )
 
     def _add_transitions(self) -> None:
-        """Add an eventless ``Transition`` for each owned transition."""
+        """Add a ``Transition`` for each owned ``TransitionUsage``.
+
+        A transition with no accepter becomes an eventless sismic
+        ``Transition``; a transition with an ``accept E via port``
+        accepter becomes a sismic ``Transition`` triggered by the
+        payload type's simple name (the ``via port`` clause is dropped
+        since sismic has no port concept).
+        """
         for trans in self._state_def.owned_transitions.collect():
             source = trans.source
             target = trans.target
@@ -76,9 +83,35 @@ class StatechartBuilder:
                     f"{self._state_def.qualified_name} is missing "
                     "source or target."
                 )
+            event = self._extract_event_name(trans)
             self._statechart.add_transition(
-                Transition(source=source.name, target=target.name)
+                Transition(
+                    source=source.name,
+                    target=target.name,
+                    event=event,
+                )
             )
+
+    def _extract_event_name(self, trans: syside.TransitionUsage) -> str | None:
+        """Return the accepter payload type's simple name, or ``None``.
+
+        Args:
+            trans: SysML transition usage to inspect.
+
+        Returns:
+            The payload type's simple name when the transition has an
+            ``accept`` accepter; ``None`` for an eventless transition.
+        """
+        triggers = list(trans.trigger_actions)
+        if not triggers:
+            return None
+        param = triggers[0].payload_parameter
+        if param is None:
+            return None
+        typings = param.owned_typings.collect()
+        if not typings:
+            return None
+        return typings[0].general.name
 
     def _resolve_initial_state(self) -> syside.StateUsage:
         """Resolve the initial state targeted by the entry pseudostate.
