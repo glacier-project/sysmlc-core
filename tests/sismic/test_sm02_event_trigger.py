@@ -31,7 +31,8 @@ def model() -> syside.Model:
 )
 def state_def_qn(request: pytest.FixtureRequest) -> str:
     """Yield every signal-trigger ``accept`` form sm02 exercises."""
-    return request.param
+    param: str = request.param
+    return param
 
 
 def test_only_idle_to_running_transition_is_declared(

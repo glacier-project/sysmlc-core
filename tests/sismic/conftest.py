@@ -39,7 +39,8 @@ SM_EXAMPLES_BY_DIR: dict[str, SmExample] = {e.dir_name: e for e in SM_EXAMPLES}
 @pytest.fixture(scope="module", params=SM_EXAMPLES, ids=lambda e: e.dir_name)
 def sm_example(request: pytest.FixtureRequest) -> SmExample:
     """Yield each registered sm-example, one per test invocation."""
-    return request.param
+    param: SmExample = request.param
+    return param
 
 
 @pytest.fixture(scope="module")

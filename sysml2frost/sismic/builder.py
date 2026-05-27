@@ -111,7 +111,10 @@ class StatechartBuilder:
         typings = param.owned_typings.collect()
         if not typings:
             return None
-        return typings[0].general.name
+        general = typings[0].general
+        if general is None:
+            return None
+        return general.name
 
     def _resolve_initial_state(self) -> syside.StateUsage:
         """Resolve the initial state targeted by the entry pseudostate.
