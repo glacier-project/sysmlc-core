@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     import syside
 
 EXAMPLE = SM_EXAMPLES_BY_DIR["sm01-helloworld"]
+MACHINE_QN = "SM01::Machine"
 
 
 @pytest.fixture(scope="module")
@@ -39,7 +40,7 @@ def test_initial_substate_idle_is_active_after_initial_entry(
     ``initial="idle"`` — verified by checking ``idle`` is in the
     configuration after the first MacroStep.
     """
-    sc = build_statechart(model, EXAMPLE.state_def_qn)
+    sc = build_statechart(model, MACHINE_QN)
     interp = Interpreter(sc)
     interp.execute_once()
     assert "idle" in interp.configuration
@@ -61,7 +62,7 @@ def test_only_idle_to_running_transition_is_declared(
     transitions for it. Pins the structural counterpart to the
     runtime check that initial entry fires no transition.
     """
-    sc = build_statechart(model, EXAMPLE.state_def_qn)
+    sc = build_statechart(model, MACHINE_QN)
     assert len(sc.transitions) == 1
     only = sc.transitions[0]
     assert isinstance(only, Transition)

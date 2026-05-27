@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import syside
+from sismic.exceptions import CodeEvaluationError
 from sismic.helpers import coverage_from_trace
 from sismic.interpreter import Interpreter
 
@@ -85,29 +86,22 @@ def resolve_example_folder(arg: str) -> str:
     return matches[0]
 
 
-def resolve_state_def_qn(model: syside.Model) -> str:
-    """Resolve the qualified name of the SysML state def to translate.
+def resolve_state_def_qns(model: syside.Model) -> list[str]:
+    """Return the qualified names of every ``StateDefinition`` in ``model``.
 
     Args:
         model: Loaded syside model.
 
     Returns:
-        The qualified name of the only ``StateDefinition`` in the model.
+        Qualified names of every ``StateDefinition``, sorted.
 
     Raises:
-        SystemExit: If the model contains zero or more than one
-            ``StateDefinition``.
+        SystemExit: If the model contains no ``StateDefinition``.
     """
     state_defs = iter_model_elements(model, syside.StateDefinition)
     if not state_defs:
         raise SystemExit("No StateDefinition found in the model.")
-    if len(state_defs) > 1:
-        qns = sorted(str(sd.qualified_name) for sd in state_defs)
-        raise SystemExit(
-            "Multiple StateDefinitions found; cannot auto-select.\n"
-            "Candidates:\n  - " + "\n  - ".join(qns)
-        )
-    return str(state_defs[0].qualified_name)
+    return sorted(str(sd.qualified_name) for sd in state_defs)
 
 
 def print_structure(statechart: Statechart) -> None:
@@ -127,7 +121,11 @@ def print_structure(statechart: Statechart) -> None:
         print("    (none)")
     for trans in transitions:
         event = trans.event or "<eventless>"
-        print(f"    {trans.source} -> {trans.target}  [event: {event}]")
+        guard = trans.guard if trans.guard else "<no guard>"
+        print(
+            f"    {trans.source} -> {trans.target}  "
+            f"[event: {event}] [guard: {guard}]"
+        )
 
 
 def print_trace(steps: list[MacroStep]) -> None:
@@ -189,7 +187,24 @@ def main() -> int:
     print(f"Loading from {model_dir}")
     model = load_syside_model(model_dir)
 
-    state_def_qn = resolve_state_def_qn(model)
+    state_def_qns = resolve_state_def_qns(model)
+    print(f"Found {len(state_def_qns)} StateDefinition(s) in the model.")
+    for state_def_qn in state_def_qns:
+        print()
+        print("=" * 72)
+        print(state_def_qn)
+        print("=" * 72)
+        run_one(model, state_def_qn)
+    return 0
+
+
+def run_one(model: syside.Model, state_def_qn: str) -> None:
+    """Build and execute the statechart for ``state_def_qn``.
+
+    Args:
+        model: Loaded syside model.
+        state_def_qn: Qualified name of the SysML state def to run.
+    """
     print(f"Building for {state_def_qn}")
     statechart = build_statechart(model, state_def_qn)
 
@@ -199,13 +214,16 @@ def main() -> int:
     print("\nExecuting via sismic Interpreter...")
     interpreter = Interpreter(statechart)
     print(f"  Initial configuration: {sorted(interpreter.configuration)}")
-    steps = interpreter.execute()
+    try:
+        steps = interpreter.execute()
+    except CodeEvaluationError as exc:
+        print(f"  Execution skipped: {exc}")
+        return
     print(f"  Final configuration:   {sorted(interpreter.configuration)}")
     print()
     print_trace(steps)
     print()
     print_coverage(coverage_from_trace(steps))
-    return 0
 
 
 if __name__ == "__main__":
