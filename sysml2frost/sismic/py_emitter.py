@@ -102,6 +102,8 @@ def _emit(expr: syside.Expression, parent_precedence: int) -> str:
         return _emit_literal_rational(expr)
     if isinstance(expr, syside.LiteralInteger):
         return _emit_literal_integer(expr)
+    if isinstance(expr, syside.FeatureChainExpression):
+        return _emit_feature_chain(expr)
     if isinstance(expr, syside.OperatorExpression):
         return _emit_operator(expr, parent_precedence)
     if isinstance(expr, syside.FeatureReferenceExpression):
@@ -167,6 +169,40 @@ def _emit_feature_reference(expr: syside.FeatureReferenceExpression) -> str:
     if ref is None or ref.name is None:
         raise ValueError("FeatureReferenceExpression has no resolved referent")
     return ref.name
+
+
+def _emit_feature_chain(expr: syside.FeatureChainExpression) -> str:
+    """Emit a chained reference as dotted Python attribute access.
+
+    A chained reference ``a.b.c`` splits into a root (``operands[0]``,
+    e.g. ``a``) and a tail (``target_feature``, e.g. ``b.c``): the tail is
+    a single feature for one trailing segment, or a feature chain whose
+    ``chaining_features`` are the segments for several.
+
+    Args:
+        expr: The feature-chain expression to translate.
+
+    Returns:
+        Python source for ``expr`` as ``<base>.<segment>[.<segment>...]``.
+
+    Raises:
+        ValueError: If the chain has no target feature, if a chain
+            segment has no resolved name, or if the base operand is a
+            node kind the emitter does not support.
+    """
+    base = _emit(expr.operands.collect()[0], parent_precedence=0)
+    target = expr.target_feature
+    if target is None:
+        raise ValueError("FeatureChainExpression has no target feature")
+    chain = target.chaining_features.collect() or [target]
+    segments = [base]
+    for feature in chain:
+        if feature.name is None:
+            raise ValueError(
+                "FeatureChainExpression has an unnamed chain segment"
+            )
+        segments.append(feature.name)
+    return ".".join(segments)
 
 
 def _emit_operator(
