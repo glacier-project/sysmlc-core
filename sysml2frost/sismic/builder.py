@@ -99,7 +99,7 @@ class StatechartBuilder:
                 continue
             if feat.source is not entry:
                 continue
-            for target in feat.targets:
+            for target in feat.targets.collect():
                 if isinstance(target, syside.StateUsage):
                     return target
         raise ValueError(
