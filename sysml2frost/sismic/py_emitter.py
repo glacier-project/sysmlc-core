@@ -48,6 +48,33 @@ def emit_expression(expr: syside.Expression) -> str:
     return _emit(expr, parent_precedence=0)
 
 
+def emit_assignment(assign: syside.AssignmentActionUsage) -> str:
+    """Translate an assignment action to a Python assignment statement.
+
+    Emits ``<target> = <rhs>``, where ``<target>`` is the assigned
+    attribute's simple name and ``<rhs>`` is the emitted value
+    expression.
+
+    Args:
+        assign: The ``assign <target> := <expr>`` action to translate.
+
+    Returns:
+        Python source for the assignment statement.
+
+    Raises:
+        ValueError: If the assignment target has no resolved name, if the
+            value expression is absent, or if the value expression is a
+            node kind ``emit_expression`` does not support.
+    """
+    target = assign.referent
+    if target is None or target.name is None:
+        raise ValueError("AssignmentActionUsage has no resolved target")
+    value = assign.value_expression
+    if value is None:
+        raise ValueError("AssignmentActionUsage has no value expression")
+    return f"{target.name} = {emit_expression(value)}"
+
+
 def _emit(expr: syside.Expression, parent_precedence: int) -> str:
     """Dispatch ``expr`` to its node-type handler.
 
