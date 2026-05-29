@@ -7,14 +7,77 @@ from sysml2frost.explore.model_queries import SysideModelQueries
 from sysml2frost.sismic.py_emitter import emit_assignment, emit_expression
 
 
+def _nested_attributes(
+    attr: syside.AttributeUsage,
+) -> list[syside.AttributeUsage]:
+    """Return the attributes of ``attr``'s structured definition.
+
+    An attribute is structured when its type resolves to an
+    ``AttributeDefinition`` that owns attributes; it is scalar
+    when its type resolves to a primitive ``DataType``.
+
+    Args:
+        attr: The attribute usage to inspect.
+
+    Returns:
+        The owned attributes of every ``AttributeDefinition`` typing
+        ``attr``, or an empty list when ``attr`` is scalar.
+    """
+    nested: list[syside.AttributeUsage] = []
+    for definition in attr.attribute_definitions.collect():
+        if isinstance(definition, syside.AttributeDefinition):
+            nested.extend(definition.owned_attributes.collect())
+    return nested
+
+
+def _bind_value(attr: syside.AttributeUsage) -> str | None:
+    """Build the Python expression for an attribute's runtime value.
+
+    A structured attribute becomes a ``SimpleNamespace(...)`` built
+    recursively from its fields; a scalar attribute becomes its
+    initializer expression.
+
+    Args:
+        attr: The attribute usage to bind.
+
+    Returns:
+        A Python expression constructing the attribute's runtime value
+        (e.g. ``0.5`` or ``SimpleNamespace(x=0.5)``), or ``None`` when a
+        scalar attribute has no initializer.
+
+    Raises:
+        ValueError: If a structured field has no value to bind, or if a
+            value expression is a node kind the emitter does not support.
+    """
+    nested = _nested_attributes(attr)
+    if not nested:
+        value_expression = attr.feature_value_expression
+        if value_expression is None:
+            return None
+        return emit_expression(value_expression)
+    fields: list[str] = []
+    for field in nested:
+        assert field.name is not None
+        value = _bind_value(field)
+        if value is None:
+            raise ValueError(
+                f"Structured attribute field {field.name!r} has no value "
+                "to bind; give it a default."
+            )
+        fields.append(f"{field.name}={value}")
+    return f"SimpleNamespace({', '.join(fields)})"
+
+
 class StatechartBuilder:
     """Build a sismic Statechart from a SysML state definition.
 
     ``StateUsage`` -> ``BasicState``;
     ``TransitionUsage`` -> eventless ``Transition``;
     ``StateDefinition`` -> ``CompoundState``;
-    each owned ``AttributeUsage`` with an initializer -> one
+    each owned scalar ``AttributeUsage`` with an initializer -> one
     assignment line in ``Statechart.preamble``;
+    each owned structured ``AttributeUsage`` -> a ``SimpleNamespace``
+    binding in ``Statechart.preamble``;
     a ``StateUsage``'s ``entry``/``exit`` action assignments ->
     ``BasicState.on_entry`` / ``BasicState.on_exit`` statements.
     """
@@ -42,9 +105,10 @@ class StatechartBuilder:
         Raises:
             ValueError: If ``state_def_qn`` does not resolve to a
                 ``StateDefinition``, if the definition's entry succession
-                cannot be resolved, or if a guard, attribute initializer,
-                or entry/exit assignment uses an expression shape the
-                emitter does not support.
+                cannot be resolved, if a guard, attribute initializer, or
+                entry/exit assignment uses an expression shape the emitter
+                does not support, or if a structured attribute has a field
+                with no value to bind.
         """
         self._state_def = self._queries.resolve_element_by_qn(
             syside.StateDefinition, self._state_def_qn
@@ -62,24 +126,29 @@ class StatechartBuilder:
     def _build_preamble(self) -> str:
         """Build the sismic preamble that initializes the owned attributes.
 
-        For each ``AttributeUsage`` with an initializer.
+        A scalar attribute with an initializer becomes one assignment
+        line. A structured attribute is bound to a ``SimpleNamespace``.
 
         Returns:
-            Newline-joined assignment lines, or ``""`` when no
-            attribute has an initializer.
+            Newline-joined preamble lines, or ``""`` when no attribute is
+            bound.
 
         Raises:
             ValueError: If an initializer is an expression shape
-                ``emit_expression`` does not support.
+                ``emit_expression`` does not support, or if a structured
+                attribute has a field with no value to bind.
         """
         lines: list[str] = []
+        needs_import = False
         for attr in self._state_def.owned_attributes.collect():
-            init = attr.feature_value_expression
-            # Attribute not initialized.
-            if init is None:
-                continue
             assert attr.name is not None
-            lines.append(f"{attr.name} = {emit_expression(init)}")
+            if _nested_attributes(attr):
+                needs_import = True
+            value = _bind_value(attr)
+            if value is not None:
+                lines.append(f"{attr.name} = {value}")
+        if needs_import:
+            lines.insert(0, "from types import SimpleNamespace")
         return "\n".join(lines)
 
     def _add_root_compound(self) -> None:
