@@ -74,6 +74,20 @@ CASES: list[AssignCase] = [
         expected_on_exit="exited = exited + 1",
         expected_context={"entered": 1, "exited": 1},
     ),
+    # Shorthand entry assign (`entry assign x := e;`, no `action { }`).
+    AssignCase(
+        "SM04::MachineEntryShorthand",
+        expected_on_entry="counter = counter + 1",
+        expected_on_exit=None,
+        expected_context={"counter": 1},
+    ),
+    # Shorthand exit assign (`exit assign x := e;`).
+    AssignCase(
+        "SM04::MachineExitShorthand",
+        expected_on_entry=None,
+        expected_on_exit="counter = counter - 1",
+        expected_context={"counter": 0},
+    ),
 ]
 
 

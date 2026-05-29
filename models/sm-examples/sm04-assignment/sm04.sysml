@@ -59,4 +59,26 @@ package SM04 {
         state running;
         transition first idle then running;
     }
+
+    state def MachineEntryShorthand {
+        attribute counter : Integer := 0;
+        entry;
+            then idle;
+        state idle {
+            entry assign counter := counter + 1;
+        }
+        state running;
+        transition first idle then running;
+    }
+
+    state def MachineExitShorthand {
+        attribute counter : Integer := 1;
+        entry;
+            then idle;
+        state idle {
+            exit assign counter := counter - 1;
+        }
+        state running;
+        transition first idle then running;
+    }
 }

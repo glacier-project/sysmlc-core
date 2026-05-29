@@ -120,6 +120,12 @@ class StatechartBuilder:
     ) -> str | None:
         """Emit the assignment statements of an entry/exit action.
 
+        Handles both surface forms the convention allows: the block form
+        ``entry action n { assign ...; }``, where the assignments are
+        owned features of a wrapping action, and the shorthand form
+        ``entry assign x := e;``, where the action slot is itself the
+        assignment.
+
         Args:
             action: A substate's ``entry`` or ``exit`` action, or ``None``
                 when the substate declares no such action.
@@ -135,9 +141,14 @@ class StatechartBuilder:
         """
         if action is None:
             return None
+        # Shorthand `entry/exit assign x := e;`
+        if isinstance(action, syside.AssignmentActionUsage):
+            candidates: list[syside.Feature] = [action]
+        else:
+            candidates = action.owned_features.collect()
         statements = [
             emit_assignment(a)
-            for a in action.owned_features.collect()
+            for a in candidates
             if isinstance(a, syside.AssignmentActionUsage)
         ]
         return "\n".join(statements) or None
