@@ -4,7 +4,7 @@ import syside
 from sismic.model import BasicState, CompoundState, Statechart, Transition
 
 from sysml2frost.explore.model_queries import SysideModelQueries
-from sysml2frost.sismic.py_emitter import emit_expression
+from sysml2frost.sismic.py_emitter import emit_assignment, emit_expression
 
 
 class StatechartBuilder:
@@ -14,7 +14,9 @@ class StatechartBuilder:
     ``TransitionUsage`` -> eventless ``Transition``;
     ``StateDefinition`` -> ``CompoundState``;
     each owned ``AttributeUsage`` with an initializer -> one
-    assignment line in ``Statechart.preamble``.
+    assignment line in ``Statechart.preamble``;
+    a ``StateUsage``'s ``entry``/``exit`` action assignments ->
+    ``BasicState.on_entry`` / ``BasicState.on_exit`` statements.
     """
 
     def __init__(self, model: syside.Model, state_def_qn: str) -> None:
@@ -39,8 +41,10 @@ class StatechartBuilder:
 
         Raises:
             ValueError: If ``state_def_qn`` does not resolve to a
-                ``StateDefinition``, or if the definition's entry
-                succession cannot be resolved.
+                ``StateDefinition``, if the definition's entry succession
+                cannot be resolved, or if a guard, attribute initializer,
+                or entry/exit assignment uses an expression shape the
+                emitter does not support.
         """
         self._state_def = self._queries.resolve_element_by_qn(
             syside.StateDefinition, self._state_def_qn
@@ -87,12 +91,56 @@ class StatechartBuilder:
         )
 
     def _add_child_states(self) -> None:
-        """Add a ``BasicState`` for each owned ``StateUsage``."""
+        """Add a ``BasicState`` for each owned ``StateUsage``.
+
+        A substate's ``entry`` / ``exit`` action assignments become the
+        ``on_entry`` / ``on_exit`` Python statements of its ``BasicState``.
+
+        Raises:
+            ValueError: If an entry/exit assignment has an unsupported
+                right-hand-side expression shape.
+        """
         root_name = self._state_def.name
         for state_usage in self._state_def.owned_states.collect():
             self._statechart.add_state(
-                BasicState(state_usage.name), parent=root_name
+                BasicState(
+                    state_usage.name,
+                    on_entry=self._extract_action_statements(
+                        state_usage.entry_action
+                    ),
+                    on_exit=self._extract_action_statements(
+                        state_usage.exit_action
+                    ),
+                ),
+                parent=root_name,
             )
+
+    def _extract_action_statements(
+        self, action: syside.ActionUsage | None
+    ) -> str | None:
+        """Emit the assignment statements of an entry/exit action.
+
+        Args:
+            action: A substate's ``entry`` or ``exit`` action, or ``None``
+                when the substate declares no such action.
+
+        Returns:
+            The newline-joined Python assignment statements for the
+            action's assignments in declaration order, or ``None`` when
+            the action is absent or carries no assignment.
+
+        Raises:
+            ValueError: If an assignment has an unsupported right-hand-side
+                expression shape.
+        """
+        if action is None:
+            return None
+        statements = [
+            emit_assignment(a)
+            for a in action.owned_features.collect()
+            if isinstance(a, syside.AssignmentActionUsage)
+        ]
+        return "\n".join(statements) or None
 
     def _add_transitions(self) -> None:
         """Add a ``Transition`` for each owned ``TransitionUsage``.
@@ -216,7 +264,9 @@ def build_statechart(model: syside.Model, state_def_qn: str) -> Statechart:
 
     Raises:
         ValueError: If ``state_def_qn`` does not resolve to a
-            ``StateDefinition``, or if the definition's entry succession
-            cannot be resolved.
+            ``StateDefinition``, if the definition's entry succession
+            cannot be resolved, or if a guard, attribute initializer, or
+            entry/exit assignment uses an expression shape the emitter
+            does not support.
     """
     return StatechartBuilder(model, state_def_qn).build()
