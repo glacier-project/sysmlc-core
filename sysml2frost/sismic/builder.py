@@ -4,6 +4,7 @@ import syside
 from sismic.model import BasicState, CompoundState, Statechart, Transition
 
 from sysml2frost.explore.model_queries import SysideModelQueries
+from sysml2frost.sismic.py_emitter import emit_expression
 
 
 class StatechartBuilder:
@@ -11,7 +12,9 @@ class StatechartBuilder:
 
     ``StateUsage`` -> ``BasicState``;
     ``TransitionUsage`` -> eventless ``Transition``;
-    ``StateDefinition`` -> ``CompoundState``
+    ``StateDefinition`` -> ``CompoundState``;
+    each owned ``AttributeUsage`` with an initializer -> one
+    assignment line in ``Statechart.preamble``.
     """
 
     def __init__(self, model: syside.Model, state_def_qn: str) -> None:
@@ -42,12 +45,38 @@ class StatechartBuilder:
         self._state_def = self._queries.resolve_element_by_qn(
             syside.StateDefinition, self._state_def_qn
         )
-        self._statechart = Statechart(name=self._state_def.name)
+        self._statechart = Statechart(
+            name=self._state_def.name,
+            preamble=self._build_preamble(),
+        )
         self._add_root_compound()
         self._add_child_states()
         self._add_transitions()
         self._statechart.validate()
         return self._statechart
+
+    def _build_preamble(self) -> str:
+        """Build the sismic preamble that initializes the owned attributes.
+
+        For each ``AttributeUsage`` with an initializer.
+
+        Returns:
+            Newline-joined assignment lines, or ``""`` when no
+            attribute has an initializer.
+
+        Raises:
+            ValueError: If an initializer is an expression shape
+                ``emit_expression`` does not support.
+        """
+        lines: list[str] = []
+        for attr in self._state_def.owned_attributes.collect():
+            init = attr.feature_value_expression
+            # Attribute not initialized.
+            if init is None:
+                continue
+            assert attr.name is not None
+            lines.append(f"{attr.name} = {emit_expression(init)}")
+        return "\n".join(lines)
 
     def _add_root_compound(self) -> None:
         """Add the root ``CompoundState`` representing the state def."""
@@ -71,8 +100,9 @@ class StatechartBuilder:
         A transition with no accepter becomes an eventless sismic
         ``Transition``; a transition with an ``accept E via port``
         accepter becomes a sismic ``Transition`` triggered by the
-        payload type's simple name (the ``via port`` clause is dropped
-        since sismic has no port concept).
+        payload type's simple name. A transition with an ``if expr``
+        guard carries the emitted Python source of the guard
+        expression in ``Transition.guard``.
         """
         for trans in self._state_def.owned_transitions.collect():
             source = trans.source
@@ -84,11 +114,13 @@ class StatechartBuilder:
                     "source or target."
                 )
             event = self._extract_event_name(trans)
+            guard = self._extract_guard_expression(trans)
             self._statechart.add_transition(
                 Transition(
                     source=source.name,
                     target=target.name,
                     event=event,
+                    guard=guard,
                 )
             )
 
@@ -115,6 +147,27 @@ class StatechartBuilder:
         if general is None:
             return None
         return general.name
+
+    def _extract_guard_expression(
+        self, trans: syside.TransitionUsage
+    ) -> str | None:
+        """Return the Python source for an ``if expr`` guard, or ``None``.
+
+        Args:
+            trans: SysML transition usage to inspect.
+
+        Returns:
+            The emitted Python expression string when the transition has
+            an ``if`` clause; ``None`` for a guardless transition.
+
+        Raises:
+            ValueError: If the guard expression contains a node kind
+                the sismic expression emitter does not support.
+        """
+        expr = trans.guard_expression
+        if expr is None:
+            return None
+        return emit_expression(expr)
 
     def _resolve_initial_state(self) -> syside.StateUsage:
         """Resolve the initial state targeted by the entry pseudostate.
