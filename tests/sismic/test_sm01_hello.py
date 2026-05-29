@@ -2,27 +2,27 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import pytest
 from sismic.interpreter import Interpreter
-from sismic.model import Statechart, Transition
+from sismic.model import Transition
 
+from sysml2frost.loader import load_syside_model
 from sysml2frost.sismic import build_statechart
+from tests.sismic.conftest import SM_EXAMPLES_BY_DIR
 
 if TYPE_CHECKING:
     import syside
 
-MACHINE_QN = "SM01::Machine"
+EXAMPLE = SM_EXAMPLES_BY_DIR["sm01-helloworld"]
 
 
-def test_build_statechart_returns_statechart_instance(
-    sm01_model: syside.Model,
-) -> None:
-    """The builder returns a sismic ``Statechart`` from a SysML state def."""
-    sc = build_statechart(sm01_model, MACHINE_QN)
-    assert isinstance(sc, Statechart)
+@pytest.fixture(scope="module")
+def model() -> syside.Model:
+    return load_syside_model(EXAMPLE.model_dir)
 
 
 def test_initial_substate_idle_is_active_after_initial_entry(
-    sm01_model: syside.Model,
+    model: syside.Model,
 ) -> None:
     """The ``then idle`` succession makes ``idle`` the initial substate.
 
@@ -39,14 +39,14 @@ def test_initial_substate_idle_is_active_after_initial_entry(
     ``initial="idle"`` — verified by checking ``idle`` is in the
     configuration after the first MacroStep.
     """
-    sc = build_statechart(sm01_model, MACHINE_QN)
+    sc = build_statechart(model, EXAMPLE.state_def_qn)
     interp = Interpreter(sc)
     interp.execute_once()
     assert "idle" in interp.configuration
 
 
 def test_only_idle_to_running_transition_is_declared(
-    sm01_model: syside.Model,
+    model: syside.Model,
 ) -> None:
     """The Statechart has exactly one transition (no phantoms).
 
@@ -61,7 +61,7 @@ def test_only_idle_to_running_transition_is_declared(
     transitions for it. Pins the structural counterpart to the
     runtime check that initial entry fires no transition.
     """
-    sc = build_statechart(sm01_model, MACHINE_QN)
+    sc = build_statechart(model, EXAMPLE.state_def_qn)
     assert len(sc.transitions) == 1
     only = sc.transitions[0]
     assert isinstance(only, Transition)
