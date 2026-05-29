@@ -70,7 +70,12 @@ class StatechartBuilder:
         for trans in self._state_def.owned_transitions.collect():
             source = trans.source
             target = trans.target
-            assert source is not None and target is not None
+            if source is None or target is None:
+                raise ValueError(
+                    f"Transition in state def "
+                    f"{self._state_def.qualified_name} is missing "
+                    "source or target."
+                )
             self._statechart.add_transition(
                 Transition(source=source.name, target=target.name)
             )
