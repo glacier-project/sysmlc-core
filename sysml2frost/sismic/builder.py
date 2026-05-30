@@ -79,7 +79,9 @@ class StatechartBuilder:
     each owned structured ``AttributeUsage`` -> a ``SimpleNamespace``
     binding in ``Statechart.preamble``;
     a ``StateUsage``'s ``entry``/``exit`` action assignments ->
-    ``BasicState.on_entry`` / ``BasicState.on_exit`` statements.
+    ``BasicState.on_entry`` / ``BasicState.on_exit`` statements;
+    a ``TransitionUsage``'s ``do action`` effect assignments ->
+    ``Transition.action`` statements.
     """
 
     def __init__(self, model: syside.Model, state_def_qn: str) -> None:
@@ -105,10 +107,11 @@ class StatechartBuilder:
         Raises:
             ValueError: If ``state_def_qn`` does not resolve to a
                 ``StateDefinition``, if the definition's entry succession
-                cannot be resolved, if a guard, attribute initializer, or
-                entry/exit assignment uses an expression shape the emitter
-                does not support, or if a structured attribute has a field
-                with no value to bind.
+                cannot be resolved, if a guard, attribute initializer,
+                entry/exit assignment, or transition effect assignment
+                uses an expression shape the emitter does not support, or
+                if a structured attribute has a field with no value to
+                bind.
         """
         self._state_def = self._queries.resolve_element_by_qn(
             syside.StateDefinition, self._state_def_qn
@@ -230,7 +233,15 @@ class StatechartBuilder:
         accepter becomes a sismic ``Transition`` triggered by the
         payload type's simple name. A transition with an ``if expr``
         guard carries the emitted Python source of the guard
-        expression in ``Transition.guard``.
+        expression in ``Transition.guard``. A transition with a
+        ``do action { assign ... }`` effect carries the emitted
+        assignment statements in ``Transition.action``.
+
+        Raises:
+            ValueError: If a transition has no source or target, if a
+                guard contains an expression shape the emitter does not
+                support, or if an effect assignment has an unsupported
+                right-hand-side expression shape.
         """
         for trans in self._state_def.owned_transitions.collect():
             source = trans.source
@@ -243,12 +254,14 @@ class StatechartBuilder:
                 )
             event = self._extract_event_name(trans)
             guard = self._extract_guard_expression(trans)
+            action = self._extract_action_statements(trans.effect_action)
             self._statechart.add_transition(
                 Transition(
                     source=source.name,
                     target=target.name,
                     event=event,
                     guard=guard,
+                    action=action,
                 )
             )
 
@@ -345,8 +358,8 @@ def build_statechart(model: syside.Model, state_def_qn: str) -> Statechart:
     Raises:
         ValueError: If ``state_def_qn`` does not resolve to a
             ``StateDefinition``, if the definition's entry succession
-            cannot be resolved, or if a guard, attribute initializer, or
-            entry/exit assignment uses an expression shape the emitter
-            does not support.
+            cannot be resolved, or if a guard, attribute initializer,
+            entry/exit assignment, or transition effect assignment uses
+            an expression shape the emitter does not support.
     """
     return StatechartBuilder(model, state_def_qn).build()
