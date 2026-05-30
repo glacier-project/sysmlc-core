@@ -32,6 +32,7 @@ SM_EXAMPLES: list[SmExample] = [
     SmExample("sm04-assignment"),
     SmExample("sm05-chained-references"),
     SmExample("sm06-transition-effect"),
+    SmExample("sm07-firing-order"),
 ]
 
 SM_EXAMPLES_BY_DIR: dict[str, SmExample] = {e.dir_name: e for e in SM_EXAMPLES}
