@@ -134,8 +134,9 @@ def print_structure(statechart: Statechart) -> None:
 def _print_state_tree(statechart: Statechart, name: str, depth: int) -> None:
     """Print ``name`` and its descendants as an indented tree.
 
-    A composite state is followed by its ``initial`` substate; children
-    are printed indented beneath their parent.
+    A composite state's line is annotated with ``(initial: <substate>)``
+    naming its initial substate; its children are printed in declaration
+    order, indented beneath it.
 
     Args:
         statechart: A built ``sismic.model.Statechart``.
@@ -147,7 +148,7 @@ def _print_state_tree(statechart: Statechart, name: str, depth: int) -> None:
     initial = getattr(state, "initial", None)
     suffix = f"  (initial: {initial.split('::')[-1]})" if initial else ""
     print(f"{'  ' * depth}{short}{suffix}")
-    for child in sorted(statechart.children_for(name)):
+    for child in statechart.children_for(name):
         _print_state_tree(statechart, child, depth + 1)
 
 
