@@ -169,3 +169,6 @@ bin/
 
 # Personal sandbox
 scratch/
+
+# Generated artifacts
+output/
