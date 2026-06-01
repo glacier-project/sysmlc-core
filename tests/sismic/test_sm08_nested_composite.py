@@ -93,3 +93,30 @@ def test_execution_descends_into_composite(model: syside.Model) -> None:
     interpreter.execute()
     assert "running" in interpreter.configuration
     assert "running::hot" in interpreter.configuration
+
+
+def test_cross_boundary_out_resolves_dotted_source(
+    model: syside.Model,
+) -> None:
+    """A transition out of a deep state resolves its dotted source."""
+    sc = build_statechart(model, "SM08::MachineCrossOut")
+    assert _has_transition(sc, "running::hot", "stopped")
+
+
+def test_cross_boundary_in_resolves_dotted_target(
+    model: syside.Model,
+) -> None:
+    """A transition into a deep state resolves its dotted target."""
+    sc = build_statechart(model, "SM08::MachineCrossIn")
+    assert _has_transition(sc, "idle", "running::hot")
+
+
+def test_cross_boundary_in_enters_specified_deep_state(
+    model: syside.Model,
+) -> None:
+    """Entering a deep state directly bypasses the composite's initial."""
+    sc = build_statechart(model, "SM08::MachineCrossIn")
+    interpreter = Interpreter(sc)
+    interpreter.execute()
+    assert "running::hot" in interpreter.configuration
+    assert "running::warming" not in interpreter.configuration

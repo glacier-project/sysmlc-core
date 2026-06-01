@@ -55,4 +55,35 @@ package SM08 {
         }
         transition first groupA then groupB;
     }
+
+    // Cross-boundary OUT
+    state def MachineCrossOut {
+        entry;
+            then idle;
+        state idle;
+        state running {
+            entry;
+                then warming;
+            state warming;
+            state hot;
+            transition first warming then hot;
+        }
+        state stopped;
+        transition first idle then running;
+        transition first running.hot then stopped;
+    }
+
+    // Cross-boundary IN
+    state def MachineCrossIn {
+        entry;
+            then idle;
+        state idle;
+        state running {
+            entry;
+                then warming;
+            state warming;
+            state hot;
+        }
+        transition first idle then running.hot;
+    }
 }

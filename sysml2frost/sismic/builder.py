@@ -371,6 +371,13 @@ class StatechartBuilder:
     def _target_path(self, trans: syside.TransitionUsage) -> str:
         """Return the relative path of a transition's target state.
 
+        A transition's target is the target end of its succession.
+        ``feature_target`` resolves that end uniformly: it returns the
+        last segment of a dotted cross-boundary target (e.g.
+        ``then running.hot`` -> ``running::hot``), or the target itself
+        when it is a direct reference. (``trans.target`` is ``None`` for a
+        dotted target, so it is not used here.)
+
         Args:
             trans: SysML transition usage to inspect.
 
@@ -380,13 +387,14 @@ class StatechartBuilder:
         Raises:
             ValueError: If the transition has no resolved target.
         """
-        target = trans.target
-        if target is None:
-            raise ValueError(
-                f"Transition in state def {self._state_def.qualified_name} "
-                "has no resolved target."
-            )
-        return self._state_path(target)
+        succession = trans.succession
+        targets = succession.targets.collect() if succession is not None else []
+        if targets:
+            return self._state_path(targets[0].feature_target)
+        raise ValueError(
+            f"Transition in state def {self._state_def.qualified_name} "
+            "has no resolved target."
+        )
 
     def _extract_event_name(self, trans: syside.TransitionUsage) -> str | None:
         """Return the accepter payload type's simple name, or ``None``.
