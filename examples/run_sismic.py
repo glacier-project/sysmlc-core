@@ -105,16 +105,13 @@ def resolve_state_def_qns(model: syside.Model) -> list[str]:
 
 
 def print_structure(statechart: Statechart) -> None:
-    """Print a one-line-per-state summary of the built statechart.
+    """Print the built statechart as an indented state hierarchy.
 
     Args:
         statechart: A built ``sismic.model.Statechart``.
     """
-    print(f"  Root: {statechart.root}")
     print("  States:")
-    for state_name in sorted(statechart.states):
-        parent = statechart.parent_for(state_name) or "(root)"
-        print(f"    {state_name}  (parent: {parent})")
+    _print_state_tree(statechart, statechart.root, depth=2)
     print("  Transitions:")
     transitions = list(statechart.transitions)
     if not transitions:
@@ -126,6 +123,26 @@ def print_structure(statechart: Statechart) -> None:
             f"    {trans.source} -> {trans.target}  "
             f"[event: {event}] [guard: {guard}]"
         )
+
+
+def _print_state_tree(statechart: Statechart, name: str, depth: int) -> None:
+    """Print ``name`` and its descendants as an indented tree.
+
+    A composite state is followed by its ``initial`` substate; children
+    are printed indented beneath their parent.
+
+    Args:
+        statechart: A built ``sismic.model.Statechart``.
+        name: The state to print, with its children below it.
+        depth: Indentation level; each level is two spaces.
+    """
+    state = statechart.state_for(name)
+    short = name.split("::")[-1]
+    initial = getattr(state, "initial", None)
+    suffix = f"  (initial: {initial.split('::')[-1]})" if initial else ""
+    print(f"{'  ' * depth}{short}{suffix}")
+    for child in sorted(statechart.children_for(name)):
+        _print_state_tree(statechart, child, depth + 1)
 
 
 def print_trace(steps: list[MacroStep]) -> None:
