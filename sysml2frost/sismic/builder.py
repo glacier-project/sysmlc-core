@@ -1,7 +1,13 @@
 from __future__ import annotations
 
 import syside
-from sismic.model import BasicState, CompoundState, Statechart, Transition
+from sismic.model import (
+    BasicState,
+    CompoundState,
+    OrthogonalState,
+    Statechart,
+    Transition,
+)
 
 from sysml2frost.explore.model_queries import SysideModelQueries
 from sysml2frost.sismic.py_emitter import emit_assignment, emit_expression
@@ -71,10 +77,12 @@ def _bind_value(attr: syside.AttributeUsage) -> str | None:
 class StatechartBuilder:
     """Build a sismic Statechart from a SysML state definition.
 
-    ``StateDefinition`` -> the root ``CompoundState``;
+    ``StateDefinition`` -> the root ``CompoundState``, or an
+    ``OrthogonalState`` when the state def is ``parallel``;
     a leaf ``StateUsage`` -> ``BasicState``;
     a composite ``StateUsage`` (one that owns substates) -> a nested
-    ``CompoundState``, recursively;
+    ``CompoundState``, recursively, or an ``OrthogonalState`` when the
+    substate is ``parallel`` (its substates become concurrent regions);
     each owned scalar ``AttributeUsage`` with an initializer -> one
     assignment line in ``Statechart.preamble``;
     each owned structured ``AttributeUsage`` -> a ``SimpleNamespace``
@@ -221,12 +229,15 @@ class StatechartBuilder:
         name: str,
         parent: str | None,
     ) -> None:
-        """Add ``container`` as a ``CompoundState`` and recurse its substates.
+        """Add ``container`` as a compound/orthogonal state and recurse.
 
-        The container becomes a ``CompoundState`` whose ``initial`` is its
-        entry-selected substate and whose ``on_entry`` / ``on_exit`` carry
-        any entry/exit assignments. Each substate is added as a nested
-        ``CompoundState`` or a ``BasicState``.
+        A non-parallel container becomes a ``CompoundState`` whose
+        ``initial`` is its entry-selected substate; a ``parallel``
+        container becomes an ``OrthogonalState`` whose substates are
+        concurrent regions and which has no single initial. Either way
+        its ``on_entry`` / ``on_exit`` carry any entry/exit assignments,
+        and each substate is added as a nested compound/orthogonal state
+        or a ``BasicState``.
 
         Args:
             container: The root state definition or a composite state
@@ -236,22 +247,24 @@ class StatechartBuilder:
                 root.
 
         Raises:
-            ValueError: If the container's entry succession cannot be
-                resolved, or if an entry/exit assignment has an
+            ValueError: If a non-parallel container's entry succession
+                cannot be resolved, or if an entry/exit assignment has an
                 unsupported right-hand-side expression shape.
         """
-        initial = self._resolve_initial(container)
-        self._statechart.add_state(
-            CompoundState(
+        on_entry = self._extract_action_statements(container.entry_action)
+        on_exit = self._extract_action_statements(container.exit_action)
+        state: CompoundState | OrthogonalState
+        if container.is_parallel:
+            state = OrthogonalState(name, on_entry=on_entry, on_exit=on_exit)
+        else:
+            initial = self._resolve_initial(container)
+            state = CompoundState(
                 name,
                 initial=self._state_path(initial),
-                on_entry=self._extract_action_statements(
-                    container.entry_action
-                ),
-                on_exit=self._extract_action_statements(container.exit_action),
-            ),
-            parent=parent,
-        )
+                on_entry=on_entry,
+                on_exit=on_exit,
+            )
+        self._statechart.add_state(state, parent=parent)
         for substate in self._substates(container):
             substate_name = self._state_path(substate)
             if self._substates(substate):
