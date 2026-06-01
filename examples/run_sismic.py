@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import sismic.io as sio
 import syside
 from sismic.exceptions import CodeEvaluationError
 from sismic.helpers import coverage_from_trace
@@ -13,6 +15,7 @@ from sismic.interpreter import Interpreter
 from sysml2frost import configure_logging
 from sysml2frost.explore import iter_model_elements
 from sysml2frost.loader import load_syside_model
+from sysml2frost.logging_utils import PACKAGE_LOGGER_NAME
 from sysml2frost.sismic import build_statechart
 
 if TYPE_CHECKING:
@@ -22,9 +25,12 @@ if TYPE_CHECKING:
     from sismic.model import Statechart
     from sismic.model.steps import MacroStep
 
+logger = logging.getLogger(f"{PACKAGE_LOGGER_NAME}.run_sismic")
+
 SM_EXAMPLES_DIR = (
     Path(__file__).resolve().parent.parent / "models" / "sm-examples"
 )
+OUTPUT_DIR = Path(__file__).resolve().parent.parent / "output" / "sismic"
 
 
 def parse_args() -> argparse.Namespace:
@@ -105,16 +111,13 @@ def resolve_state_def_qns(model: syside.Model) -> list[str]:
 
 
 def print_structure(statechart: Statechart) -> None:
-    """Print a one-line-per-state summary of the built statechart.
+    """Print the built statechart as an indented state hierarchy.
 
     Args:
         statechart: A built ``sismic.model.Statechart``.
     """
-    print(f"  Root: {statechart.root}")
     print("  States:")
-    for state_name in sorted(statechart.states):
-        parent = statechart.parent_for(state_name) or "(root)"
-        print(f"    {state_name}  (parent: {parent})")
+    _print_state_tree(statechart, statechart.root, depth=2)
     print("  Transitions:")
     transitions = list(statechart.transitions)
     if not transitions:
@@ -126,6 +129,27 @@ def print_structure(statechart: Statechart) -> None:
             f"    {trans.source} -> {trans.target}  "
             f"[event: {event}] [guard: {guard}]"
         )
+
+
+def _print_state_tree(statechart: Statechart, name: str, depth: int) -> None:
+    """Print ``name`` and its descendants as an indented tree.
+
+    A composite state's line is annotated with ``(initial: <substate>)``
+    naming its initial substate; its children are printed in declaration
+    order, indented beneath it.
+
+    Args:
+        statechart: A built ``sismic.model.Statechart``.
+        name: The state to print, with its children below it.
+        depth: Indentation level; each level is two spaces.
+    """
+    state = statechart.state_for(name)
+    short = name.split("::")[-1]
+    initial = getattr(state, "initial", None)
+    suffix = f"  (initial: {initial.split('::')[-1]})" if initial else ""
+    print(f"{'  ' * depth}{short}{suffix}")
+    for child in statechart.children_for(name):
+        _print_state_tree(statechart, child, depth + 1)
 
 
 def print_trace(steps: list[MacroStep]) -> None:
@@ -166,6 +190,25 @@ def print_coverage(coverage: Mapping[str, Counter]) -> None:
         print(f"    {category}: {items}")
 
 
+def write_artifacts(folder_name: str, statechart: Statechart) -> Path:
+    """Write the YAML and PlantUML artifacts for a statechart.
+
+    Args:
+        folder_name: The example folder name; used as the output
+            subdirectory under ``output/sismic/``.
+        statechart: The built statechart to serialize.
+
+    Returns:
+        The directory the artifacts were written to.
+    """
+    out_dir = OUTPUT_DIR / folder_name
+    out_dir.mkdir(parents=True, exist_ok=True)
+    name = statechart.name
+    (out_dir / f"{name}.yaml").write_text(sio.export_to_yaml(statechart))
+    (out_dir / f"{name}.puml").write_text(sio.export_to_plantuml(statechart))
+    return out_dir
+
+
 def main() -> int:
     """Build and run the sismic statechart for the chosen SM example.
 
@@ -184,46 +227,56 @@ def main() -> int:
         )
         return 1
 
-    print(f"Loading from {model_dir}")
     model = load_syside_model(model_dir)
 
     state_def_qns = resolve_state_def_qns(model)
-    print(f"Found {len(state_def_qns)} StateDefinition(s) in the model.")
+    logger.info("Found %d StateDefinition(s) in the model", len(state_def_qns))
     for state_def_qn in state_def_qns:
         print()
         print("=" * 72)
         print(state_def_qn)
         print("=" * 72)
-        run_one(model, state_def_qn)
+        run_one(model, state_def_qn, folder_name)
     return 0
 
 
-def run_one(model: syside.Model, state_def_qn: str) -> None:
-    """Build and execute the statechart for ``state_def_qn``.
+def run_one(model: syside.Model, state_def_qn: str, folder_name: str) -> None:
+    """Build, execute, and persist the statechart for ``state_def_qn``.
+
+    Writes the statechart YAML and the PlantUML diagram to
+    ``output/sismic/<folder_name>/``.
 
     Args:
         model: Loaded syside model.
         state_def_qn: Qualified name of the SysML state def to run.
+        folder_name: The example folder name; the output subdirectory.
     """
-    print(f"Building for {state_def_qn}")
+    logger.info("Building for %s", state_def_qn)
     statechart = build_statechart(model, state_def_qn)
 
     print("\nStatechart structure:")
     print_structure(statechart)
 
-    print("\nExecuting via sismic Interpreter...")
+    logger.info("Executing via sismic interpreter")
     interpreter = Interpreter(statechart)
-    print(f"  Initial configuration: {sorted(interpreter.configuration)}")
+    initial_config = sorted(interpreter.configuration)
+    print(f"  Initial configuration: {initial_config}")
     try:
         steps = interpreter.execute()
     except CodeEvaluationError as exc:
-        print(f"  Execution skipped: {exc}")
+        logger.warning("Execution skipped: %s", exc)
+        out_dir = write_artifacts(folder_name, statechart)
+        logger.info("Wrote YAML + diagram to %s", out_dir)
         return
-    print(f"  Final configuration:   {sorted(interpreter.configuration)}")
+    final_config = sorted(interpreter.configuration)
+    print(f"  Final configuration:   {final_config}")
     print()
     print_trace(steps)
     print()
     print_coverage(coverage_from_trace(steps))
+
+    out_dir = write_artifacts(folder_name, statechart)
+    logger.info("Wrote YAML + diagram to %s", out_dir)
 
 
 if __name__ == "__main__":

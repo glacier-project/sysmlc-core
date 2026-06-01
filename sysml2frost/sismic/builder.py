@@ -71,17 +71,20 @@ def _bind_value(attr: syside.AttributeUsage) -> str | None:
 class StatechartBuilder:
     """Build a sismic Statechart from a SysML state definition.
 
-    ``StateUsage`` -> ``BasicState``;
-    ``TransitionUsage`` -> eventless ``Transition``;
-    ``StateDefinition`` -> ``CompoundState``;
+    ``StateDefinition`` -> the root ``CompoundState``;
+    a leaf ``StateUsage`` -> ``BasicState``;
+    a composite ``StateUsage`` (one that owns substates) -> a nested
+    ``CompoundState``, recursively;
     each owned scalar ``AttributeUsage`` with an initializer -> one
     assignment line in ``Statechart.preamble``;
     each owned structured ``AttributeUsage`` -> a ``SimpleNamespace``
     binding in ``Statechart.preamble``;
-    a ``StateUsage``'s ``entry``/``exit`` action assignments ->
-    ``BasicState.on_entry`` / ``BasicState.on_exit`` statements;
-    a ``TransitionUsage``'s ``do action`` effect assignments ->
-    ``Transition.action`` statements.
+    a state's ``entry``/``exit`` action assignments -> its
+    ``on_entry`` / ``on_exit`` statements;
+    a ``TransitionUsage`` -> a ``Transition`` whose ``event``/``guard``/
+    ``action`` carry any accepter / ``if`` guard / ``do`` effect.
+
+    States are named by their path relative to the state definition.
     """
 
     def __init__(self, model: syside.Model, state_def_qn: str) -> None:
@@ -106,23 +109,24 @@ class StatechartBuilder:
 
         Raises:
             ValueError: If ``state_def_qn`` does not resolve to a
-                ``StateDefinition``, if the definition's entry succession
-                cannot be resolved, if a guard, attribute initializer,
-                entry/exit assignment, or transition effect assignment
-                uses an expression shape the emitter does not support, or
-                if a structured attribute has a field with no value to
-                bind.
+                ``StateDefinition``, if any composite's entry succession
+                cannot be resolved, if a transition is missing its source
+                or target, or if a guard, attribute initializer, or
+                entry/exit/effect assignment uses an expression shape the
+                emitter does not support, or if a structured attribute has
+                a field with no value to bind.
         """
         self._state_def = self._queries.resolve_element_by_qn(
             syside.StateDefinition, self._state_def_qn
         )
+        root_name = self._state_def.name
+        assert root_name is not None
         self._statechart = Statechart(
-            name=self._state_def.name,
+            name=root_name,
             preamble=self._build_preamble(),
         )
-        self._add_root_compound()
-        self._add_child_states()
-        self._add_transitions()
+        self._build_state_tree(self._state_def, root_name, parent=None)
+        self._build_transition_tree(self._state_def)
         self._statechart.validate()
         return self._statechart
 
@@ -154,38 +158,117 @@ class StatechartBuilder:
             lines.insert(0, "from types import SimpleNamespace")
         return "\n".join(lines)
 
-    def _add_root_compound(self) -> None:
-        """Add the root ``CompoundState`` representing the state def."""
-        initial = self._resolve_initial_state()
-        self._statechart.add_state(
-            CompoundState(self._state_def.name, initial=initial.name),
-            parent=None,
-        )
+    def _state_path(self, state: syside.Feature) -> str:
+        """Return a state's sismic name: its path relative to the state def.
 
-    def _add_child_states(self) -> None:
-        """Add a ``BasicState`` for each owned ``StateUsage``.
+        The path is the state's qualified name with the state
+        definition's own qualified name stripped off.
 
-        A substate's ``entry`` / ``exit`` action assignments become the
-        ``on_entry`` / ``on_exit`` Python statements of its ``BasicState``.
+        Args:
+            state: The state to name. Only its qualified name is read.
+                The type is the broad ``Feature`` (not ``StateUsage``) so
+                the same helper can also name a transition's source and
+                target, which syside returns typed as actions, not states.
+
+        Returns:
+            The ``::``-joined relative path of ``state``.
+        """
+        prefix = f"{self._state_def.qualified_name}::"
+        return str(state.qualified_name).removeprefix(prefix)
+
+    def _substates(
+        self, container: syside.StateDefinition | syside.StateUsage
+    ) -> list[syside.StateUsage]:
+        """Return the immediate substates of a state container.
+
+        A ``StateDefinition`` exposes them as ``owned_states``; a
+        composite ``StateUsage`` exposes them as ``nested_states``.
+
+        Args:
+            container: The root state definition or a composite state
+                usage to read substates from.
+
+        Returns:
+            The container's immediate substate usages, in declaration
+            order; empty when ``container`` is a leaf state.
+        """
+        if isinstance(container, syside.StateDefinition):
+            return container.owned_states.collect()
+        return container.nested_states.collect()
+
+    def _container_transitions(
+        self, container: syside.StateDefinition | syside.StateUsage
+    ) -> list[syside.TransitionUsage]:
+        """Return the transitions owned directly by a state container.
+
+        A ``StateDefinition`` exposes them as ``owned_transitions``; a
+        composite ``StateUsage`` exposes them as ``nested_transitions``.
+
+        Args:
+            container: The root state definition or a composite state
+                usage to read transitions from.
+
+        Returns:
+            The container's own transition usages, in declaration order.
+        """
+        if isinstance(container, syside.StateDefinition):
+            return container.owned_transitions.collect()
+        return container.nested_transitions.collect()
+
+    def _build_state_tree(
+        self,
+        container: syside.StateDefinition | syside.StateUsage,
+        name: str,
+        parent: str | None,
+    ) -> None:
+        """Add ``container`` as a ``CompoundState`` and recurse its substates.
+
+        The container becomes a ``CompoundState`` whose ``initial`` is its
+        entry-selected substate and whose ``on_entry`` / ``on_exit`` carry
+        any entry/exit assignments. Each substate is added as a nested
+        ``CompoundState`` or a ``BasicState``.
+
+        Args:
+            container: The root state definition or a composite state
+                usage to build.
+            name: The sismic name for ``container``.
+            parent: The name of the parent state, or ``None`` for the
+                root.
 
         Raises:
-            ValueError: If an entry/exit assignment has an unsupported
-                right-hand-side expression shape.
+            ValueError: If the container's entry succession cannot be
+                resolved, or if an entry/exit assignment has an
+                unsupported right-hand-side expression shape.
         """
-        root_name = self._state_def.name
-        for state_usage in self._state_def.owned_states.collect():
-            self._statechart.add_state(
-                BasicState(
-                    state_usage.name,
-                    on_entry=self._extract_action_statements(
-                        state_usage.entry_action
-                    ),
-                    on_exit=self._extract_action_statements(
-                        state_usage.exit_action
-                    ),
+        initial = self._resolve_initial(container)
+        self._statechart.add_state(
+            CompoundState(
+                name,
+                initial=self._state_path(initial),
+                on_entry=self._extract_action_statements(
+                    container.entry_action
                 ),
-                parent=root_name,
-            )
+                on_exit=self._extract_action_statements(container.exit_action),
+            ),
+            parent=parent,
+        )
+        for substate in self._substates(container):
+            substate_name = self._state_path(substate)
+            if self._substates(substate):
+                self._build_state_tree(substate, substate_name, parent=name)
+            else:
+                self._statechart.add_state(
+                    BasicState(
+                        substate_name,
+                        on_entry=self._extract_action_statements(
+                            substate.entry_action
+                        ),
+                        on_exit=self._extract_action_statements(
+                            substate.exit_action
+                        ),
+                    ),
+                    parent=name,
+                )
 
     def _extract_action_statements(
         self, action: syside.ActionUsage | None
@@ -199,8 +282,8 @@ class StatechartBuilder:
         assignment.
 
         Args:
-            action: A substate's ``entry`` or ``exit`` action, or ``None``
-                when the substate declares no such action.
+            action: A state's ``entry`` or ``exit`` action, or ``None``
+                when the state declares no such action.
 
         Returns:
             The newline-joined Python assignment statements for the
@@ -225,45 +308,93 @@ class StatechartBuilder:
         ]
         return "\n".join(statements) or None
 
-    def _add_transitions(self) -> None:
-        """Add a ``Transition`` for each owned ``TransitionUsage``.
+    def _build_transition_tree(
+        self, container: syside.StateDefinition | syside.StateUsage
+    ) -> None:
+        """Add a sismic ``Transition`` for every transition in the subtree.
 
-        A transition with no accepter becomes an eventless sismic
-        ``Transition``; a transition with an ``accept E via port``
-        accepter becomes a sismic ``Transition`` triggered by the
-        payload type's simple name. A transition with an ``if expr``
-        guard carries the emitted Python source of the guard
-        expression in ``Transition.guard``. A transition with a
-        ``do action { assign ... }`` effect carries the emitted
-        assignment statements in ``Transition.action``.
+        Walks ``container`` and its composite substates, so transitions
+        declared inside nested composites are added too. A transition
+        with no accepter becomes an eventless
+        sismic ``Transition``; an ``accept E via port`` accepter becomes
+        the sismic ``Transition.event``; an ``if expr`` guard becomes the
+        emitted ``Transition.guard``; a ``do action { assign ... }``
+        effect becomes the emitted ``Transition.action``.
+
+        Args:
+            container: The root state definition or a composite state
+                usage whose transitions to add.
 
         Raises:
-            ValueError: If a transition has no source or target, if a
-                guard contains an expression shape the emitter does not
-                support, or if an effect assignment has an unsupported
+            ValueError: If a transition is missing its source or target,
+                if a guard contains an expression shape the emitter does
+                not support, or if an effect assignment has an unsupported
                 right-hand-side expression shape.
         """
-        for trans in self._state_def.owned_transitions.collect():
-            source = trans.source
-            target = trans.target
-            if source is None or target is None:
-                raise ValueError(
-                    f"Transition in state def "
-                    f"{self._state_def.qualified_name} is missing "
-                    "source or target."
-                )
+        for trans in self._container_transitions(container):
             event = self._extract_event_name(trans)
             guard = self._extract_guard_expression(trans)
             action = self._extract_action_statements(trans.effect_action)
             self._statechart.add_transition(
                 Transition(
-                    source=source.name,
-                    target=target.name,
+                    source=self._source_path(trans),
+                    target=self._target_path(trans),
                     event=event,
                     guard=guard,
                     action=action,
                 )
             )
+        for substate in self._substates(container):
+            if self._substates(substate):
+                self._build_transition_tree(substate)
+
+    def _source_path(self, trans: syside.TransitionUsage) -> str:
+        """Return the relative path of a transition's source state.
+
+        Args:
+            trans: SysML transition usage to inspect.
+
+        Returns:
+            The ``::``-joined relative path of the source state.
+
+        Raises:
+            ValueError: If the transition has no resolved source.
+        """
+        source = trans.source
+        if source is None:
+            raise ValueError(
+                f"Transition in state def {self._state_def.qualified_name} "
+                "has no resolved source."
+            )
+        return self._state_path(source)
+
+    def _target_path(self, trans: syside.TransitionUsage) -> str:
+        """Return the relative path of a transition's target state.
+
+        A transition's target is the target end of its succession.
+        ``feature_target`` resolves that end uniformly: it returns the
+        last segment of a dotted cross-boundary target (e.g.
+        ``then running.hot`` -> ``running::hot``), or the target itself
+        when it is a direct reference. (``trans.target`` is ``None`` for a
+        dotted target, so it is not used here.)
+
+        Args:
+            trans: SysML transition usage to inspect.
+
+        Returns:
+            The ``::``-joined relative path of the target state.
+
+        Raises:
+            ValueError: If the transition has no resolved target.
+        """
+        succession = trans.succession
+        targets = succession.targets.collect() if succession is not None else []
+        if targets:
+            return self._state_path(targets[0].feature_target)
+        raise ValueError(
+            f"Transition in state def {self._state_def.qualified_name} "
+            "has no resolved target."
+        )
 
     def _extract_event_name(self, trans: syside.TransitionUsage) -> str | None:
         """Return the accepter payload type's simple name, or ``None``.
@@ -310,26 +441,32 @@ class StatechartBuilder:
             return None
         return emit_expression(expr)
 
-    def _resolve_initial_state(self) -> syside.StateUsage:
-        """Resolve the initial state targeted by the entry pseudostate.
+    def _resolve_initial(
+        self, container: syside.StateDefinition | syside.StateUsage
+    ) -> syside.StateUsage:
+        """Resolve the initial substate selected by a container's entry.
+
+        Args:
+            container: The root state definition or a composite state
+                usage whose initial substate to resolve.
 
         Returns:
-            The ``StateUsage`` that the entry pseudostate transitions to.
+            The ``StateUsage`` the entry pseudostate transitions to.
 
         Raises:
             ValueError: If no entry pseudostate is declared, or if no
                 succession from the entry pseudostate to a ``StateUsage``
                 can be found.
         """
-        entry = self._state_def.entry_action
+        entry = container.entry_action
         if entry is None:
             raise ValueError(
-                f"State def {self._state_def.qualified_name} has no "
-                "entry pseudostate; expected an "
-                "`entry; then <state>;` declaration."
+                f"State {container.qualified_name} has no entry "
+                "pseudostate; expected an `entry; then <state>;` "
+                "declaration."
             )
 
-        for feat in self._state_def.owned_features.collect():
+        for feat in container.owned_features.collect():
             if not isinstance(feat, syside.SuccessionAsUsage):
                 continue
             if feat.source is not entry:
@@ -338,8 +475,8 @@ class StatechartBuilder:
                 if isinstance(target, syside.StateUsage):
                     return target
         raise ValueError(
-            f"No entry succession found for state def "
-            f"{self._state_def.qualified_name}; expected an "
+            f"No entry succession found for state "
+            f"{container.qualified_name}; expected an "
             f"`entry; then <state>;` declaration."
         )
 
@@ -357,9 +494,10 @@ def build_statechart(model: syside.Model, state_def_qn: str) -> Statechart:
 
     Raises:
         ValueError: If ``state_def_qn`` does not resolve to a
-            ``StateDefinition``, if the definition's entry succession
-            cannot be resolved, or if a guard, attribute initializer,
-            entry/exit assignment, or transition effect assignment uses
-            an expression shape the emitter does not support.
+            ``StateDefinition``, if any composite's entry succession
+            cannot be resolved, if a transition is missing its source or
+            target, or if a guard, attribute initializer, or
+            entry/exit/effect assignment uses an expression shape the
+            emitter does not support.
     """
     return StatechartBuilder(model, state_def_qn).build()
