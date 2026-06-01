@@ -4,6 +4,7 @@ import syside
 from sismic.model import (
     BasicState,
     CompoundState,
+    FinalState,
     OrthogonalState,
     Statechart,
     Transition,
@@ -74,6 +75,11 @@ def _bind_value(attr: syside.AttributeUsage) -> str | None:
     return f"SimpleNamespace({', '.join(fields)})"
 
 
+def _is_done_target(feature_target: syside.Feature) -> bool:
+    """Whether a transition target is the standard-library ``done``."""
+    return str(feature_target.qualified_name) == "States::StateAction::done"
+
+
 class StatechartBuilder:
     """Build a sismic Statechart from a SysML state definition.
 
@@ -90,7 +96,9 @@ class StatechartBuilder:
     a state's ``entry``/``exit`` action assignments -> its
     ``on_entry`` / ``on_exit`` statements;
     a ``TransitionUsage`` -> a ``Transition`` whose ``event``/``guard``/
-    ``action`` carry any accepter / ``if`` guard / ``do`` effect.
+    ``action`` carry any accepter / ``if`` guard / ``do`` effect;
+    a transition target of ``done`` -> a ``FinalState`` synthesized in the
+    source's containing scope, which the transition then targets.
 
     States are named by their path relative to the state definition.
     """
@@ -108,6 +116,7 @@ class StatechartBuilder:
         self._queries = SysideModelQueries(model)
         self._state_def: syside.StateDefinition
         self._statechart: Statechart
+        self._done_finals: set[str]
 
     def build(self) -> Statechart:
         """Construct and return the sismic Statechart.
@@ -133,6 +142,7 @@ class StatechartBuilder:
             name=root_name,
             preamble=self._build_preamble(),
         )
+        self._done_finals = set()
         self._build_state_tree(self._state_def, root_name, parent=None)
         self._build_transition_tree(self._state_def)
         self._statechart.validate()
@@ -332,7 +342,9 @@ class StatechartBuilder:
         sismic ``Transition``; an ``accept E via port`` accepter becomes
         the sismic ``Transition.event``; an ``if expr`` guard becomes the
         emitted ``Transition.guard``; a ``do action { assign ... }``
-        effect becomes the emitted ``Transition.action``.
+        effect becomes the emitted ``Transition.action``. A transition
+        targeting ``done`` is pointed at a ``FinalState`` synthesized in
+        ``container``'s scope.
 
         Args:
             container: The root state definition or a composite state
@@ -351,7 +363,7 @@ class StatechartBuilder:
             self._statechart.add_transition(
                 Transition(
                     source=self._source_path(trans),
-                    target=self._target_path(trans),
+                    target=self._target_path(trans, container),
                     event=event,
                     guard=guard,
                     action=action,
@@ -381,8 +393,12 @@ class StatechartBuilder:
             )
         return self._state_path(source)
 
-    def _target_path(self, trans: syside.TransitionUsage) -> str:
-        """Return the relative path of a transition's target state.
+    def _target_path(
+        self,
+        trans: syside.TransitionUsage,
+        container: syside.StateDefinition | syside.StateUsage,
+    ) -> str:
+        """Return the sismic name a transition's target resolves to.
 
         A transition's target is the target end of its succession.
         ``feature_target`` resolves that end uniformly: it returns the
@@ -390,24 +406,61 @@ class StatechartBuilder:
         ``then running.hot`` -> ``running::hot``), or the target itself
         when it is a direct reference. (``trans.target`` is ``None`` for a
         dotted target, so it is not used here.)
+        A ``then done`` is pointed at a ``FinalState`` synthesized
+        once per scope under ``container``.
 
         Args:
             trans: SysML transition usage to inspect.
+            container: The container owning ``trans`` (the scope a ``done``
+                final state is synthesized under).
 
         Returns:
-            The ``::``-joined relative path of the target state.
+            The sismic name of the target state: a ``::``-joined relative
+            path, or the name of the synthesized ``done`` final state.
 
         Raises:
             ValueError: If the transition has no resolved target.
         """
         succession = trans.succession
         targets = succession.targets.collect() if succession is not None else []
-        if targets:
-            return self._state_path(targets[0].feature_target)
-        raise ValueError(
-            f"Transition in state def {self._state_def.qualified_name} "
-            "has no resolved target."
-        )
+        if not targets:
+            raise ValueError(
+                f"Transition in state def {self._state_def.qualified_name} "
+                "has no resolved target."
+            )
+        feature_target = targets[0].feature_target
+        if _is_done_target(feature_target):
+            return self._ensure_done_final_state(container)
+        return self._state_path(feature_target)
+
+    def _ensure_done_final_state(
+        self, container: syside.StateDefinition | syside.StateUsage
+    ) -> str:
+        """Return the name of ``container``'s ``done`` final state.
+
+        Created once per scope (reused by later ``then done``) and named
+        like any substate: ``done`` at the root, ``<scope>::done`` under a
+        composite or region.
+
+        Args:
+            container: The container owning the ``then done`` transition.
+
+        Returns:
+            The sismic name of the synthesized ``done`` final state.
+        """
+        if isinstance(container, syside.StateDefinition):
+            assert container.name is not None
+            scope_name = container.name
+            final_name = "done"
+        else:
+            scope_name = self._state_path(container)
+            final_name = f"{scope_name}::done"
+        if final_name not in self._done_finals:
+            self._statechart.add_state(
+                FinalState(final_name), parent=scope_name
+            )
+            self._done_finals.add(final_name)
+        return final_name
 
     def _extract_event_name(self, trans: syside.TransitionUsage) -> str | None:
         """Return the accepter payload type's simple name, or ``None``.
