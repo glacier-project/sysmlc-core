@@ -151,6 +151,8 @@ def _emit(expr: syside.Expression, parent_precedence: int) -> str:
         return _emit_literal_rational(expr)
     if isinstance(expr, syside.LiteralInteger):
         return _emit_literal_integer(expr)
+    if isinstance(expr, syside.LiteralString):
+        return _emit_literal_string(expr)
     if isinstance(expr, syside.FeatureChainExpression):
         return _emit_feature_chain(expr)
     if isinstance(expr, syside.OperatorExpression):
@@ -189,6 +191,21 @@ def _emit_literal_integer(expr: syside.LiteralInteger) -> str:
 
 def _emit_literal_rational(expr: syside.LiteralRational) -> str:
     """Emit a rational literal as its Python ``repr``.
+
+    Args:
+        expr: The literal node to translate.
+
+    Returns:
+        Python source for ``expr``.
+    """
+    return repr(expr.value)
+
+
+def _emit_literal_string(expr: syside.LiteralString) -> str:
+    """Emit a string literal as its Python ``repr``.
+
+    ``repr`` yields a valid Python string literal with correct quoting
+    and escaping.
 
     Args:
         expr: The literal node to translate.

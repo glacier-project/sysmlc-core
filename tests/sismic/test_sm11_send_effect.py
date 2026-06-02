@@ -42,6 +42,12 @@ def test_payload_args_emitted_as_kwargs(model: syside.Model) -> None:
     assert _action_of(sc, "idle", "armed") == "send('Reading', value=current)"
 
 
+def test_string_payload_arg_emitted_as_kwarg(model: syside.Model) -> None:
+    """A string payload arg is emitted as a quoted Python kwarg."""
+    sc = build_statechart(model, "SM11::MachineStringPayload")
+    assert _action_of(sc, "idle", "armed") == "send('Note', text='hi')"
+
+
 def test_mixed_effect_emits_assign_then_send(model: syside.Model) -> None:
     """A mixed effect body emits the assign and the send, in order."""
     sc = build_statechart(model, "SM11::MachineMixed")

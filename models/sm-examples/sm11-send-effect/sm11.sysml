@@ -5,6 +5,9 @@ package SM11 {
     item def Reading {
         attribute value : Integer;
     }
+    item def Note {
+        attribute text : String;
+    }
 
     // A send effect raises an event the same machine then accepts.
     state def MachineSelfSend {
@@ -29,6 +32,18 @@ package SM11 {
         state fired;
         transition first idle do send new Reading(current) via commPort then armed;
         transition first armed accept Reading via commPort then fired;
+    }
+
+    // A send whose payload carries a string argument.
+    state def MachineStringPayload {
+        port commPort;
+        entry;
+            then idle;
+        state idle;
+        state armed;
+        state fired;
+        transition first idle do send new Note("hi") via commPort then armed;
+        transition first armed accept Note via commPort then fired;
     }
 
     // A mixed effect body: an assignment and a send, in declaration order.
