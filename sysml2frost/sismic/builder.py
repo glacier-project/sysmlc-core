@@ -11,7 +11,11 @@ from sismic.model import (
 )
 
 from sysml2frost.explore.model_queries import SysideModelQueries
-from sysml2frost.sismic.py_emitter import emit_assignment, emit_expression
+from sysml2frost.sismic.py_emitter import (
+    emit_assignment,
+    emit_expression,
+    emit_send,
+)
 
 
 def _nested_attributes(
@@ -96,7 +100,8 @@ class StatechartBuilder:
     a state's ``entry``/``exit`` action assignments -> its
     ``on_entry`` / ``on_exit`` statements;
     a ``TransitionUsage`` -> a ``Transition`` whose ``event``/``guard``/
-    ``action`` carry any accepter / ``if`` guard / ``do`` effect;
+    ``action`` carry any accepter / ``if`` guard / ``do`` effect (an
+    ``assign`` mutation and/or a ``send`` event-raise);
     a transition target of ``done`` -> a ``FinalState`` synthesized in the
     source's containing scope, which the transition then targets.
 
@@ -296,39 +301,40 @@ class StatechartBuilder:
     def _extract_action_statements(
         self, action: syside.ActionUsage | None
     ) -> str | None:
-        """Emit the assignment statements of an entry/exit action.
+        """Emit an action's ``assign`` / ``send`` statements as Python.
 
-        Handles both surface forms the convention allows: the block form
-        ``entry action n { assign ...; }``, where the assignments are
-        owned features of a wrapping action, and the shorthand form
-        ``entry assign x := e;``, where the action slot is itself the
-        assignment.
+        Covers both forms: the shorthand, where the action slot is
+        itself the ``assign`` or ``send``, and the block form, where they
+        are the wrapping action's owned features.
 
         Args:
-            action: A state's ``entry`` or ``exit`` action, or ``None``
-                when the state declares no such action.
+            action: An ``entry``/``exit`` action or a transition effect, or
+                ``None`` if none is declared.
 
         Returns:
-            The newline-joined Python assignment statements for the
-            action's assignments in declaration order, or ``None`` when
-            the action is absent or carries no assignment.
+            The statements newline-joined in declaration order, or ``None``
+            when ``action`` is absent or carries no ``assign``/``send``.
 
         Raises:
-            ValueError: If an assignment has an unsupported right-hand-side
-                expression shape.
+            ValueError: If an ``assign`` or ``send`` uses an expression
+                shape the emitter rejects.
         """
         if action is None:
             return None
-        # Shorthand `entry/exit assign x := e;`
-        if isinstance(action, syside.AssignmentActionUsage):
+        # Shorthand `do send new E() ...` / `entry assign x := e;`
+        # the action slot is itself the send or assignment
+        if isinstance(
+            action, (syside.AssignmentActionUsage, syside.SendActionUsage)
+        ):
             candidates: list[syside.Feature] = [action]
         else:
             candidates = action.owned_features.collect()
-        statements = [
-            emit_assignment(a)
-            for a in candidates
-            if isinstance(a, syside.AssignmentActionUsage)
-        ]
+        statements: list[str] = []
+        for candidate in candidates:
+            if isinstance(candidate, syside.AssignmentActionUsage):
+                statements.append(emit_assignment(candidate))
+            elif isinstance(candidate, syside.SendActionUsage):
+                statements.append(emit_send(candidate))
         return "\n".join(statements) or None
 
     def _build_transition_tree(
