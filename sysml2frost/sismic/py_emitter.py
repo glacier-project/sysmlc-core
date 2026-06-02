@@ -93,7 +93,8 @@ def emit_send(send: syside.SendActionUsage) -> str:
 
     Raises:
         ValueError: If the payload is not a ``new <Type>(...)`` constructor
-            resolving to a named definition, or an argument uses an
+            resolving to a named definition, if an argument has no
+            corresponding named attribute, or if an argument uses an
             expression shape the emitter rejects.
     """
     payload = send.payload_argument
@@ -105,20 +106,23 @@ def emit_send(send: syside.SendActionUsage) -> str:
     event_name = event_type.name
     if event_name is None:
         raise ValueError("send payload type has no resolved name")
-    fields = [
-        attr.name
-        for attr in event_type.owned_attributes.collect()
-        if attr.name is not None
-    ]
+    attributes = event_type.owned_attributes.collect()
     arguments = payload.arguments.collect()
     # Each positional argument binds to the payload attribute at the same
-    # position, in declaration order. A send may pass fewer arguments than
-    # the type has attributes (KerML 8.3.4.8.7), so walk the arguments and
-    # pair each with the attribute name at its index.
+    # position, in declaration order; a send may pass fewer arguments than
+    # the type has attributes (KerML 8.3.4.8.7).
     kwargs: list[str] = []
     for index, argument in enumerate(arguments):
-        field = fields[index]
-        kwargs.append(f"{field}={emit_expression(argument)}")
+        if index >= len(attributes):
+            raise ValueError(
+                "send payload has more arguments than the type has attributes"
+            )
+        name = attributes[index].name
+        if name is None:
+            raise ValueError(
+                "send payload binds an argument to an unnamed attribute"
+            )
+        kwargs.append(f"{name}={emit_expression(argument)}")
     if kwargs:
         return f"send('{event_name}', {', '.join(kwargs)})"
     return f"send('{event_name}')"
