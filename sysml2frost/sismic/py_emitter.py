@@ -75,6 +75,59 @@ def emit_assignment(assign: syside.AssignmentActionUsage) -> str:
     return f"{target.name} = {emit_expression(value)}"
 
 
+def emit_send(send: syside.SendActionUsage) -> str:
+    """Translate a send action to a sismic ``send(...)`` call.
+
+    Emits ``send('<Event>'[, <field>=<expr>, ...])``: ``<Event>`` is the
+    payload type's simple name; each positional constructor argument
+    becomes a kwarg named by the payload attribute it binds to, in
+    declaration order.
+
+    Bare-value sends are rejected; payload must be a typed new <Sig>(...)
+
+    Args:
+        send: The ``send new <Type>(<args>)`` action to translate.
+
+    Returns:
+        Python source for the ``send(...)`` call.
+
+    Raises:
+        ValueError: If the payload is not a ``new <Type>(...)`` constructor
+            resolving to a named definition, if an argument has no
+            corresponding named attribute, or if an argument uses an
+            expression shape the emitter rejects.
+    """
+    payload = send.payload_argument
+    if not isinstance(payload, syside.ConstructorExpression):
+        raise ValueError("send payload is not a `new <Type>(...)` constructor")
+    event_type = payload.instantiated_type
+    if not isinstance(event_type, syside.Definition):
+        raise ValueError("send payload type does not resolve to a definition")
+    event_name = event_type.name
+    if event_name is None:
+        raise ValueError("send payload type has no resolved name")
+    attributes = event_type.owned_attributes.collect()
+    arguments = payload.arguments.collect()
+    # Each positional argument binds to the payload attribute at the same
+    # position, in declaration order; a send may pass fewer arguments than
+    # the type has attributes (KerML 8.3.4.8.7).
+    kwargs: list[str] = []
+    for index, argument in enumerate(arguments):
+        if index >= len(attributes):
+            raise ValueError(
+                "send payload has more arguments than the type has attributes"
+            )
+        name = attributes[index].name
+        if name is None:
+            raise ValueError(
+                "send payload binds an argument to an unnamed attribute"
+            )
+        kwargs.append(f"{name}={emit_expression(argument)}")
+    if kwargs:
+        return f"send('{event_name}', {', '.join(kwargs)})"
+    return f"send('{event_name}')"
+
+
 def _emit(expr: syside.Expression, parent_precedence: int) -> str:
     """Dispatch ``expr`` to its node-type handler.
 
@@ -102,6 +155,8 @@ def _emit(expr: syside.Expression, parent_precedence: int) -> str:
         return _emit_literal_rational(expr)
     if isinstance(expr, syside.LiteralInteger):
         return _emit_literal_integer(expr)
+    if isinstance(expr, syside.LiteralString):
+        return _emit_literal_string(expr)
     if isinstance(expr, syside.FeatureChainExpression):
         return _emit_feature_chain(expr)
     if isinstance(expr, syside.OperatorExpression):
@@ -140,6 +195,21 @@ def _emit_literal_integer(expr: syside.LiteralInteger) -> str:
 
 def _emit_literal_rational(expr: syside.LiteralRational) -> str:
     """Emit a rational literal as its Python ``repr``.
+
+    Args:
+        expr: The literal node to translate.
+
+    Returns:
+        Python source for ``expr``.
+    """
+    return repr(expr.value)
+
+
+def _emit_literal_string(expr: syside.LiteralString) -> str:
+    """Emit a string literal as its Python ``repr``.
+
+    ``repr`` yields a valid Python string literal with correct quoting
+    and escaping.
 
     Args:
         expr: The literal node to translate.
