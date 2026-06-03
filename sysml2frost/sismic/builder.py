@@ -87,25 +87,30 @@ def _is_done_target(feature_target: syside.Feature) -> bool:
 class StatechartBuilder:
     """Build a sismic Statechart from a SysML state definition.
 
-    ``StateDefinition`` -> the root ``CompoundState``, or an
-    ``OrthogonalState`` when the state def is ``parallel``;
-    a leaf ``StateUsage`` -> ``BasicState``;
-    a composite ``StateUsage`` (one that owns substates) -> a nested
-    ``CompoundState``, recursively, or an ``OrthogonalState`` when the
-    substate is ``parallel`` (its substates become concurrent regions);
-    each owned scalar ``AttributeUsage`` with an initializer -> one
-    assignment line in ``Statechart.preamble``;
-    each owned structured ``AttributeUsage`` -> a ``SimpleNamespace``
-    binding in ``Statechart.preamble``;
-    a state's ``entry``/``exit`` action assignments -> its
-    ``on_entry`` / ``on_exit`` statements;
-    a ``TransitionUsage`` -> a ``Transition`` whose ``event``/``guard``/
-    ``action`` carry any accepter / ``if`` guard / ``do`` effect (an
-    ``assign`` mutation and/or a ``send`` event-raise);
-    a transition target of ``done`` -> a ``FinalState`` synthesized in the
-    source's containing scope, which the transition then targets.
+    The build maps each SysML construct to its sismic counterpart:
 
-    States are named by their path relative to the state definition.
+    - a ``StateDefinition`` -> the root ``CompoundState``, or an
+      ``OrthogonalState`` when it is ``parallel``;
+    - a leaf ``StateUsage`` -> a ``BasicState``;
+    - a composite ``StateUsage`` (one owning substates) -> a nested
+      ``CompoundState``, recursively, or an ``OrthogonalState`` when it
+      is ``parallel`` (its substates become concurrent regions);
+    - each owned ``AttributeUsage`` with an initializer -> one
+      ``Statechart.preamble`` line: an assignment for a scalar, a
+      ``SimpleNamespace`` binding for a structured attribute;
+    - a state's ``entry`` and ``do`` actions (each an ``assign`` and/or
+      ``send`` body) -> its ``on_entry`` statements, entry first then do;
+      its ``exit`` action -> its ``on_exit`` statements;
+    - a ``TransitionUsage`` -> a ``Transition`` whose ``event`` /
+      ``guard`` / ``action`` carry any accepter, ``if`` guard, and ``do``
+      effect (an ``assign`` mutation and/or a ``send`` event-raise);
+    - a transition target of ``done`` -> a ``FinalState`` synthesized in
+      the source's containing scope.
+
+    A ``do`` action runs once at entry (after the entry statements):
+    sismic has no activity slot, and SysML starts the do after the entry
+    action completes. States are named by their path relative to the
+    state definition.
     """
 
     def __init__(self, model: syside.Model, state_def_qn: str) -> None:
@@ -134,8 +139,9 @@ class StatechartBuilder:
                 ``StateDefinition``, if any composite's entry succession
                 cannot be resolved, if a transition is missing its source
                 or target, or if a guard, attribute initializer, or
-                entry/exit/effect assignment uses an expression shape the
-                emitter does not support, or if a structured attribute has
+                entry/exit/effect/do assignment uses an expression shape
+                the emitter does not support, if a ``do`` action has a body
+                the emitter cannot emit, or if a structured attribute has
                 a field with no value to bind.
         """
         self._state_def = self._queries.resolve_element_by_qn(
@@ -263,10 +269,11 @@ class StatechartBuilder:
 
         Raises:
             ValueError: If a non-parallel container's entry succession
-                cannot be resolved, or if an entry/exit assignment has an
-                unsupported right-hand-side expression shape.
+                cannot be resolved, if an entry/exit/do assignment has an
+                unsupported right-hand-side expression shape, or if a
+                ``do`` action has a body the emitter cannot emit.
         """
-        on_entry = self._extract_action_statements(container.entry_action)
+        on_entry = self._on_entry_statements(container)
         on_exit = self._extract_action_statements(container.exit_action)
         state: CompoundState | OrthogonalState
         if container.is_parallel:
@@ -288,9 +295,7 @@ class StatechartBuilder:
                 self._statechart.add_state(
                     BasicState(
                         substate_name,
-                        on_entry=self._extract_action_statements(
-                            substate.entry_action
-                        ),
+                        on_entry=self._on_entry_statements(substate),
                         on_exit=self._extract_action_statements(
                             substate.exit_action
                         ),
@@ -308,8 +313,8 @@ class StatechartBuilder:
         are the wrapping action's owned features.
 
         Args:
-            action: An ``entry``/``exit`` action or a transition effect, or
-                ``None`` if none is declared.
+            action: An ``entry``/``exit``/``do`` action or a transition
+                effect, or ``None`` if none is declared.
 
         Returns:
             The statements newline-joined in declaration order, or ``None``
@@ -336,6 +341,84 @@ class StatechartBuilder:
             elif isinstance(candidate, syside.SendActionUsage):
                 statements.append(emit_send(candidate))
         return "\n".join(statements) or None
+
+    def _on_entry_statements(
+        self, container: syside.StateDefinition | syside.StateUsage
+    ) -> str | None:
+        """Build a state's ``on_entry`` from its entry and do actions.
+
+        The entry action's statements run first; a ``do`` action starts
+        after the entry action completes, so its
+        statements follow the entry statements.
+
+        Args:
+            container: The root state definition or a state usage whose
+                ``on_entry`` to build.
+
+        Returns:
+            The entry statements then the do statements, newline-joined in
+            that order, or ``None`` when neither is present.
+
+        Raises:
+            ValueError: If an entry or do ``assign``/``send`` uses an
+                expression shape the emitter rejects, or if the do action
+                has a body the emitter cannot emit.
+        """
+        entry = self._extract_action_statements(container.entry_action)
+        do = self._do_action_statements(container)
+        parts = [part for part in (entry, do) if part is not None]
+        return "\n".join(parts) or None
+
+    def _do_action_statements(
+        self, container: syside.StateDefinition | syside.StateUsage
+    ) -> str | None:
+        """Emit a state's ``do`` action body as run-once ``on_entry`` code.
+
+        Only an ``assign``/``send`` body is emitted (reusing
+        ``_extract_action_statements``).
+        A do body the emitter cannot turn into a one-shot is rejected:
+        containing an ``accept`` or a loop; references other actions.
+
+        Args:
+            container: The root state definition or a state usage whose
+                ``do`` action to emit.
+
+        Returns:
+            The do body's ``assign``/``send`` statements newline-joined, or
+            ``None`` when the state has no do action or an empty one.
+
+        Raises:
+            ValueError: If the do body contains an action the emitter
+                cannot emit (e.g. an ``accept`` or a loop), or if the do
+                action references another action (a typed perform or the
+                reference-subsetting shorthand).
+        """
+        do_action = container.do_action
+        if do_action is None:
+            return None
+        # A do that references another action: a typed perform or the
+        # `do other;` shorthand cannot be emitted as a one-shot.
+        if (
+            do_action.owned_typings.collect()
+            or do_action.owned_reference_subsetting is not None
+        ):
+            raise ValueError(
+                f"State {container.qualified_name} has a `do` action that "
+                "references another action; only inline `assign`/`send` "
+                "do-action bodies are supported."
+            )
+        for feature in do_action.owned_features.collect():
+            if isinstance(feature, syside.ActionUsage) and not isinstance(
+                feature,
+                (syside.AssignmentActionUsage, syside.SendActionUsage),
+            ):
+                raise ValueError(
+                    f"State {container.qualified_name} has a `do` action "
+                    f"whose body contains an unsupported "
+                    f"{type(feature).__name__}; only `assign` and `send` "
+                    "do-action bodies are supported."
+                )
+        return self._extract_action_statements(do_action)
 
     def _build_transition_tree(
         self, container: syside.StateDefinition | syside.StateUsage
@@ -568,8 +651,9 @@ def build_statechart(model: syside.Model, state_def_qn: str) -> Statechart:
         ValueError: If ``state_def_qn`` does not resolve to a
             ``StateDefinition``, if any composite's entry succession
             cannot be resolved, if a transition is missing its source or
-            target, or if a guard, attribute initializer, or
-            entry/exit/effect assignment uses an expression shape the
-            emitter does not support.
+            target, if a guard, attribute initializer, or
+            entry/exit/effect/do assignment uses an expression shape the
+            emitter does not support, or if a ``do`` action has a body the
+            emitter cannot emit.
     """
     return StatechartBuilder(model, state_def_qn).build()
