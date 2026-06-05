@@ -6,7 +6,7 @@ import syside
 from sysml2frost.explore import iter_model_elements
 from sysml2frost.loader import load_syside_model
 
-SM_EXAMPLES_DIR = Path(__file__).resolve().parents[2] / "models" / "sm-examples"
+SM_EXAMPLES_DIR = Path(__file__).resolve().parents[3] / "models" / "sm-examples"
 
 
 @dataclass(frozen=True)

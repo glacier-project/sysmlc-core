@@ -13,11 +13,9 @@ from sismic.model import (
 )
 
 from sysml2frost.explore.model_queries import SysideModelQueries
-from sysml2frost.sismic.py_emitter import (
-    emit_assignment,
-    emit_expression,
-    emit_send,
-)
+
+from ..python.py_codegen import join_emitted_actions
+from .sismic_py_codegen import SismicPyCodeGen
 
 
 def _nested_attributes(
@@ -142,6 +140,7 @@ def _bind_value(
     attr: syside.AttributeUsage,
     compiler: syside.Compiler,
     stdlib: syside.Stdlib,
+    code_gen: SismicPyCodeGen,
 ) -> str | None:
     """Build the Python expression for an attribute's runtime value.
 
@@ -160,6 +159,7 @@ def _bind_value(
         attr: The attribute usage to bind.
         compiler: The syside compiler used to evaluate quantity values.
         stdlib: The stdlib handle the compiler needs for quantity units.
+        code_gen: The code generator to emit initializer expressions with.
 
     Returns:
         A Python expression constructing the attribute's runtime value, or
@@ -174,7 +174,7 @@ def _bind_value(
     # Scalar: not nested.
     if not nested:
         expr = attr.feature_value_expression
-        return emit_expression(expr) if expr is not None else None
+        return code_gen.emit_expression(expr) if expr is not None else None
 
     # Scalar quantity.
     if _is_scalar_quantity(attr):
@@ -184,7 +184,7 @@ def _bind_value(
     fields: list[str] = []
     for field in nested:
         assert field.name is not None
-        value = _bind_value(field, compiler, stdlib)
+        value = _bind_value(field, compiler, stdlib, code_gen)
         if value is None:
             raise ValueError(
                 f"Composite attribute field {field.name!r} has no value "
@@ -249,6 +249,7 @@ class StatechartBuilder:
         self._done_finals: set[str]
         self._compiler: syside.Compiler
         self._stdlib: syside.Stdlib
+        self._code_gen = SismicPyCodeGen()
 
     def build(self) -> Statechart:
         """Construct and return the sismic Statechart.
@@ -305,7 +306,12 @@ class StatechartBuilder:
         needs_import = False
         for attr in self._state_def.owned_attributes.collect():
             assert attr.name is not None
-            value = _bind_value(attr, self._compiler, self._stdlib)
+            value = _bind_value(
+                attr,
+                self._compiler,
+                self._stdlib,
+                self._code_gen,
+            )
             if value is None:
                 continue
             if _is_composite(attr):
@@ -462,13 +468,15 @@ class StatechartBuilder:
             candidates: list[syside.Feature] = [action]
         else:
             candidates = action.owned_features.collect()
-        statements: list[str] = []
+        actions: list[str] = []
         for candidate in candidates:
-            if isinstance(candidate, syside.AssignmentActionUsage):
-                statements.append(emit_assignment(candidate))
-            elif isinstance(candidate, syside.SendActionUsage):
-                statements.append(emit_send(candidate))
-        return "\n".join(statements) or None
+            if not isinstance(candidate, syside.ActionUsage):
+                continue
+            emitted = self._code_gen.emit_action(candidate)
+            actions.append(emitted)
+
+        emitted_action = join_emitted_actions(actions)
+        return emitted_action if emitted_action else None
 
     def _on_entry_statements(
         self, container: syside.StateDefinition | syside.StateUsage
@@ -736,7 +744,7 @@ class StatechartBuilder:
         expr = trans.guard_expression
         if expr is None:
             return None
-        return emit_expression(expr)
+        return self._code_gen.emit_expression(expr)
 
     def _trigger_invocation(
         self, trans: syside.TransitionUsage
@@ -803,7 +811,7 @@ class StatechartBuilder:
                 syside.FeatureChainExpression,
             ),
         ):
-            return f"after({emit_expression(duration)})"
+            return f"after({self._code_gen.emit_expression(duration)})"
         seconds = self._evaluate_duration_seconds(invocation)
         return f"after({seconds!r})"
 
