@@ -16,7 +16,7 @@ from sysml2frost import configure_logging
 from sysml2frost.explore import iter_model_elements
 from sysml2frost.loader import load_syside_model
 from sysml2frost.logging_utils import PACKAGE_LOGGER_NAME
-from sysml2frost.sismic import build_statechart
+from sysml2frost.generator.sismic import build_statechart
 
 if TYPE_CHECKING:
     from collections import Counter

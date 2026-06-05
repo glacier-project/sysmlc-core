@@ -11,11 +11,8 @@ from sismic.model import (
 )
 
 from sysml2frost.explore.model_queries import SysideModelQueries
-from sysml2frost.sismic.py_emitter import (
-    emit_assignment,
-    emit_expression,
-    emit_send,
-)
+from .sismic_py_codegen import SismicPyCodeGen
+from ..python.py_codegen import join_emitted_actions
 
 
 def _nested_attributes(
@@ -41,7 +38,9 @@ def _nested_attributes(
     return nested
 
 
-def _bind_value(attr: syside.AttributeUsage) -> str | None:
+def _bind_value(
+    attr: syside.AttributeUsage, code_gen: SismicPyCodeGen
+) -> str | None:
     """Build the Python expression for an attribute's runtime value.
 
     A structured attribute becomes a ``SimpleNamespace(...)`` built
@@ -65,11 +64,11 @@ def _bind_value(attr: syside.AttributeUsage) -> str | None:
         value_expression = attr.feature_value_expression
         if value_expression is None:
             return None
-        return emit_expression(value_expression)
+        return code_gen.emit_expression(value_expression)
     fields: list[str] = []
     for field in nested:
         assert field.name is not None
-        value = _bind_value(field)
+        value = _bind_value(field, code_gen)
         if value is None:
             raise ValueError(
                 f"Structured attribute field {field.name!r} has no value "
@@ -127,6 +126,7 @@ class StatechartBuilder:
         self._state_def: syside.StateDefinition
         self._statechart: Statechart
         self._done_finals: set[str]
+        self._code_gen = SismicPyCodeGen()
 
     def build(self) -> Statechart:
         """Construct and return the sismic Statechart.
@@ -180,7 +180,7 @@ class StatechartBuilder:
             assert attr.name is not None
             if _nested_attributes(attr):
                 needs_import = True
-            value = _bind_value(attr)
+            value = _bind_value(attr, self._code_gen)
             if value is not None:
                 lines.append(f"{attr.name} = {value}")
         if needs_import:
@@ -334,13 +334,16 @@ class StatechartBuilder:
             candidates: list[syside.Feature] = [action]
         else:
             candidates = action.owned_features.collect()
-        statements: list[str] = []
+        actions: list[str] = []
+        unsupported: list[str] = []
         for candidate in candidates:
-            if isinstance(candidate, syside.AssignmentActionUsage):
-                statements.append(emit_assignment(candidate))
-            elif isinstance(candidate, syside.SendActionUsage):
-                statements.append(emit_send(candidate))
-        return "\n".join(statements) or None
+            if not isinstance(candidate, syside.ActionUsage):
+                continue
+            emitted = self._code_gen.emit_action(candidate)
+            actions.append(emitted)
+
+        emitted_action = join_emitted_actions(actions)
+        return emitted_action if emitted_action else None
 
     def _on_entry_statements(
         self, container: syside.StateDefinition | syside.StateUsage
@@ -594,7 +597,7 @@ class StatechartBuilder:
         expr = trans.guard_expression
         if expr is None:
             return None
-        return emit_expression(expr)
+        return self._code_gen.emit_expression(expr)
 
     def _resolve_initial(
         self, container: syside.StateDefinition | syside.StateUsage

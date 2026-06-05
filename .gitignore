@@ -172,3 +172,4 @@ scratch/
 
 # Generated artifacts
 output/
+.envrc
