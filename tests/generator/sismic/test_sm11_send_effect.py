@@ -5,8 +5,8 @@ from typing import TYPE_CHECKING
 import pytest
 from sismic.interpreter import Interpreter
 
-from sysml2frost.loader import load_syside_model
 from sysml2frost.generator.sismic import build_statechart
+from sysml2frost.loader import load_syside_model
 from tests.generator.sismic.conftest import SM_EXAMPLES_BY_DIR
 
 if TYPE_CHECKING:
@@ -33,19 +33,19 @@ def model() -> syside.Model:
 def test_send_effect_emits_event(model: syside.Model) -> None:
     """A ``do send new Ping()`` effect emits a sismic ``send('Ping')`` call."""
     sc = build_statechart(model, "SM11::MachineSelfSend")
-    assert _action_of(sc, "idle", "armed") == "send(\"Ping\")"
+    assert _action_of(sc, "idle", "armed") == 'send("Ping")'
 
 
 def test_payload_args_emitted_as_kwargs(model: syside.Model) -> None:
     """Positional payload args become ``send()`` kwargs by attribute name."""
     sc = build_statechart(model, "SM11::MachinePayload")
-    assert _action_of(sc, "idle", "armed") == "send(\"Reading\", value=current)"
+    assert _action_of(sc, "idle", "armed") == 'send("Reading", value=current)'
 
 
 def test_string_payload_arg_emitted_as_kwarg(model: syside.Model) -> None:
     """A string payload arg is emitted as a quoted Python kwarg."""
     sc = build_statechart(model, "SM11::MachineStringPayload")
-    assert _action_of(sc, "idle", "armed") == "send(\"Note\", text=\"hi\")"
+    assert _action_of(sc, "idle", "armed") == 'send("Note", text="hi")'
 
 
 def test_mixed_effect_emits_assign_then_send(model: syside.Model) -> None:
@@ -54,8 +54,8 @@ def test_mixed_effect_emits_assign_then_send(model: syside.Model) -> None:
     action = _action_of(sc, "idle", "armed")
     assert action is not None
     assert "count = count + 1" in action
-    assert "send(\"Ping\")" in action
-    assert action.index("count = count + 1") < action.index("send(\"Ping\")")
+    assert 'send("Ping")' in action
+    assert action.index("count = count + 1") < action.index('send("Ping")')
 
 
 def test_self_send_drives_accept_end_to_end(model: syside.Model) -> None:

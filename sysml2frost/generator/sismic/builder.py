@@ -11,8 +11,9 @@ from sismic.model import (
 )
 
 from sysml2frost.explore.model_queries import SysideModelQueries
-from .sismic_py_codegen import SismicPyCodeGen
+
 from ..python.py_codegen import join_emitted_actions
+from .sismic_py_codegen import SismicPyCodeGen
 
 
 def _nested_attributes(
@@ -49,6 +50,7 @@ def _bind_value(
 
     Args:
         attr: The attribute usage to bind.
+        code_gen: The code generator to emit initializer expressions with.
 
     Returns:
         A Python expression constructing the attribute's runtime value
@@ -335,7 +337,6 @@ class StatechartBuilder:
         else:
             candidates = action.owned_features.collect()
         actions: list[str] = []
-        unsupported: list[str] = []
         for candidate in candidates:
             if not isinstance(candidate, syside.ActionUsage):
                 continue

@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import logging
-from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Final
 
 import syside
@@ -42,9 +41,11 @@ _COMPARISON_OPERATORS: Final[frozenset[syside.Operator]] = frozenset(
     }
 )
 
+
 def join_emitted_actions(actions: list[str]) -> str:
     """Join emitted action sources in declaration order."""
     return "\n".join(action for action in actions if action)
+
 
 def _assignment_target_base(
     assign: syside.AssignmentActionUsage,
@@ -78,6 +79,7 @@ def _assignment_target_parameter(
         if feature.name == "target":
             return feature
     return None
+
 
 class PyCodeGenError(ValueError):
     """Raised when the PyCodeGen encounters an unsupported node or other issue.
@@ -115,19 +117,26 @@ class PyCodeGenContext:
     information through the generation process, such as references to the
     model, symbol tables, or configuration options.
     """
+
     indentation_length: int = 4
     string_delimiter: str = '"'
 
-class PyCodeGen(ABC):
+
+class PyCodeGen:
     """Generates Python source code from a SysML AST node.
 
-    This class is designed to be extended with methods for handling specific 
-    node types, and to be instantiated and called from a separate driver that 
-    traverses the model and dispatches to the generator methods as needed. 
-    The generator methods should raise PyCodeGenError when they encounter 
-    unsupported nodes or other issues, and may include the offending node in 
+    This class is designed to be extended with methods for handling specific
+    node types, and to be instantiated and called from a separate driver that
+    traverses the model and dispatches to the generator methods as needed.
+    The generator methods should raise PyCodeGenError when they encounter
+    unsupported nodes or other issues, and may include the offending node in
     the exception for better error reporting.
+
+    Args:
+        context: A PyCodeGenContext instance carrying information through the
+            generation process, or None to use the default context.
     """
+
     def __init__(self, context: PyCodeGenContext | None = None) -> None:
         self._context = context or PyCodeGenContext()
 
@@ -171,7 +180,9 @@ class PyCodeGen(ABC):
             raise ValueError("AssignmentActionUsage has no value expression")
         return f"{target} = {self.emit_expression(value)}"
 
-    def emit_assignment_target(self, assign: syside.AssignmentActionUsage) -> str:
+    def emit_assignment_target(
+        self, assign: syside.AssignmentActionUsage
+    ) -> str:
         """Translate an assignment target to a Python assignment target.
 
         Args:
@@ -192,27 +203,25 @@ class PyCodeGen(ABC):
             return target.name
         return f"{base}.{target.name}"
 
-
     def emit_action(self, action: syside.ActionUsage) -> str:
         """Translate a supported action usage to typed emitted Python."""
         if isinstance(action, syside.AssignmentActionUsage):
             return self.emit_assignment(action)
         if isinstance(action, syside.SendActionUsage):
             return self.emit_send(action)
-        raise PyCodeGenError(
-            "unsupported action type", node=action
-        )
+        raise PyCodeGenError("unsupported action type", node=action)
 
     def emit_send(self, send: syside.SendActionUsage) -> str:
         """Translate a send action to the appropriate Python source.
 
-        This method is abstract and must be implemented by subclasses to handle 
+        This method is abstract and must be implemented by subclasses to handle
         the specific translation logic for send actions, which may involve
-        different patterns or libraries depending on the target Python 
+        different patterns or libraries depending on the target Python
         environment or framework being used.
 
         Args:
             send: The ``send new <Type>(<args>)`` action to translate.
+
         Returns:
             Python source for the send action.
         """
@@ -256,7 +265,6 @@ class PyCodeGen(ABC):
 
         raise ValueError(f"unsupported expression node: {type(expr).__name__}")
 
-
     def _emit_literal_boolean(self, expr: syside.LiteralBoolean) -> str:
         """Emit a boolean literal as ``"True"`` or ``"False"``.
 
@@ -267,7 +275,6 @@ class PyCodeGen(ABC):
             Python source for ``expr``.
         """
         return "True" if expr.value else "False"
-
 
     def _emit_literal_integer(self, expr: syside.LiteralInteger) -> str:
         """Emit an integer literal as its Python ``str``.
@@ -282,7 +289,6 @@ class PyCodeGen(ABC):
         """
         return str(expr.value)
 
-
     def _emit_literal_rational(self, expr: syside.LiteralRational) -> str:
         """Emit a rational literal as its Python ``repr``.
 
@@ -293,7 +299,6 @@ class PyCodeGen(ABC):
             Python source for ``expr``.
         """
         return repr(expr.value)
-
 
     def _emit_literal_string(self, expr: syside.LiteralString) -> str:
         """Emit a string literal as its Python ``repr``.
@@ -310,8 +315,9 @@ class PyCodeGen(ABC):
         quote = self._context.string_delimiter
         return f"{quote}{expr.value}{quote}"
 
-
-    def _emit_feature_reference(self, expr: syside.FeatureReferenceExpression) -> str:
+    def _emit_feature_reference(
+        self, expr: syside.FeatureReferenceExpression
+    ) -> str:
         """Emit a bare feature reference as the referent's simple name.
 
         Sismic resolves the name against the interpreter context at
@@ -328,9 +334,10 @@ class PyCodeGen(ABC):
         """
         ref = expr.referent
         if ref is None or ref.name is None:
-            raise ValueError("FeatureReferenceExpression has no resolved referent")
+            raise ValueError(
+                "FeatureReferenceExpression has no resolved referent"
+            )
         return ref.name
-
 
     def _emit_feature_chain(self, expr: syside.FeatureChainExpression) -> str:
         """Emit a chained reference as dotted Python attribute access.
@@ -365,7 +372,6 @@ class PyCodeGen(ABC):
             segments.append(feature.name)
         return ".".join(segments)
 
-
     def _emit_operator(
         self,
         expr: syside.OperatorExpression,
@@ -396,7 +402,6 @@ class PyCodeGen(ABC):
             f"unsupported operator: {op!r} with {len(operands)} operand(s)"
         )
 
-
     def _emit_binary(
         self,
         expr: syside.OperatorExpression,
@@ -416,8 +421,9 @@ class PyCodeGen(ABC):
         py_op, prec = _BINARY_OPERATORS[expr.operator]
         operands = expr.operands.collect()
         if expr.operator in _COMPARISON_OPERATORS:
-            # Comparisons are non-associative in Python: 'a < b < c' is a single expression,
-            # not '(a < b) < c'. So both sides get +1 to force parens around equal-precedence sub-expressions.
+            # Comparisons are non-associative in Python: 'a < b < c' is a
+            # single expression, not '(a < b) < c'. So both sides get +1 to
+            # force parens around equal-precedence sub-expressions.
             lhs_parent_precedence = prec + 1
             rhs_parent_precedence = prec + 1
         else:
@@ -430,7 +436,6 @@ class PyCodeGen(ABC):
         rhs = self._emit(operands[1], rhs_parent_precedence)
         body = f"{lhs} {py_op} {rhs}"
         return f"({body})" if prec < parent_precedence else body
-
 
     def _emit_unary(
         self,

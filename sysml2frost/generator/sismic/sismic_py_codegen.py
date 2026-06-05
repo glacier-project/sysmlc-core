@@ -1,12 +1,15 @@
 from __future__ import annotations
+
 from typing import override
 
-from syside import Model
 import syside
+
 from ..python.py_codegen import PyCodeGen, PyCodeGenContext
 
 
 class SismicPyCodeGen(PyCodeGen):
+    """Python code generator for Sismic statecharts."""
+
     def __init__(self, context: PyCodeGenContext | None = None) -> None:
         super().__init__(context)
 
@@ -55,7 +58,7 @@ class SismicPyCodeGen(PyCodeGen):
         for index, argument in enumerate(arguments):
             if index >= len(attributes):
                 raise ValueError(
-                    "send payload has more arguments than the type has attributes"
+                    "send payload has more args than the type has attributes"
                 )
             name = attributes[index].name
             if name is None:
