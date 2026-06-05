@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import syside
 from sismic.model import (
     BasicState,
@@ -39,41 +41,153 @@ def _nested_attributes(
     return nested
 
 
+def _is_scalar_quantity(attr: syside.AttributeUsage) -> bool:
+    """Whether ``attr``'s type is a scalar quantity value.
+
+    A scalar quantity value (like ``DurationValue``) is a subtype of
+    ``Quantities::ScalarQuantityValue``: it carries a unit and reduces to
+    one number once that unit is normalized to SI base units, so
+    ``2 [min]`` becomes ``120.0``.
+
+    Args:
+        attr: The attribute usage to inspect.
+
+    Returns:
+        ``True`` when an ``AttributeDefinition`` typing ``attr`` is a
+        subtype of ``Quantities::ScalarQuantityValue``.
+    """
+    for definition in attr.attribute_definitions.collect():
+        if isinstance(
+            definition, syside.AttributeDefinition
+        ) and definition.specializes(("Quantities", "ScalarQuantityValue")):
+            return True
+    return False
+
+
+def _evaluate_to_number(
+    expr: syside.Expression,
+    compiler: syside.Compiler,
+    stdlib: syside.Stdlib,
+) -> int | float | None:
+    """Evaluate ``expr`` to a number in SI base units, or ``None``.
+
+    Uses the syside compiler's quantity evaluation, so a quantity
+    expression collapses to its SI base scalar (``2 [min]`` -> ``120.0``).
+
+    Args:
+        expr: The expression to evaluate.
+        compiler: The syside compiler used to evaluate the expression.
+        stdlib: The stdlib handle the compiler needs for quantity units.
+
+    Returns:
+        The evaluated ``int`` or ``float``, or ``None`` when the result is
+        not a number (a ``bool`` does not count).
+    """
+    value, _report = compiler.evaluate(
+        expr, stdlib=stdlib, experimental_quantities=True
+    )
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return value
+
+
+def _scalar_quantity_value(
+    attr: syside.AttributeUsage,
+    compiler: syside.Compiler,
+    stdlib: syside.Stdlib,
+) -> str | None:
+    """Return a scalar quantity's value in SI base units, or ``None``.
+
+    A quantity with a value collapses to one number in SI base units (so
+    ``2 [min]`` becomes ``120.0``); one with no value yields ``None``, left
+    unseeded for the host to bind at runtime like a scalar with no value.
+
+    Args:
+        attr: The scalar quantity attribute to evaluate.
+        compiler: The syside compiler used to evaluate the value.
+        stdlib: The stdlib handle the compiler needs for quantity units.
+
+    Returns:
+        The SI-base scalar as a Python literal (e.g. ``"120.0"``), or
+        ``None`` when the attribute carries no value.
+    """
+    value_expression = attr.feature_value_expression
+    if value_expression is None:
+        return None
+    number = _evaluate_to_number(value_expression, compiler, stdlib)
+    assert number is not None
+    return repr(float(number))
+
+
+def _is_composite(attr: syside.AttributeUsage) -> bool:
+    """Whether ``attr`` binds to a ``SimpleNamespace`` of named fields.
+
+    True for a structured attribute that is not a scalar quantity - the
+    one shape ``_bind_value`` renders as ``SimpleNamespace(...)``, and so
+    the one that needs the ``from types import SimpleNamespace`` preamble
+    line.
+
+    Args:
+        attr: The attribute usage to inspect.
+
+    Returns:
+        ``True`` when ``attr`` is structured and not a scalar quantity.
+    """
+    return bool(_nested_attributes(attr)) and not _is_scalar_quantity(attr)
+
+
 def _bind_value(
-    attr: syside.AttributeUsage, code_gen: SismicPyCodeGen
+    attr: syside.AttributeUsage,
+    compiler: syside.Compiler,
+    stdlib: syside.Stdlib,
+    code_gen: SismicPyCodeGen,
 ) -> str | None:
     """Build the Python expression for an attribute's runtime value.
 
-    A structured attribute becomes a ``SimpleNamespace(...)`` built
-    recursively from its fields; a scalar attribute becomes its
-    initializer expression.
+    The result depends on the attribute's runtime shape:
+    - a **scalar** attribute becomes its initializer expression;
+    - a **scalar quantity** attribute (``DurationValue`` and the like)
+      becomes that value in SI base units (so ``2 [min]`` becomes
+      ``120.0``);
+    - a **composite** attribute becomes a ``SimpleNamespace(...)``
+      built recursively from those fields.
+
+    A scalar or scalar-quantity attribute with no value yields ``None``;
+    the caller leaves it unseeded for the host to bind at runtime.
 
     Args:
         attr: The attribute usage to bind.
+        compiler: The syside compiler used to evaluate quantity values.
+        stdlib: The stdlib handle the compiler needs for quantity units.
         code_gen: The code generator to emit initializer expressions with.
 
     Returns:
-        A Python expression constructing the attribute's runtime value
-        (e.g. ``0.5`` or ``SimpleNamespace(x=0.5)``), or ``None`` when a
-        scalar attribute has no initializer.
+        A Python expression constructing the attribute's runtime value, or
+        ``None`` when a scalar or scalar-quantity attribute has no value.
 
     Raises:
-        ValueError: If a structured field has no value to bind, or if a
+        ValueError: If a composite field has no value to bind, or if a
             value expression is a node kind the emitter does not support.
     """
     nested = _nested_attributes(attr)
+
+    # Scalar: not nested.
     if not nested:
-        value_expression = attr.feature_value_expression
-        if value_expression is None:
-            return None
-        return code_gen.emit_expression(value_expression)
+        expr = attr.feature_value_expression
+        return code_gen.emit_expression(expr) if expr is not None else None
+
+    # Scalar quantity.
+    if _is_scalar_quantity(attr):
+        return _scalar_quantity_value(attr, compiler, stdlib)
+
+    # Composite.
     fields: list[str] = []
     for field in nested:
         assert field.name is not None
-        value = _bind_value(field, code_gen)
+        value = _bind_value(field, compiler, stdlib, code_gen)
         if value is None:
             raise ValueError(
-                f"Structured attribute field {field.name!r} has no value "
+                f"Composite attribute field {field.name!r} has no value "
                 "to bind; give it a default."
             )
         fields.append(f"{field.name}={value}")
@@ -97,14 +211,19 @@ class StatechartBuilder:
       ``CompoundState``, recursively, or an ``OrthogonalState`` when it
       is ``parallel`` (its substates become concurrent regions);
     - each owned ``AttributeUsage`` with an initializer -> one
-      ``Statechart.preamble`` line: an assignment for a scalar, a
-      ``SimpleNamespace`` binding for a structured attribute;
+      ``Statechart.preamble`` line: the initializer for a scalar, the
+      SI-base value for a quantity (``DurationValue`` and the like), a
+      ``SimpleNamespace`` binding for a composite;
     - a state's ``entry`` and ``do`` actions (each an ``assign`` and/or
       ``send`` body) -> its ``on_entry`` statements, entry first then do;
       its ``exit`` action -> its ``on_exit`` statements;
     - a ``TransitionUsage`` -> a ``Transition`` whose ``event`` /
       ``guard`` / ``action`` carry any accepter, ``if`` guard, and ``do``
-      effect (an ``assign`` mutation and/or a ``send`` event-raise);
+      effect. A signal accepter (``accept Sig via port``) becomes the
+      ``event``; a relative time trigger (``accept after <duration>``)
+      becomes an ``after(...)`` guard, AND-combined with any ``if`` guard;
+      the ``do`` effect becomes the ``action`` (an ``assign`` mutation
+      and/or a ``send`` event-raise);
     - a transition target of ``done`` -> a ``FinalState`` synthesized in
       the source's containing scope.
 
@@ -128,6 +247,8 @@ class StatechartBuilder:
         self._state_def: syside.StateDefinition
         self._statechart: Statechart
         self._done_finals: set[str]
+        self._compiler: syside.Compiler
+        self._stdlib: syside.Stdlib
         self._code_gen = SismicPyCodeGen()
 
     def build(self) -> Statechart:
@@ -140,15 +261,19 @@ class StatechartBuilder:
             ValueError: If ``state_def_qn`` does not resolve to a
                 ``StateDefinition``, if any composite's entry succession
                 cannot be resolved, if a transition is missing its source
-                or target, or if a guard, attribute initializer, or
-                entry/exit/effect/do assignment uses an expression shape
-                the emitter does not support, if a ``do`` action has a body
-                the emitter cannot emit, or if a structured attribute has
-                a field with no value to bind.
+                or target, if a transition's time trigger is an unsupported
+                kind (``at``/``when``) or its ``after`` duration does not
+                evaluate to a finite, non-negative number, or if a guard,
+                attribute initializer, or entry/exit/effect/do assignment
+                uses an expression shape the emitter does not support, if a
+                ``do`` action has a body the emitter cannot emit, or if a
+                composite attribute has a field with no value to bind.
         """
         self._state_def = self._queries.resolve_element_by_qn(
             syside.StateDefinition, self._state_def_qn
         )
+        self._compiler = syside.Compiler()
+        self._stdlib = syside.Stdlib(self._model.index)
         root_name = self._state_def.name
         assert root_name is not None
         self._statechart = Statechart(
@@ -165,7 +290,8 @@ class StatechartBuilder:
         """Build the sismic preamble that initializes the owned attributes.
 
         A scalar attribute with an initializer becomes one assignment
-        line. A structured attribute is bound to a ``SimpleNamespace``.
+        line; a quantity attribute is evaluated to its value in SI base
+        units; a composite attribute is bound to a ``SimpleNamespace``.
 
         Returns:
             Newline-joined preamble lines, or ``""`` when no attribute is
@@ -173,18 +299,24 @@ class StatechartBuilder:
 
         Raises:
             ValueError: If an initializer is an expression shape
-                ``emit_expression`` does not support, or if a structured
+                ``emit_expression`` does not support, or if a composite
                 attribute has a field with no value to bind.
         """
         lines: list[str] = []
         needs_import = False
         for attr in self._state_def.owned_attributes.collect():
             assert attr.name is not None
-            if _nested_attributes(attr):
+            value = _bind_value(
+                attr,
+                self._compiler,
+                self._stdlib,
+                self._code_gen,
+            )
+            if value is None:
+                continue
+            if _is_composite(attr):
                 needs_import = True
-            value = _bind_value(attr, self._code_gen)
-            if value is not None:
-                lines.append(f"{attr.name} = {value}")
+            lines.append(f"{attr.name} = {value}")
         if needs_import:
             lines.insert(0, "from types import SimpleNamespace")
         return "\n".join(lines)
@@ -411,15 +543,15 @@ class StatechartBuilder:
                 "references another action; only inline `assign`/`send` "
                 "do-action bodies are supported."
             )
-        for feature in do_action.owned_features.collect():
-            if isinstance(feature, syside.ActionUsage) and not isinstance(
-                feature,
+        for action in do_action.nested_actions.collect():
+            if not isinstance(
+                action,
                 (syside.AssignmentActionUsage, syside.SendActionUsage),
             ):
                 raise ValueError(
                     f"State {container.qualified_name} has a `do` action "
                     f"whose body contains an unsupported "
-                    f"{type(feature).__name__}; only `assign` and `send` "
+                    f"{type(action).__name__}; only `assign` and `send` "
                     "do-action bodies are supported."
                 )
         return self._extract_action_statements(do_action)
@@ -432,12 +564,13 @@ class StatechartBuilder:
         Walks ``container`` and its composite substates, so transitions
         declared inside nested composites are added too. A transition
         with no accepter becomes an eventless
-        sismic ``Transition``; an ``accept E via port`` accepter becomes
-        the sismic ``Transition.event``; an ``if expr`` guard becomes the
-        emitted ``Transition.guard``; a ``do action { assign ... }``
-        effect becomes the emitted ``Transition.action``. A transition
-        targeting ``done`` is pointed at a ``FinalState`` synthesized in
-        ``container``'s scope.
+        sismic ``Transition``; an ``accept E via port`` signal accepter
+        becomes the sismic ``Transition.event``; an ``accept after
+        <duration>`` relative time trigger becomes an ``after(<seconds>)``
+        guard; an ``if expr`` guard becomes the emitted guard, AND-combined
+        with any time guard; a ``do action { assign ... }`` effect becomes
+        the emitted ``Transition.action``. A transition targeting ``done``
+        is pointed at a ``FinalState`` synthesized in ``container``'s scope.
 
         Args:
             container: The root state definition or a composite state
@@ -445,13 +578,18 @@ class StatechartBuilder:
 
         Raises:
             ValueError: If a transition is missing its source or target,
-                if a guard contains an expression shape the emitter does
-                not support, or if an effect assignment has an unsupported
-                right-hand-side expression shape.
+                if a time trigger is an unsupported kind (``at``/``when``)
+                or its ``after`` duration does not evaluate to a finite,
+                non-negative number, if a guard contains an expression
+                shape the emitter does not support, or if an effect
+                assignment has an unsupported right-hand-side expression
+                shape.
         """
         for trans in self._container_transitions(container):
             event = self._extract_event_name(trans)
-            guard = self._extract_guard_expression(trans)
+            time_guard = self._extract_time_guard(trans)
+            condition_guard = self._extract_guard_expression(trans)
+            guard = self._combine_guards(time_guard, condition_guard)
             action = self._extract_action_statements(trans.effect_action)
             self._statechart.add_transition(
                 Transition(
@@ -556,15 +694,23 @@ class StatechartBuilder:
         return final_name
 
     def _extract_event_name(self, trans: syside.TransitionUsage) -> str | None:
-        """Return the accepter payload type's simple name, or ``None``.
+        """Return the signal accepter's payload type simple name, or ``None``.
+
+        A time or change trigger (``accept after``/``at``/``when``) is not a
+        signal event: it carries a ``TriggerInvocationExpression`` payload
+        and is handled by the time-guard branch, so this returns ``None``
+        for it.
 
         Args:
             trans: SysML transition usage to inspect.
 
         Returns:
-            The payload type's simple name when the transition has an
-            ``accept`` accepter; ``None`` for an eventless transition.
+            The payload type's simple name when the transition has a signal
+            ``accept`` accepter; ``None`` for a time/change trigger or an
+            eventless transition.
         """
+        if self._trigger_invocation(trans) is not None:
+            return None
         triggers = list(trans.trigger_actions)
         if not triggers:
             return None
@@ -599,6 +745,133 @@ class StatechartBuilder:
         if expr is None:
             return None
         return self._code_gen.emit_expression(expr)
+
+    def _trigger_invocation(
+        self, trans: syside.TransitionUsage
+    ) -> syside.TriggerInvocationExpression | None:
+        """Return the transition's trigger-invocation payload, or ``None``.
+
+        A time or change trigger (``accept after``/``at``/``when``) carries
+        a ``TriggerInvocationExpression`` as its accepter payload argument;
+        a signal accept or an eventless transition does not.
+
+        Args:
+            trans: SysML transition usage to inspect.
+
+        Returns:
+            The ``TriggerInvocationExpression`` when the accepter is a
+            time/change trigger; ``None`` for a signal accept or an
+            eventless transition.
+        """
+        triggers = list(trans.trigger_actions)
+        if not triggers:
+            return None
+        payload = triggers[0].payload_argument
+        if isinstance(payload, syside.TriggerInvocationExpression):
+            return payload
+        return None
+
+    def _extract_time_guard(self, trans: syside.TransitionUsage) -> str | None:
+        """Return the ``after(...)`` guard for a relative time trigger.
+
+        Only the relative form (``accept after <duration>``) is supported,
+        mapped to sismic's state-local ``after`` guard. An attribute
+        reference, bare (``pickDuration``) or chained (``cfg.delay``), is
+        kept live by name (its attribute is seeded in the preamble).
+
+        Args:
+            trans: SysML transition usage to inspect.
+
+        Returns:
+            ``"after(<name>)"`` for a bare or chained attribute-reference
+            duration, ``"after(<seconds>)"`` for a literal duration, or
+            ``None`` when the transition has no trigger invocation (a signal
+            accept or an eventless transition).
+
+        Raises:
+            ValueError: If the trigger is an absolute ``at`` or change
+                ``when`` trigger, or if a literal or computed ``after``
+                duration does not evaluate to a finite, non-negative number.
+        """
+        invocation = self._trigger_invocation(trans)
+        if invocation is None:
+            return None
+        if invocation.kind is not syside.TriggerKind.After:
+            raise ValueError(
+                f"Transition in state def {self._state_def.qualified_name} "
+                f"uses an unsupported {invocation.kind!s} trigger; only the "
+                "relative `accept after <duration>` time trigger is "
+                "supported."
+            )
+        duration = invocation.arguments.collect()[0]
+        if isinstance(
+            duration,
+            (
+                syside.FeatureReferenceExpression,
+                syside.FeatureChainExpression,
+            ),
+        ):
+            return f"after({self._code_gen.emit_expression(duration)})"
+        seconds = self._evaluate_duration_seconds(invocation)
+        return f"after({seconds!r})"
+
+    def _evaluate_duration_seconds(
+        self, invocation: syside.TriggerInvocationExpression
+    ) -> float:
+        """Evaluate a relative time trigger's duration to SI base seconds.
+
+        Uses the syside compiler's quantity evaluation.
+
+        Args:
+            invocation: The ``after`` trigger invocation to evaluate.
+
+        Returns:
+            The duration in SI base seconds.
+
+        Raises:
+            ValueError: If the duration does not evaluate to a finite,
+                non-negative number (for example a negative or non-finite
+                literal duration).
+        """
+        number = _evaluate_to_number(invocation, self._compiler, self._stdlib)
+        if number is None:
+            raise ValueError(
+                f"Transition in state def {self._state_def.qualified_name} "
+                "has an `accept after` duration that does not evaluate to a "
+                "number; the duration must be a DurationValue with a "
+                "resolvable value."
+            )
+        seconds = float(number)
+        if not math.isfinite(seconds) or seconds < 0:
+            raise ValueError(
+                f"Transition in state def {self._state_def.qualified_name} "
+                f"has an `accept after` duration that evaluates to {seconds!r}"
+                "; the duration must be a finite, non-negative DurationValue."
+            )
+        return seconds
+
+    def _combine_guards(
+        self, time_guard: str | None, condition_guard: str | None
+    ) -> str | None:
+        """Combine a time guard and an ``if`` guard into one guard string.
+
+        A transition may carry both a relative time trigger and an ``if``
+        guard; SysML fires it only once the timer has elapsed and the guard
+        holds, so the two are ANDed.
+
+        Args:
+            time_guard: The ``after(<seconds>)`` guard, or ``None``.
+            condition_guard: The emitted ``if`` guard, or ``None``.
+
+        Returns:
+            The combined guard string, the single non-``None`` guard, or
+            ``None`` when neither is present.
+        """
+        if time_guard is not None and condition_guard is not None:
+            return f"{time_guard} and ({condition_guard})"
+        if time_guard is not None:
+            return time_guard
+        return condition_guard
 
     def _resolve_initial(
         self, container: syside.StateDefinition | syside.StateUsage
@@ -655,9 +928,11 @@ def build_statechart(model: syside.Model, state_def_qn: str) -> Statechart:
         ValueError: If ``state_def_qn`` does not resolve to a
             ``StateDefinition``, if any composite's entry succession
             cannot be resolved, if a transition is missing its source or
-            target, if a guard, attribute initializer, or
-            entry/exit/effect/do assignment uses an expression shape the
-            emitter does not support, or if a ``do`` action has a body the
-            emitter cannot emit.
+            target, if a transition's time trigger is an unsupported kind
+            (``at``/``when``) or its ``after`` duration does not evaluate to
+            a finite, non-negative number, if a guard, attribute
+            initializer, or entry/exit/effect/do assignment uses an
+            expression shape the emitter does not support, or if a ``do``
+            action has a body the emitter cannot emit.
     """
     return StatechartBuilder(model, state_def_qn).build()
