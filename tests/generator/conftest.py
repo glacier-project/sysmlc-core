@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any
 
 import pytest
 import syside
@@ -7,7 +8,7 @@ from sysml2frost.loader.syside_loader import load_syside_model
 
 
 @pytest.fixture(params=["'", '"'], ids=["single-quote", "double-quote"])
-def string_delimiter(request: pytest.FixtureRequest) -> str:
+def string_delimiter(request: pytest.FixtureRequest) -> Any:
     return request.param
 
 
