@@ -23,7 +23,7 @@ package SM13 {
 
     // `pickDuration` attribute-reference duration.
     state def MachineAfterAttribute {
-        in attribute pickDuration : DurationValue default 2 [min];
+        attribute pickDuration : DurationValue default 2 [min];
         entry;
             then idle;
         state idle;

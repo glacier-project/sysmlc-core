@@ -23,12 +23,14 @@ def model() -> syside.Model:
 
 
 FIXTURES_DIR = (
-    Path(__file__).resolve().parent / "fixtures" / "sm13-time-trigger-input"
+    Path(__file__).resolve().parent
+    / "fixtures"
+    / "sm13-time-trigger-no-default"
 )
 
 
 @pytest.fixture(scope="module")
-def input_model() -> syside.Model:
+def no_default_model() -> syside.Model:
     return load_syside_model(FIXTURES_DIR)
 
 
@@ -143,21 +145,25 @@ def test_composed_guard_requires_both_timer_and_condition(
     assert "running" in interp.configuration
 
 
-def test_input_duration_is_left_unseeded(
-    input_model: syside.Model,
+def test_no_default_duration_is_left_unseeded(
+    no_default_model: syside.Model,
 ) -> None:
-    """An ``in`` duration with no default: live guard, empty preamble."""
-    sc = build_statechart(input_model, "SM13Input::MachineAfterInput")
+    """A duration attribute with no default: live guard, empty preamble."""
+    sc = build_statechart(
+        no_default_model, "SM13NoDefault::MachineAfterNoDefault"
+    )
     assert sc.preamble == ""
     assert len(sc.transitions) == 1
     assert sc.transitions[0].guard == "after(pickDuration)"
 
 
-def test_input_duration_errors_when_unsupplied(
-    input_model: syside.Model,
+def test_no_default_duration_errors_in_simulation(
+    no_default_model: syside.Model,
 ) -> None:
-    """An unbound ``in`` duration errors when simulated, by design."""
-    sc = build_statechart(input_model, "SM13Input::MachineAfterInput")
+    """A no-default duration errors when simulated -- incomplete, by design."""
+    sc = build_statechart(
+        no_default_model, "SM13NoDefault::MachineAfterNoDefault"
+    )
     interp = Interpreter(sc)
     with pytest.raises(CodeEvaluationError):
         interp.execute()
