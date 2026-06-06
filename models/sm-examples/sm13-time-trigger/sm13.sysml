@@ -10,6 +10,7 @@ package SM13 {
         state idle;
         state running;
         transition first idle accept after 5 [s] then running;
+        transition first running then done;
     }
 
     // A literal duration in minutes.
@@ -19,6 +20,7 @@ package SM13 {
         state idle;
         state running;
         transition first idle accept after 2 [min] then running;
+        transition first running then done;
     }
 
     // `pickDuration` attribute-reference duration.
@@ -29,6 +31,7 @@ package SM13 {
         state idle;
         state running;
         transition first idle accept after pickDuration then running;
+        transition first running then done;
     }
 
     // A chained `holder.delay` duration.
@@ -43,6 +46,7 @@ package SM13 {
         state idle;
         state running;
         transition first idle accept after holder.delay then running;
+        transition first running then done;
     }
 
     // A relative time trigger composed with an `if` guard.
@@ -53,5 +57,6 @@ package SM13 {
         state idle;
         state running;
         transition first idle accept after 5 [s] if ready then running;
+        transition first running then done;
     }
 }
