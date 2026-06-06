@@ -73,7 +73,7 @@ def test_three_level_nesting_recurses(model: syside.Model) -> None:
 def test_name_collision_disambiguated_by_relative_path(
     model: syside.Model,
 ) -> None:
-    """Substates sharing a simple name across composites do not collide."""
+    """Substates sharing a name across composites do not collide."""
     sc = build_statechart(model, "SM08::MachineNameCollision")
     for name in (
         "groupA::active",

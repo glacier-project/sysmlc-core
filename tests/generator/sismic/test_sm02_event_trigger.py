@@ -47,11 +47,11 @@ def test_only_idle_to_running_transition_is_declared(
     assert only.target == "running"
 
 
-def test_transition_event_is_payload_type_simple_name(
+def test_transition_event_is_payload_type_name(
     model: syside.Model,
     state_def_qn: str,
 ) -> None:
-    """The transition's event is the payload type's simple name ``"Tick"``.
+    """The transition's event is the payload type's name ``"Tick"``.
 
     Per SysML v2 OMG spec, §7.17.8 "Accept Action Usages":
 

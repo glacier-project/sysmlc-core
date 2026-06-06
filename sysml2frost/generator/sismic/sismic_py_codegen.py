@@ -18,7 +18,7 @@ class SismicPyCodeGen(PyCodeGen):
         """Translate a send action to a sismic ``send(...)`` call.
 
         Emits ``send('<Event>'[, <field>=<expr>, ...])``: ``<Event>`` is the
-        payload type's simple name; each positional constructor argument
+        payload type's name; each positional constructor argument
         becomes a kwarg named by the payload attribute it binds to, in
         declaration order.
 
