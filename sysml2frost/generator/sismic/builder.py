@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from typing import TYPE_CHECKING
 
 import syside
 from sismic.model import (
@@ -16,6 +17,9 @@ from sysml2frost.explore.model_queries import SysideModelQueries
 
 from ..python.py_codegen import join_emitted_actions
 from .sismic_py_codegen import SismicPyCodeGen
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 
 def _nested_attributes(
@@ -287,11 +291,17 @@ class StatechartBuilder:
         return self._statechart
 
     def _build_preamble(self) -> str:
-        """Build the sismic preamble that initializes the owned attributes.
+        """Build the sismic preamble that initializes every scope's attributes.
 
-        A scalar attribute with an initializer becomes one assignment
-        line; a quantity attribute is evaluated to its value in SI base
-        units; a composite attribute is bound to a ``SimpleNamespace``.
+        Walks the state tree (root state def plus every composite
+        substate) and seeds each owned attribute into sismic's flat
+        context. A scalar attribute with an initializer becomes one
+        assignment line; a quantity attribute is evaluated to its value
+        in SI base units; a composite attribute is bound to a
+        ``SimpleNamespace``.
+
+        Sismic's context is flat: two attributes that share a simple
+        name in different state scopes cannot both be seeded.
 
         Returns:
             Newline-joined preamble lines, or ``""`` when no attribute is
@@ -299,13 +309,27 @@ class StatechartBuilder:
 
         Raises:
             ValueError: If an initializer is an expression shape
-                ``emit_expression`` does not support, or if a composite
-                attribute has a field with no value to bind.
+                ``emit_expression`` does not support, if a composite
+                attribute has a field with no value to bind, or if two
+                attributes in different state scopes share the same
+                name.
         """
         lines: list[str] = []
         needs_import = False
-        for attr in self._state_def.owned_attributes.collect():
+        seen: dict[str, syside.StateDefinition | syside.StateUsage] = {}
+        for scope, attr in self._iter_scope_attributes(self._state_def):
             assert attr.name is not None
+            if attr.name in seen:
+                first = seen[attr.name]
+                raise ValueError(
+                    f"State definition "
+                    f"{self._state_def.qualified_name!s} declares "
+                    f"attribute {attr.name!r} in two scopes "
+                    f"({first.qualified_name!s} and "
+                    f"{scope.qualified_name!s}); sismic's flat "
+                    "namespace cannot represent both. Rename one."
+                )
+            seen[attr.name] = scope
             value = _bind_value(
                 attr,
                 self._compiler,
@@ -358,6 +382,55 @@ class StatechartBuilder:
         if isinstance(container, syside.StateDefinition):
             return container.owned_states.collect()
         return container.nested_states.collect()
+
+    def _scope_attributes(
+        self, container: syside.StateDefinition | syside.StateUsage
+    ) -> list[syside.AttributeUsage]:
+        """Return the attributes directly declared in a state container.
+
+        A ``StateDefinition`` exposes them as ``owned_attributes``; a
+        ``StateUsage`` exposes them as ``nested_attributes``. The split
+        mirrors ``_substates``.
+
+        Args:
+            container: The root state definition or a state usage to
+                read directly-declared attributes from.
+
+        Returns:
+            The container's directly-declared attribute usages, in
+            declaration order; empty when the container declares none.
+        """
+        if isinstance(container, syside.StateDefinition):
+            return container.owned_attributes.collect()
+        return container.nested_attributes.collect()
+
+    def _iter_scope_attributes(
+        self, container: syside.StateDefinition | syside.StateUsage
+    ) -> Iterator[
+        tuple[
+            syside.StateDefinition | syside.StateUsage,
+            syside.AttributeUsage,
+        ]
+    ]:
+        """Yield every ``(scope, attribute)`` pair under ``container``.
+
+        Walks ``container`` and every substate. Each yielded ``scope`` is the
+        state container that directly declares the attribute - used by
+        ``_build_preamble`` to report a collision against both
+        declaration sites.
+
+        Args:
+            container: The root state definition or a state usage to
+                walk from.
+
+        Yields:
+            ``(scope, attribute)`` pairs, where ``scope`` is the
+            container that owns the ``attribute``.
+        """
+        for attr in self._scope_attributes(container):
+            yield container, attr
+        for substate in self._substates(container):
+            yield from self._iter_scope_attributes(substate)
 
     def _container_transitions(
         self, container: syside.StateDefinition | syside.StateUsage
@@ -694,7 +767,7 @@ class StatechartBuilder:
         return final_name
 
     def _extract_event_name(self, trans: syside.TransitionUsage) -> str | None:
-        """Return the signal accepter's payload type simple name, or ``None``.
+        """Return the signal accepter's payload type name, or ``None``.
 
         A time or change trigger (``accept after``/``at``/``when``) is not a
         signal event: it carries a ``TriggerInvocationExpression`` payload
@@ -705,7 +778,7 @@ class StatechartBuilder:
             trans: SysML transition usage to inspect.
 
         Returns:
-            The payload type's simple name when the transition has a signal
+            The payload type's name when the transition has a signal
             ``accept`` accepter; ``None`` for a time/change trigger or an
             eventless transition.
         """

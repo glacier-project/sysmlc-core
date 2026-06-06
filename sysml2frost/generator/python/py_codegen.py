@@ -318,7 +318,7 @@ class PyCodeGen:
     def _emit_feature_reference(
         self, expr: syside.FeatureReferenceExpression
     ) -> str:
-        """Emit a bare feature reference as the referent's simple name.
+        """Emit a bare feature reference as the referent's name.
 
         Sismic resolves the name against the interpreter context at
         evaluate time, so a qualified name would be invalid Python here.
