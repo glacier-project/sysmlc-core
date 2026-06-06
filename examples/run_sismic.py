@@ -3,11 +3,13 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import sismic.io as sio
 import syside
+from sismic.clock import SimulatedClock
 from sismic.exceptions import CodeEvaluationError
 from sismic.helpers import coverage_from_trace
 from sismic.interpreter import Interpreter
@@ -32,6 +34,9 @@ SM_EXAMPLES_DIR = (
 )
 OUTPUT_DIR = Path(__file__).resolve().parent.parent / "output" / "sismic"
 
+# How often the real-time runner polls the interpreter, in seconds.
+REALTIME_POLL_INTERVAL_SECONDS = 0.05
+
 
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
@@ -47,6 +52,27 @@ def parse_args() -> argparse.Namespace:
             "Example to run. Accepts a bare number (`01`), an `sm`-"
             "prefixed number (`sm01`), or the full folder name "
             "(`sm01-helloworld`)."
+        ),
+    )
+    parser.add_argument(
+        "--speed",
+        type=float,
+        default=100.0,
+        help=(
+            "Clock speed multiplier for time-triggered statecharts: "
+            "simulated time advances this many times faster than the "
+            "wall clock, so a timer fires sooner. Pass 1.0 for true "
+            "wall-clock time. (default: %(default)s)"
+        ),
+    )
+    parser.add_argument(
+        "--max-wall-seconds",
+        type=float,
+        default=10.0,
+        help=(
+            "Wall-clock safety cap on a real-time run, in seconds. A "
+            "machine with no final state would otherwise run forever. "
+            "(default: %(default)s)"
         ),
     )
     return parser.parse_args()
@@ -236,20 +262,116 @@ def main() -> int:
         print("=" * 72)
         print(state_def_qn)
         print("=" * 72)
-        run_one(model, state_def_qn, folder_name)
+        run_one(
+            model,
+            state_def_qn,
+            folder_name,
+            speed=args.speed,
+            max_wall_seconds=args.max_wall_seconds,
+        )
     return 0
 
 
-def run_one(model: syside.Model, state_def_qn: str, folder_name: str) -> None:
+def _has_timer(statechart: Statechart) -> bool:
+    """Whether any transition guard uses sismic's ``after()`` time helper.
+
+    The sismic backend emits a relative time trigger (``accept after
+    <duration>``) as an ``after(...)`` guard. Its presence is what tells
+    the runner to drive the clock in real time rather than evaluate the
+    machine once at t=0.
+
+    Args:
+        statechart: A built ``sismic.model.Statechart``.
+
+    Returns:
+        ``True`` if at least one transition guard contains ``after(``.
+    """
+    return any(
+        "after(" in (transition.guard or "")
+        for transition in statechart.transitions
+    )
+
+
+def _run_realtime(
+    interpreter: Interpreter, max_wall_seconds: float
+) -> tuple[list[MacroStep], CodeEvaluationError | None]:
+    """Drive ``interpreter`` in real time and return its trace.
+
+    The interpreter's clock auto-advances (it must already be started),
+    so ``after(...)`` guards come due on their own. The loop processes a
+    macro step whenever one is ready and sleeps briefly otherwise. It
+    ends when the machine reaches a final configuration or
+    ``max_wall_seconds`` of wall-clock time elapse, whichever comes
+    first; the cap stops a machine with no final state (a state sink)
+    from running forever.
+
+    Args:
+        interpreter: Interpreter whose clock has been started.
+        max_wall_seconds: Wall-clock safety cap on the run, in seconds.
+
+    Returns:
+        The collected macro-step trace and, if one was raised mid-run,
+        the ``CodeEvaluationError`` that stopped it (otherwise ``None``).
+    """
+    trace: list[MacroStep] = []
+    deadline = time.monotonic() + max_wall_seconds
+    try:
+        while not interpreter.final and time.monotonic() < deadline:
+            step = interpreter.execute_once()
+            if step is None:
+                time.sleep(REALTIME_POLL_INTERVAL_SECONDS)
+            else:
+                trace.append(step)
+    except CodeEvaluationError as exc:
+        return trace, exc
+    return trace, None
+
+
+def _execute_passive(
+    interpreter: Interpreter,
+) -> tuple[list[MacroStep], CodeEvaluationError | None]:
+    """Evaluate ``interpreter`` once at t=0 and return its trace.
+
+    The clock stays at 0, so a time-triggered transition simply waits and
+    never fires. A ``CodeEvaluationError`` is captured rather than raised
+    so the caller can still persist the artifacts.
+
+    Args:
+        interpreter: Interpreter with a passive (un-started) clock.
+
+    Returns:
+        The macro-step trace and, if one was raised, the
+        ``CodeEvaluationError`` (otherwise ``None``).
+    """
+    try:
+        return interpreter.execute(), None
+    except CodeEvaluationError as exc:
+        return [], exc
+
+
+def run_one(
+    model: syside.Model,
+    state_def_qn: str,
+    folder_name: str,
+    *,
+    speed: float,
+    max_wall_seconds: float,
+) -> None:
     """Build, execute, and persist the statechart for ``state_def_qn``.
 
-    Writes the statechart YAML and the PlantUML diagram to
-    ``output/sismic/<folder_name>/``.
+    A statechart with a time trigger (an ``after(...)`` guard) is run in
+    real time so the timer fires on its own; any other statechart is
+    evaluated once at t=0. Writes the statechart YAML and the PlantUML
+    diagram to ``output/sismic/<folder_name>/``.
 
     Args:
         model: Loaded syside model.
         state_def_qn: Qualified name of the SysML state def to run.
         folder_name: The example folder name; the output subdirectory.
+        speed: Real-time clock speed multiplier; used only in real-time
+            mode.
+        max_wall_seconds: Wall-clock safety cap on a real-time run, in
+            seconds.
     """
     logger.info("Building for %s", state_def_qn)
     statechart = build_statechart(model, state_def_qn)
@@ -257,19 +379,49 @@ def run_one(model: syside.Model, state_def_qn: str, folder_name: str) -> None:
     print("\nStatechart structure:")
     print_structure(statechart)
 
-    logger.info("Executing via sismic interpreter")
-    interpreter = Interpreter(statechart)
+    realtime = _has_timer(statechart)
+    if realtime:
+        clock = SimulatedClock()
+        clock.speed = speed
+        interpreter = Interpreter(statechart, clock=clock)
+    else:
+        interpreter = Interpreter(statechart)
+
     initial_config = sorted(interpreter.configuration)
     print(f"  Initial configuration: {initial_config}")
-    try:
-        steps = interpreter.execute()
-    except CodeEvaluationError as exc:
-        logger.warning("Execution skipped: %s", exc)
+    if realtime:
+        logger.info(
+            "Simulated clock at %gx speed; %gs wall-clock cap.",
+            speed,
+            max_wall_seconds,
+        )
+    else:
+        print("  Mode: passive (single evaluation at t=0)")
+
+    logger.info("Executing via sismic interpreter")
+    if realtime:
+        clock.start()
+        steps, error = _run_realtime(interpreter, max_wall_seconds)
+    else:
+        steps, error = _execute_passive(interpreter)
+
+    if error is not None:
+        logger.warning("Execution skipped: %s", error)
         out_dir = write_artifacts(folder_name, statechart)
         logger.info("Wrote YAML + diagram to %s", out_dir)
         return
+
     final_config = sorted(interpreter.configuration)
     print(f"  Final configuration:   {final_config}")
+    if realtime:
+        if interpreter.final:
+            logger.info("Reached a final configuration")
+        else:
+            logger.warning(
+                "Stopped at the %gs wall-clock cap without reaching a "
+                "final configuration",
+                max_wall_seconds,
+            )
     print()
     print_trace(steps)
     print()
