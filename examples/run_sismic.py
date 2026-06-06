@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import logging
 import sys
 import time
@@ -34,8 +35,7 @@ SM_EXAMPLES_DIR = (
 )
 OUTPUT_DIR = Path(__file__).resolve().parent.parent / "output" / "sismic"
 
-# How often the real-time runner polls the interpreter, in seconds.
-REALTIME_POLL_INTERVAL_SECONDS = 0.05
+REALTIME_POLL_INTERVAL_SECONDS = 0.001
 
 
 def parse_args() -> argparse.Namespace:
@@ -272,6 +272,33 @@ def main() -> int:
     return 0
 
 
+def _guard_calls_after(guard: str) -> bool:
+    """Whether ``guard`` calls sismic's bare ``after()`` time helper.
+
+    Parses the guard as a Python expression and looks for a call to a
+    bare ``after`` function -- the form the sismic backend emits for a
+    relative time trigger (``accept after <duration>``).
+    A guard that does not parse as a Python
+    expression falls back to the substring test.
+
+    Args:
+        guard: A transition guard's emitted Python source.
+
+    Returns:
+        ``True`` if the guard calls a bare ``after(...)`` function.
+    """
+    try:
+        tree = ast.parse(guard, mode="eval")
+    except SyntaxError:
+        return "after(" in guard
+    return any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "after"
+        for node in ast.walk(tree)
+    )
+
+
 def _has_timer(statechart: Statechart) -> bool:
     """Whether any transition guard uses sismic's ``after()`` time helper.
 
@@ -284,11 +311,12 @@ def _has_timer(statechart: Statechart) -> bool:
         statechart: A built ``sismic.model.Statechart``.
 
     Returns:
-        ``True`` if at least one transition guard contains ``after(``.
+        ``True`` if at least one transition guard calls ``after(...)``.
     """
     return any(
-        "after(" in (transition.guard or "")
+        _guard_calls_after(transition.guard)
         for transition in statechart.transitions
+        if transition.guard
     )
 
 
