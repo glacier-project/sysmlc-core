@@ -301,10 +301,11 @@ class PyCodeGen:
         return repr(expr.value)
 
     def _emit_literal_string(self, expr: syside.LiteralString) -> str:
-        """Emit a string literal as its Python ``repr``.
+        """Emit a string literal wrapped in the context's quote delimiter.
 
-        ``repr`` yields a valid Python string literal with correct quoting
-        and escaping.
+        The delimiter, backslashes, and the newline, carriage-return, and
+        tab control characters are escaped so the emitted source is valid
+        Python that evaluates back to the original string.
 
         Args:
             expr: The literal node to translate.
@@ -313,7 +314,13 @@ class PyCodeGen:
             Python source for ``expr``.
         """
         quote = self._context.string_delimiter
-        return f"{quote}{expr.value}{quote}"
+        value = expr.value
+        value = value.replace("\\", "\\\\")
+        value = value.replace(quote, "\\" + quote)
+        value = value.replace("\n", "\\n")
+        value = value.replace("\r", "\\r")
+        value = value.replace("\t", "\\t")
+        return f"{quote}{value}{quote}"
 
     def _emit_feature_reference(
         self, expr: syside.FeatureReferenceExpression

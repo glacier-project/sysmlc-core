@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -153,3 +154,39 @@ class TestPyCodeGen:
         assert code_gen.emit_assignment_target(assign) == "equipment.flag"
         assert code_gen.emit_assignment(assign) == "equipment.flag = True"
         assert emitted == "equipment.flag = True"
+
+    def test_string_literals_emit_valid_python_that_round_trips(
+        self, string_delimiter: str, tmp_path: Path
+    ) -> None:
+        code_gen = _get_py_codegen(string_delimiter)
+        model = _load_inline_model(
+            tmp_path,
+            r"""
+            package Test {
+                private import ScalarValues::*;
+
+                state def Machine {
+                    attribute plain : String := "hello";
+                    attribute with_double_quote : String := "say \"hi\"";
+                    attribute with_single_quote : String := "it's";
+                    attribute with_backslash : String := "C:\\new";
+
+                    entry;
+                        then idle;
+                    state idle;
+                    state running;
+
+                    transition first idle then running;
+                }
+            }
+            """,
+        )
+
+        literals = list(
+            model.elements(syside.LiteralString, include_subtypes=True)
+        )
+        assert len(literals) == 4
+
+        for literal in literals:
+            emitted = code_gen.emit_expression(literal)
+            assert ast.literal_eval(emitted) == literal.value
