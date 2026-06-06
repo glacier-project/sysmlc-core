@@ -58,12 +58,11 @@ def test_relative_time_trigger_emits_after_guard(
 ) -> None:
     """A relative time trigger becomes an ``after(<seconds>)`` guard."""
     sc = build_statechart(model, state_def_qn)
-    assert len(sc.transitions) == 1
-    only = sc.transitions[0]
-    assert only.source == "idle"
-    assert only.target == "running"
-    assert only.event is None
-    assert only.guard == expected_guard
+    assert len(sc.transitions) == 2
+    timed = next(t for t in sc.transitions if t.source == "idle")
+    assert timed.target == "running"
+    assert timed.event is None
+    assert timed.guard == expected_guard
 
 
 def test_attribute_duration_default_seeds_preamble(
@@ -92,10 +91,10 @@ def test_chained_reference_duration_is_live(model: syside.Model) -> None:
     interp.context["holder"].delay = 10.0
     interp.clock.time = 3.0
     interp.execute()
-    assert "running" not in interp.configuration
+    assert not interp.final
     interp.clock.time = 10.0
     interp.execute()
-    assert "running" in interp.configuration
+    assert interp.final
 
 
 def test_attribute_reference_duration_fires_at_seeded_value(
@@ -107,10 +106,10 @@ def test_attribute_reference_duration_fires_at_seeded_value(
     interp.execute()
     interp.clock.time = 119.0
     interp.execute()
-    assert "running" not in interp.configuration
+    assert not interp.final
     interp.clock.time = 120.0
     interp.execute()
-    assert "running" in interp.configuration
+    assert interp.final
 
 
 def test_time_trigger_does_not_fire_before_duration_elapses(
@@ -120,13 +119,13 @@ def test_time_trigger_does_not_fire_before_duration_elapses(
     sc = build_statechart(model, "SM13::MachineAfterSeconds")
     interp = Interpreter(sc)
     interp.execute()
-    assert "running" not in interp.configuration
+    assert not interp.final
     interp.clock.time = 4.9
     interp.execute()
-    assert "running" not in interp.configuration
+    assert not interp.final
     interp.clock.time = 5.0
     interp.execute()
-    assert "running" in interp.configuration
+    assert interp.final
 
 
 def test_composed_guard_requires_both_timer_and_condition(
@@ -139,10 +138,10 @@ def test_composed_guard_requires_both_timer_and_condition(
     interp.context["ready"] = False
     interp.clock.time = 6.0
     interp.execute()
-    assert "running" not in interp.configuration
+    assert not interp.final
     interp.context["ready"] = True
     interp.execute()
-    assert "running" in interp.configuration
+    assert interp.final
 
 
 def test_no_default_duration_is_left_unseeded(
