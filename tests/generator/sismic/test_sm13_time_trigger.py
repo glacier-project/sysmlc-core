@@ -41,14 +41,15 @@ def no_default_model() -> syside.Model:
         ("SM13::MachineAfterMinutes", "after(120.0)"),
         ("SM13::MachineAfterAttribute", "after(pickDuration)"),
         ("SM13::MachineAfterChain", "after(holder.delay)"),
-        ("SM13::MachineAfterGuard", "after(5.0) and (ready)"),
+        # `after` combined with `if` is now fail-loud
+        # ("SM13::MachineAfterGuard", "after(5.0) and (ready)"),
     ],
     ids=[
         "literal-seconds",
         "minutes-normalized",
         "attribute-default",
         "chained-reference",
-        "after-and-if",
+        # "after-and-if",
     ],
 )
 def test_relative_time_trigger_emits_after_guard(
@@ -73,12 +74,13 @@ def test_attribute_duration_default_seeds_preamble(
     assert sc.preamble == "pickDuration = 120.0"
 
 
-def test_guard_attribute_default_seeds_preamble(
-    model: syside.Model,
-) -> None:
-    """MachineAfterGuard's ``ready := true`` is seeded into the preamble."""
-    sc = build_statechart(model, "SM13::MachineAfterGuard")
-    assert sc.preamble == "ready = True"
+# MachineAfterGuard (`after` + `if`) is now fail-loud.
+# def test_guard_attribute_default_seeds_preamble(
+#     model: syside.Model,
+# ) -> None:
+#     """MachineAfterGuard's ``ready := true`` is seeded into the preamble."""
+#     sc = build_statechart(model, "SM13::MachineAfterGuard")
+#     assert sc.preamble == "ready = True"
 
 
 def test_chained_reference_duration_is_live(model: syside.Model) -> None:
@@ -128,20 +130,21 @@ def test_time_trigger_does_not_fire_before_duration_elapses(
     assert interp.final
 
 
-def test_composed_guard_requires_both_timer_and_condition(
-    model: syside.Model,
-) -> None:
-    """An ``after`` trigger ANDed with an ``if`` guard needs both to hold."""
-    sc = build_statechart(model, "SM13::MachineAfterGuard")
-    interp = Interpreter(sc)
-    interp.execute()
-    interp.context["ready"] = False
-    interp.clock.time = 6.0
-    interp.execute()
-    assert not interp.final
-    interp.context["ready"] = True
-    interp.execute()
-    assert interp.final
+# MachineAfterGuard (`after` + `if`) is now fail-loud.
+# def test_composed_guard_requires_both_timer_and_condition(
+#     model: syside.Model,
+# ) -> None:
+#     """An ``after`` trigger ANDed with an ``if`` guard needs both to hold."""
+#     sc = build_statechart(model, "SM13::MachineAfterGuard")
+#     interp = Interpreter(sc)
+#     interp.execute()
+#     interp.context["ready"] = False
+#     interp.clock.time = 6.0
+#     interp.execute()
+#     assert not interp.final
+#     interp.context["ready"] = True
+#     interp.execute()
+#     assert interp.final
 
 
 def test_no_default_duration_is_left_unseeded(
