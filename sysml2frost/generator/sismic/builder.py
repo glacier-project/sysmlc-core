@@ -225,9 +225,9 @@ class StatechartBuilder:
       ``guard`` / ``action`` carry any accepter, ``if`` guard, and ``do``
       effect. A signal accepter (``accept Sig via port``) becomes the
       ``event``; a relative time trigger (``accept after <duration>``)
-      becomes an ``after(...)`` guard, AND-combined with any ``if`` guard;
-      the ``do`` effect becomes the ``action`` (an ``assign`` mutation
-      and/or a ``send`` event-raise);
+      becomes an ``after(...)`` guard (a time trigger combined with an
+      ``if`` guard is rejected); the ``do`` effect becomes the ``action``
+      (an ``assign`` mutation and/or a ``send`` event-raise);
     - a transition target of ``done`` -> a ``FinalState`` synthesized in
       the source's containing scope.
 
@@ -267,11 +267,15 @@ class StatechartBuilder:
                 cannot be resolved, if a transition is missing its source
                 or target, if a transition's time trigger is an unsupported
                 kind (``at``/``when``) or its ``after`` duration does not
-                evaluate to a finite, non-negative number, or if a guard,
-                attribute initializer, or entry/exit/effect/do assignment
-                uses an expression shape the emitter does not support, if a
-                ``do`` action has a body the emitter cannot emit, or if a
-                composite attribute has a field with no value to bind.
+                evaluate to a finite, non-negative number, if an ``accept
+                after`` time trigger is combined with an ``if`` guard, if a
+                self-loop transition would never stabilize (no event or
+                timer to gate it, and nothing to break the loop), or if a
+                guard, attribute initializer, or entry/exit/effect/do
+                assignment uses an expression shape the emitter does not
+                support, if a ``do`` action has a body the emitter cannot
+                emit, or if a composite attribute has a field with no value
+                to bind.
         """
         self._state_def = self._queries.resolve_element_by_qn(
             syside.StateDefinition, self._state_def_qn
@@ -640,10 +644,11 @@ class StatechartBuilder:
         sismic ``Transition``; an ``accept E via port`` signal accepter
         becomes the sismic ``Transition.event``; an ``accept after
         <duration>`` relative time trigger becomes an ``after(<seconds>)``
-        guard; an ``if expr`` guard becomes the emitted guard, AND-combined
-        with any time guard; a ``do action { assign ... }`` effect becomes
-        the emitted ``Transition.action``. A transition targeting ``done``
-        is pointed at a ``FinalState`` synthesized in ``container``'s scope.
+        guard; an ``if expr`` guard becomes the emitted guard (a time
+        trigger combined with an ``if`` guard is rejected); a ``do action
+        { assign ... }`` effect becomes the emitted ``Transition.action``. A
+        transition targeting ``done`` is pointed at a ``FinalState``
+        synthesized in ``container``'s scope.
 
         Args:
             container: The root state definition or a composite state
@@ -653,21 +658,43 @@ class StatechartBuilder:
             ValueError: If a transition is missing its source or target,
                 if a time trigger is an unsupported kind (``at``/``when``)
                 or its ``after`` duration does not evaluate to a finite,
-                non-negative number, if a guard contains an expression
-                shape the emitter does not support, or if an effect
+                non-negative number, if an ``accept after`` time trigger is
+                combined with an ``if`` guard, if a guard contains an
+                expression shape the emitter does not support, if an effect
                 assignment has an unsupported right-hand-side expression
-                shape.
+                shape, or if a self-loop transition would never stabilize
+                (no event or timer to gate it, and nothing to break the
+                loop).
         """
         for trans in self._container_transitions(container):
+            source = self._source_path(trans)
+            target = self._target_path(trans, container)
             event = self._extract_event_name(trans)
             time_guard = self._extract_time_guard(trans)
             condition_guard = self._extract_guard_expression(trans)
-            guard = self._combine_guards(time_guard, condition_guard)
             action = self._extract_action_statements(trans.effect_action)
+            if time_guard is not None and condition_guard is not None:
+                raise ValueError(
+                    f"Transition in state def {self._state_def.qualified_name} "
+                    "combines `accept after` with an `if` guard, which is "
+                    "unsupported."
+                )
+            if (
+                source == target
+                and event is None
+                and time_guard is None
+                and (condition_guard is None or action is None)
+            ):
+                raise ValueError(
+                    f"Transition in state def {self._state_def.qualified_name} "
+                    "is a self-loop that would never stabilize (no event, "
+                    "timer, or effect to break the loop)."
+                )
+            guard = time_guard if time_guard is not None else condition_guard
             self._statechart.add_transition(
                 Transition(
-                    source=self._source_path(trans),
-                    target=self._target_path(trans, container),
+                    source=source,
+                    target=target,
                     event=event,
                     guard=guard,
                     action=action,
@@ -923,29 +950,6 @@ class StatechartBuilder:
             )
         return seconds
 
-    def _combine_guards(
-        self, time_guard: str | None, condition_guard: str | None
-    ) -> str | None:
-        """Combine a time guard and an ``if`` guard into one guard string.
-
-        A transition may carry both a relative time trigger and an ``if``
-        guard; SysML fires it only once the timer has elapsed and the guard
-        holds, so the two are ANDed.
-
-        Args:
-            time_guard: The ``after(<seconds>)`` guard, or ``None``.
-            condition_guard: The emitted ``if`` guard, or ``None``.
-
-        Returns:
-            The combined guard string, the single non-``None`` guard, or
-            ``None`` when neither is present.
-        """
-        if time_guard is not None and condition_guard is not None:
-            return f"{time_guard} and ({condition_guard})"
-        if time_guard is not None:
-            return time_guard
-        return condition_guard
-
     def _resolve_initial(
         self, container: syside.StateDefinition | syside.StateUsage
     ) -> syside.StateUsage:
@@ -1003,7 +1007,10 @@ def build_statechart(model: syside.Model, state_def_qn: str) -> Statechart:
             cannot be resolved, if a transition is missing its source or
             target, if a transition's time trigger is an unsupported kind
             (``at``/``when``) or its ``after`` duration does not evaluate to
-            a finite, non-negative number, if a guard, attribute
+            a finite, non-negative number, if an ``accept after`` time
+            trigger is combined with an ``if`` guard, if a self-loop
+            transition would never stabilize (no event or timer to gate it,
+            and nothing to break the loop), if a guard, attribute
             initializer, or entry/exit/effect/do assignment uses an
             expression shape the emitter does not support, or if a ``do``
             action has a body the emitter cannot emit.

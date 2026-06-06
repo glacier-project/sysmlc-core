@@ -49,14 +49,14 @@ package SM13 {
         transition first running then done;
     }
 
-    // A relative time trigger composed with an `if` guard.
-    state def MachineAfterGuard {
-        attribute ready : Boolean := true;
-        entry;
-            then idle;
-        state idle;
-        state running;
-        transition first idle accept after 5 [s] if ready then running;
-        transition first running then done;
-    }
+    // `accept after` combined with an `if` guard is now rejected (fail-loud).
+    // state def MachineAfterGuard {
+    //     attribute ready : Boolean := true;
+    //     entry;
+    //         then idle;
+    //     state idle;
+    //     state running;
+    //     transition first idle accept after 5 [s] if ready then running;
+    //     transition first running then done;
+    // }
 }
