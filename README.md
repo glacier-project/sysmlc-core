@@ -12,11 +12,11 @@ from SysML state machines ready to execute and simulate.
 
 One shared front-end feeds a family of product-named back-ends, one per target:
 
-| Back-end | Target | Status |
-|----------|--------|--------|
-| `quake` | sismic statecharts | **in progress** |
-| `rosetta` | [Lingua Franca](https://www.lf-lang.org/) reactors | planned |
-| `frostifier` | [Frost](https://github.com/glacier-project/frost) plant simulations | planned |
+| Back-end     | Target                                                              | Status          |
+| ------------ | ------------------------------------------------------------------- | --------------- |
+| `quake`      | sismic statecharts                                                  | **in progress** |
+| `rosetta`    | [Lingua Franca](https://www.lf-lang.org/) reactors                  | planned         |
+| `frostifier` | [Frost](https://github.com/glacier-project/frost) plant simulations | planned         |
 
 ## Prerequisites
 

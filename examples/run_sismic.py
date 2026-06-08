@@ -19,7 +19,7 @@ from sysmlc import configure_logging
 from sysmlc.explore import iter_model_elements
 from sysmlc.generator.sismic import build_statechart
 from sysmlc.loader import load_syside_model
-from sysmlc.logging_utils import PACKAGE_LOGGER_NAME
+from sysmlc.logging import PACKAGE_LOGGER_NAME
 
 if TYPE_CHECKING:
     from collections import Counter

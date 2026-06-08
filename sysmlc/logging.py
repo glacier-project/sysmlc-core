@@ -10,6 +10,9 @@ PACKAGE_LOGGER_NAME = "sysmlc"
 DEFAULT_LOG_LEVEL = "WARNING"
 _HANDLER_MARKER = "_sysmlc_handler"
 
+_package_logger = logging.getLogger(PACKAGE_LOGGER_NAME)
+_package_logger.addHandler(logging.NullHandler())
+
 
 class PackageFormatter(logging.Formatter):
     """Formatter with optional ANSI colors for terminal output."""

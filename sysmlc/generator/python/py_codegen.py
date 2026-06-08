@@ -6,6 +6,8 @@ from typing import Final
 
 import syside
 
+from sysmlc.errors import UnsupportedConstructError
+
 logger = logging.getLogger(__name__)
 
 _BINARY_OPERATORS: Final[dict[syside.Operator, tuple[str, int]]] = {
@@ -81,32 +83,8 @@ def _assignment_target_parameter(
     return None
 
 
-class PyCodeGenError(ValueError):
-    """Raised when the PyCodeGen encounters an unsupported node or other issue.
-
-    This error may optionally carry a reference to the AST/model node that
-    triggered the problem. Its string form includes the node type and, when
-    available, a resolved name or qualified name to aid debugging.
-    """
-
-    def __init__(
-        self, message: str, node: syside.Element | None = None
-    ) -> None:
-        super().__init__(message)
-        self.message = message
-        self.node = node
-
-    def __str__(self) -> str:
-        if self.node is None:
-            return self.message
-        node = self.node
-
-        node_type = type(node).__name__
-        node_repr = (
-            node.qualified_name or node.name or node.textual_representations
-        )
-
-        return f"{self.message} (node {node_type} {node_repr})"
+class PyCodeGenError(UnsupportedConstructError):
+    """Raised when the Python code generator does not support a construct."""
 
 
 @dataclass(frozen=True)
