@@ -15,8 +15,8 @@ from sismic.model import (
 
 from sysmlc.explore.model_queries import SysideModelQueries
 
-from ..python.py_codegen import join_emitted_actions
-from .sismic_py_codegen import SismicPyCodeGen
+from ...generator.python.py_codegen import join_emitted_actions
+from .codegen import SismicCodeGen
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -144,7 +144,7 @@ def _bind_value(
     attr: syside.AttributeUsage,
     compiler: syside.Compiler,
     stdlib: syside.Stdlib,
-    code_gen: SismicPyCodeGen,
+    code_gen: SismicCodeGen,
 ) -> str | None:
     """Build the Python expression for an attribute's runtime value.
 
@@ -253,7 +253,7 @@ class StatechartBuilder:
         self._done_finals: set[str]
         self._compiler: syside.Compiler
         self._stdlib: syside.Stdlib
-        self._code_gen = SismicPyCodeGen()
+        self._code_gen = SismicCodeGen()
 
     def build(self) -> Statechart:
         """Construct and return the sismic Statechart.
