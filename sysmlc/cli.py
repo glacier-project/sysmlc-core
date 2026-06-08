@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 from importlib.metadata import version
 from typing import TYPE_CHECKING, Any
 
-from .errors import SysmlcError
+from .errors import SerializationError, SysmlcError
 
 if TYPE_CHECKING:
     import syside
@@ -95,7 +95,8 @@ class Backend(ABC):
 
     def serialize(self, artifact: object, fmt: str) -> str:
         """Serialize a built artifact to text in the requested format."""
-        raise CliError(f"backend {self.name!r} cannot serialize to {fmt!r}")
+        raise SerializationError(
+            f"backend {self.name!r} cannot serialize to {fmt!r}")
 
     def summary(self, artifact: object) -> str:
         """Return a one-line description of a built artifact."""

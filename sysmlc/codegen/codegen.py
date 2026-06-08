@@ -111,8 +111,8 @@ class PythonCodeGen:
     the exception for better error reporting.
 
     Args:
-        context: A PythonCodeGenContext instance carrying information through the
-            generation process, or None to use the default context.
+        context: A PythonCodeGenContext instance carrying information through
+            the generation process, or None to use the default context.
     """
 
     def __init__(self, context: PythonCodeGenContext | None = None) -> None:
