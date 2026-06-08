@@ -15,7 +15,7 @@ from sismic.model import (
 
 from sysmlc.explore.model_queries import SysideModelQueries
 
-from ...generator.python.py_codegen import join_emitted_actions
+from ...codegen.codegen import join_emitted_actions
 from .codegen import SismicCodeGen
 
 if TYPE_CHECKING:

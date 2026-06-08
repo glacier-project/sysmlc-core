@@ -8,17 +8,17 @@ if TYPE_CHECKING:
 
 import syside
 
-from sysmlc.generator.python.py_codegen import PyCodeGen, PyCodeGenContext
+from sysmlc.codegen.codegen import PythonCodeGen, PythonCodeGenContext
 
 from .. import _load_inline_model, _single_element
 
 
-def _get_py_codegen(quote: str) -> PyCodeGen:
-    context = PyCodeGenContext(string_delimiter=quote)
-    return PyCodeGen(context)
+def _get_py_codegen(quote: str) -> PythonCodeGen:
+    context = PythonCodeGenContext(string_delimiter=quote)
+    return PythonCodeGen(context)
 
 
-class TestPyCodeGen:
+class TestPythonCodeGen:
     def test_nested_comparison_lhs_is_parenthesized(
         self, string_delimiter: str, tmp_path: Path
     ) -> None:

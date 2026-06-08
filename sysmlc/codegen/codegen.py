@@ -83,13 +83,13 @@ def _assignment_target_parameter(
     return None
 
 
-class PyCodeGenError(UnsupportedConstructError):
+class PythonCodeGenError(UnsupportedConstructError):
     """Raised when the Python code generator does not support a construct."""
 
 
 @dataclass(frozen=True)
-class PyCodeGenContext:
-    """Context for the PyCodeGen to carry through the generation process.
+class PythonCodeGenContext:
+    """Context for the PythonCodeGen to carry through the generation process.
 
     This class can be extended with additional fields as needed to carry
     information through the generation process, such as references to the
@@ -100,23 +100,23 @@ class PyCodeGenContext:
     string_delimiter: str = '"'
 
 
-class PyCodeGen:
+class PythonCodeGen:
     """Generates Python source code from a SysML AST node.
 
     This class is designed to be extended with methods for handling specific
     node types, and to be instantiated and called from a separate driver that
     traverses the model and dispatches to the generator methods as needed.
-    The generator methods should raise PyCodeGenError when they encounter
+    The generator methods should raise PythonCodeGenError when they encounter
     unsupported nodes or other issues, and may include the offending node in
     the exception for better error reporting.
 
     Args:
-        context: A PyCodeGenContext instance carrying information through the
+        context: A PythonCodeGenContext instance carrying information through the
             generation process, or None to use the default context.
     """
 
-    def __init__(self, context: PyCodeGenContext | None = None) -> None:
-        self._context = context or PyCodeGenContext()
+    def __init__(self, context: PythonCodeGenContext | None = None) -> None:
+        self._context = context or PythonCodeGenContext()
 
     def emit_expression(self, expr: syside.Expression) -> str:
         """Translate ``expr`` to a Python source string.
@@ -187,7 +187,7 @@ class PyCodeGen:
             return self.emit_assignment(action)
         if isinstance(action, syside.SendActionUsage):
             return self.emit_send(action)
-        raise PyCodeGenError("unsupported action type", node=action)
+        raise PythonCodeGenError("unsupported action type", node=action)
 
     def emit_send(self, send: syside.SendActionUsage) -> str:
         """Translate a send action to the appropriate Python source.
