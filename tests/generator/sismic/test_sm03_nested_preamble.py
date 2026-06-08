@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING
 import pytest
 from sismic.interpreter import Interpreter
 
-from sysml2frost.generator.sismic import build_statechart
-from sysml2frost.loader import load_syside_model
+from sysmlc.generator.sismic import build_statechart
+from sysmlc.loader import load_syside_model
 
 if TYPE_CHECKING:
     import syside

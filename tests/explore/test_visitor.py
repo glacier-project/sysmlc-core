@@ -1,6 +1,6 @@
 import syside
 
-from sysml2frost.explore import SysideVisitor
+from sysmlc.explore import SysideVisitor
 
 
 def test_syside_visitor_dispatches_part_definitions_and_part_usages(

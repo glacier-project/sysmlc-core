@@ -4,7 +4,7 @@ from typing import Any
 import pytest
 import syside
 
-from sysml2frost.loader.syside_loader import load_syside_model
+from sysmlc.loader.syside_loader import load_syside_model
 
 
 @pytest.fixture(params=["'", '"'], ids=["single-quote", "double-quote"])

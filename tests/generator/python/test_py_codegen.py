@@ -8,7 +8,7 @@ if TYPE_CHECKING:
 
 import syside
 
-from sysml2frost.generator.python.py_codegen import PyCodeGen, PyCodeGenContext
+from sysmlc.generator.python.py_codegen import PyCodeGen, PyCodeGenContext
 
 from .. import _load_inline_model, _single_element
 

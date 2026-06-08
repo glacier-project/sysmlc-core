@@ -7,8 +7,8 @@ if TYPE_CHECKING:
 
 import syside
 
-from sysml2frost.generator.python.py_codegen import PyCodeGenContext
-from sysml2frost.generator.sismic.sismic_py_codegen import SismicPyCodeGen
+from sysmlc.generator.python.py_codegen import PyCodeGenContext
+from sysmlc.generator.sismic.sismic_py_codegen import SismicPyCodeGen
 
 from .. import _load_inline_model, _single_element
 

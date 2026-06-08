@@ -3,8 +3,8 @@ from pathlib import Path
 
 import syside
 
-from sysml2frost.explore import iter_model_elements
-from sysml2frost.loader import load_syside_model
+from sysmlc.explore import iter_model_elements
+from sysmlc.loader import load_syside_model
 
 SM_EXAMPLES_DIR = Path(__file__).resolve().parents[3] / "models" / "sm-examples"
 

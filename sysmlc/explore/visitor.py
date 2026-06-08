@@ -4,7 +4,7 @@ import logging
 
 import syside
 
-from sysml2frost.explore.traversal import iter_model_elements
+from sysmlc.explore.traversal import iter_model_elements
 
 logger = logging.getLogger(__name__)
 

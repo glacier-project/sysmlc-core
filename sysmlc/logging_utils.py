@@ -6,9 +6,9 @@ import sys
 from collections.abc import Mapping  # noqa: TC003
 from typing import Any, ClassVar, TextIO
 
-PACKAGE_LOGGER_NAME = "sysml2frost"
+PACKAGE_LOGGER_NAME = "sysmlc"
 DEFAULT_LOG_LEVEL = "WARNING"
-_HANDLER_MARKER = "_sysml2frost_handler"
+_HANDLER_MARKER = "_sysmlc_handler"
 
 
 class PackageFormatter(logging.Formatter):
@@ -137,7 +137,7 @@ def _resolve_log_level(
     if configured_level is None and config is not None:
         configured_level = config.get("logging_level")
     if configured_level is None:
-        configured_level = os.getenv("SYSML2FROST_LOG_LEVEL", DEFAULT_LOG_LEVEL)
+        configured_level = os.getenv("SYSMLC_LOG_LEVEL", DEFAULT_LOG_LEVEL)
 
     if isinstance(configured_level, int):
         return configured_level

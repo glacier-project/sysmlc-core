@@ -1,6 +1,6 @@
 import syside
 
-from sysml2frost.explore import iter_model_elements
+from sysmlc.explore import iter_model_elements
 
 
 def test_iter_model_elements_finds_known_part_usages(

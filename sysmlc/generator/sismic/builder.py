@@ -13,7 +13,7 @@ from sismic.model import (
     Transition,
 )
 
-from sysml2frost.explore.model_queries import SysideModelQueries
+from sysmlc.explore.model_queries import SysideModelQueries
 
 from ..python.py_codegen import join_emitted_actions
 from .sismic_py_codegen import SismicPyCodeGen

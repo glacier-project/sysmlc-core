@@ -1,6 +1,6 @@
-site_name: sysml2frost
+site_name: sysmlc
 site_description: From SysML v2 models to Frost simulations of industrial plants
-repo_name: sysml2frost
+repo_name: sysmlc
 theme:
   name: material
   features:

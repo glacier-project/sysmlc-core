@@ -3,8 +3,8 @@ from pathlib import Path
 import pytest
 import syside
 
-from sysml2frost.explore import SysideModelQueries
-from sysml2frost.loader import load_syside_model
+from sysmlc.explore import SysideModelQueries
+from sysmlc.loader import load_syside_model
 
 MODEL_DIR = Path(__file__).resolve().parent.parent / "models" / "ice-lab"
 

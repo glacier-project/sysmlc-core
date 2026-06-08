@@ -1,5 +1,5 @@
 [project]
-name = "sysml2frost"
+name = "sysmlc"
 version = "0.0.0"
 description = "From SysML v2 models to Frost simulations of industrial plants"
 authors = [{ name = "Mario Libro", email = "mario.libro@univr.it" }]
@@ -72,7 +72,7 @@ convention = "google"
 
 [tool.ruff.lint.isort]
 # Google style: absolute imports, sorted
-known-first-party = ["sysml2frost"]
+known-first-party = ["sysmlc"]
 force-single-line = false
 
 [tool.ruff.format]
