@@ -6,7 +6,7 @@ import pytest
 from sismic.interpreter import Interpreter
 from sismic.model import BasicState, CompoundState
 
-from sysmlc.generator.sismic import build_statechart
+from sysmlc.backends.quake import build_statechart
 from sysmlc.loader import load_syside_model
 from tests.generator.sismic.conftest import SM_EXAMPLES_BY_DIR
 

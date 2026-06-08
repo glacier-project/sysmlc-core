@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 import pytest
 from sismic.interpreter import Interpreter
 
-from sysmlc.generator.sismic import build_statechart
+from sysmlc.backends.quake import build_statechart
 from sysmlc.loader import load_syside_model
 from tests.generator.sismic.conftest import ALL_EXAMPLE_QN_PAIRS
 

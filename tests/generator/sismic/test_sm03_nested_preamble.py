@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 import pytest
 from sismic.interpreter import Interpreter
 
-from sysmlc.generator.sismic import build_statechart
+from sysmlc.backends.quake import build_statechart
 from sysmlc.loader import load_syside_model
 
 if TYPE_CHECKING:

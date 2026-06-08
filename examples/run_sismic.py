@@ -16,8 +16,8 @@ from sismic.helpers import coverage_from_trace
 from sismic.interpreter import Interpreter
 
 from sysmlc import configure_logging
+from sysmlc.backends.quake import build_statechart
 from sysmlc.explore import iter_model_elements
-from sysmlc.generator.sismic import build_statechart
 from sysmlc.loader import load_syside_model
 from sysmlc.logging import PACKAGE_LOGGER_NAME
 
