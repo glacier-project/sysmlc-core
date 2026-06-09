@@ -1,7 +1,7 @@
 [project]
 name = "sysmlc"
 version = "0.0.0"
-description = "From SysML v2 models to Frost simulations of industrial plants"
+description = "A pluggable-backend compiler from SysML v2 models to simulation and execution artifacts"
 authors = [{ name = "Mario Libro", email = "mario.libro@univr.it" }]
 requires-python = ">=3.12,<4"
 readme = "README.md"

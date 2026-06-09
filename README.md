@@ -48,7 +48,7 @@ Or use the API directly:
 
 ```python
 from sysmlc.loader import load_syside_model
-from sysmlc.generator.sismic import build_statechart
+from sysmlc.backends.quake import build_statechart
 
 model = load_syside_model("models/sm-examples/sm01-helloworld")
 statechart = build_statechart(model, "SM01::Machine")

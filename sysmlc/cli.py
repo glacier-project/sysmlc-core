@@ -75,7 +75,7 @@ def _add_build_arguments(
 ) -> None:
     """Add the shared build inputs, plus ``-f`` when the backend has formats."""
     build.add_argument(
-        "model", type=Path, help="path to a SysML file or model directory"
+        "model", type=Path, help="path to a SysML model directory"
     )
     build.add_argument(
         "-o",
