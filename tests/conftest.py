@@ -1,10 +1,11 @@
 from pathlib import Path
+from typing import Any
 
 import pytest
 import syside
 
-from sysml2frost.explore import SysideModelQueries
-from sysml2frost.loader import load_syside_model
+from sysmlc.explore import SysideModelQueries
+from sysmlc.loader import load_syside_model
 
 MODEL_DIR = Path(__file__).resolve().parent.parent / "models" / "ice-lab"
 
@@ -17,3 +18,8 @@ def model() -> syside.Model:
 @pytest.fixture
 def model_queries(model: syside.Model) -> SysideModelQueries:
     return SysideModelQueries(model)
+
+
+@pytest.fixture(params=["'", '"'], ids=["single-quote", "double-quote"])
+def string_delimiter(request: pytest.FixtureRequest) -> Any:
+    return request.param

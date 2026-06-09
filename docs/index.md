@@ -1,4 +1,4 @@
-# SysML2Frost
+# sysmlc
 
 This site is built with MkDocs Material and the API reference is rendered
 directly from the Python package and its docstrings.

@@ -1,3 +1,3 @@
 # API Reference
 
-::: sysml2frost
+::: sysmlc

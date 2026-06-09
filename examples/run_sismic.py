@@ -15,11 +15,11 @@ from sismic.exceptions import CodeEvaluationError
 from sismic.helpers import coverage_from_trace
 from sismic.interpreter import Interpreter
 
-from sysml2frost import configure_logging
-from sysml2frost.explore import iter_model_elements
-from sysml2frost.generator.sismic import build_statechart
-from sysml2frost.loader import load_syside_model
-from sysml2frost.logging_utils import PACKAGE_LOGGER_NAME
+from sysmlc import configure_logging
+from sysmlc.backends.quake import build_statechart
+from sysmlc.explore import iter_model_elements
+from sysmlc.loader import load_syside_model
+from sysmlc.logging import PACKAGE_LOGGER_NAME
 
 if TYPE_CHECKING:
     from collections import Counter

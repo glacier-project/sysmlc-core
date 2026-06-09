@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 import syside
 
-from sysml2frost.loader import load_syside_model
+from sysmlc.loader import load_syside_model
 
 
 def test_load_syside_model_loads_ice_lab(model: syside.Model) -> None:

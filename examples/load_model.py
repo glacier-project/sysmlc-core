@@ -4,13 +4,13 @@ from pathlib import Path
 
 import syside
 
-from sysml2frost import configure_logging
-from sysml2frost.explore import (
+from sysmlc import configure_logging
+from sysmlc.explore import (
     SysideModelQueries,
     SysideVisitor,
     iter_model_elements,
 )
-from sysml2frost.loader import load_syside_model
+from sysmlc.loader import load_syside_model
 
 MODEL_DIR = Path(__file__).resolve().parent.parent / "models" / "ice-lab"
 QUALITY_CONTROL_QN = "EquipmentInterfaces::QualityControlEquipment"

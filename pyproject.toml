@@ -1,7 +1,7 @@
 [project]
-name = "sysml2frost"
+name = "sysmlc"
 version = "0.0.0"
-description = "From SysML v2 models to Frost simulations of industrial plants"
+description = "A pluggable-backend compiler from SysML v2 models to simulation and execution artifacts"
 authors = [{ name = "Mario Libro", email = "mario.libro@univr.it" }]
 requires-python = ">=3.12,<4"
 readme = "README.md"
@@ -25,6 +25,14 @@ dev = [
     "mkdocs-material>=9.6.20,<10",
     "mkdocstrings[python]>=0.30.1,<1.1",
 ]
+
+[project.scripts]
+sysmlc = "sysmlc.cli:main"
+
+[project.entry-points."sysmlc.backends"]
+quake = "sysmlc.backends.quake.backend:QuakeBackend"
+rosetta = "sysmlc.backends.rosetta.backend:RosettaBackend"
+frostifier = "sysmlc.backends.frostifier.backend:FrostifierBackend"
 
 [build-system]
 requires = ["hatchling>=1.27,<2"]
@@ -72,7 +80,7 @@ convention = "google"
 
 [tool.ruff.lint.isort]
 # Google style: absolute imports, sorted
-known-first-party = ["sysml2frost"]
+known-first-party = ["sysmlc"]
 force-single-line = false
 
 [tool.ruff.format]

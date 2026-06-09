@@ -1,7 +1,7 @@
 import pytest
 import syside
 
-from sysml2frost.explore import SysideModelQueries
+from sysmlc.explore import SysideModelQueries
 
 QUALITY_CONTROL_QN = "EquipmentInterfaces::QualityControlEquipment"
 OPCUA_CONNECTION_QN = "OpcUaBinding::OpcUaConnection"
