@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any
 
 import pytest
 import syside
@@ -17,3 +18,8 @@ def model() -> syside.Model:
 @pytest.fixture
 def model_queries(model: syside.Model) -> SysideModelQueries:
     return SysideModelQueries(model)
+
+
+@pytest.fixture(params=["'", '"'], ids=["single-quote", "double-quote"])
+def string_delimiter(request: pytest.FixtureRequest) -> Any:
+    return request.param

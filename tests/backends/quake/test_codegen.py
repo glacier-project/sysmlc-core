@@ -9,8 +9,7 @@ import syside
 
 from sysmlc.backends.quake.codegen import SismicCodeGen
 from sysmlc.codegen.python import PythonCodeGenContext
-
-from .. import _load_inline_model, _single_element
+from tests import _load_inline_model, _single_element
 
 
 def _get_sismic_py_codegen(quote: str) -> SismicCodeGen:

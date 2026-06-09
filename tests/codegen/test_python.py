@@ -9,8 +9,7 @@ if TYPE_CHECKING:
 import syside
 
 from sysmlc.codegen.python import PythonCodeGen, PythonCodeGenContext
-
-from .. import _load_inline_model, _single_element
+from tests import _load_inline_model, _single_element
 
 
 def _get_py_codegen(quote: str) -> PythonCodeGen:

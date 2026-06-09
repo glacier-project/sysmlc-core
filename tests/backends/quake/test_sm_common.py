@@ -7,10 +7,10 @@ from sismic.interpreter import Interpreter
 
 from sysmlc.backends.quake import build_statechart
 from sysmlc.loader import load_syside_model
-from tests.generator.sismic.conftest import ALL_EXAMPLE_QN_PAIRS
+from tests.backends.quake.conftest import ALL_EXAMPLE_QN_PAIRS
 
 if TYPE_CHECKING:
-    from tests.generator.sismic.conftest import SmExample
+    from tests.backends.quake.conftest import SmExample
 
 
 @pytest.mark.parametrize(

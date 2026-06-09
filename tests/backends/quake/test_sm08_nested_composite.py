@@ -8,7 +8,7 @@ from sismic.model import BasicState, CompoundState
 
 from sysmlc.backends.quake import build_statechart
 from sysmlc.loader import load_syside_model
-from tests.generator.sismic.conftest import SM_EXAMPLES_BY_DIR
+from tests.backends.quake.conftest import SM_EXAMPLES_BY_DIR
 
 if TYPE_CHECKING:
     import syside
