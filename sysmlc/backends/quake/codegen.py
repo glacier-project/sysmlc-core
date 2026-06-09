@@ -4,7 +4,7 @@ from typing import override
 
 import syside
 
-from ...codegen.codegen import PythonCodeGen, PythonCodeGenContext
+from ...codegen.python import PythonCodeGen, PythonCodeGenContext
 
 
 class SismicCodeGen(PythonCodeGen):

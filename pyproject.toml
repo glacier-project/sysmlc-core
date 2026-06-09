@@ -26,6 +26,14 @@ dev = [
     "mkdocstrings[python]>=0.30.1,<1.1",
 ]
 
+[project.scripts]
+sysmlc = "sysmlc.cli:main"
+
+[project.entry-points."sysmlc.backends"]
+quake = "sysmlc.backends.quake.backend:QuakeBackend"
+rosetta = "sysmlc.backends.rosetta.backend:RosettaBackend"
+frostifier = "sysmlc.backends.frostifier.backend:FrostifierBackend"
+
 [build-system]
 requires = ["hatchling>=1.27,<2"]
 build-backend = "hatchling.build"

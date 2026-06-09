@@ -17,8 +17,10 @@ class ModelTraversalError(SysmlcError):
 
     pass
 
+
 class SerializationError(SysmlcError):
     """Raised when an error occurs during generated artifacts serialization."""
+
     pass
 
 class CodeGenerationError(SysmlcError):

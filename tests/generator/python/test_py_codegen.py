@@ -8,7 +8,7 @@ if TYPE_CHECKING:
 
 import syside
 
-from sysmlc.codegen.codegen import PythonCodeGen, PythonCodeGenContext
+from sysmlc.codegen.python import PythonCodeGen, PythonCodeGenContext
 
 from .. import _load_inline_model, _single_element
 

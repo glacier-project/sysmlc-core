@@ -8,7 +8,7 @@ if TYPE_CHECKING:
 import syside
 
 from sysmlc.backends.quake.codegen import SismicCodeGen
-from sysmlc.codegen.codegen import PythonCodeGenContext
+from sysmlc.codegen.python import PythonCodeGenContext
 
 from .. import _load_inline_model, _single_element
 
