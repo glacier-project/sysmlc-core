@@ -23,6 +23,7 @@ __all__ = ["main"]
 logger = logging.getLogger("sysmlc.cli")
 __version__ = version("sysmlc")
 
+
 class CliError(SysmlcError):
     """A user-facing error, reported as a message without a traceback."""
 
@@ -151,6 +152,7 @@ def _cmd_build(args: argparse.Namespace) -> int:
     logger.info("Built %s: %s", element_qn, backend.summary(artifact))
     return 0
 
+
 def _cmd_backends(backends: dict[str, Backend]) -> int:
     """Run the ``backends`` command: list what is installed."""
     if not backends:
@@ -163,6 +165,7 @@ def _cmd_backends(backends: dict[str, Backend]) -> int:
         print(f"  {name} — {backend.description}")
         print(f"      formats: {formats}")
     return 0
+
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Entry point for the ``sysmlc`` command.
@@ -184,6 +187,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         logger.debug("command failed", exc_info=True)
         print(f"error: {error}", file=sys.stderr)
         return 1
+
 
 if __name__ == "__main__":
     raise SystemExit(main())

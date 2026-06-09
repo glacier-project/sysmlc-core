@@ -23,6 +23,7 @@ class SerializationError(SysmlcError):
 
     pass
 
+
 class CodeGenerationError(SysmlcError):
     """Raised when an error occurs during code generation.
 

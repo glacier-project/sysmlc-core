@@ -129,6 +129,7 @@ class Backend(ABC):
     def summary(self, artifact: object) -> str:
         """Return a one-line description of a built artifact."""
 
+
 def discover_backends() -> dict[str, Backend]:
     """Discover installed backends via ``sysmlc.backends`` entry points.
 
@@ -156,4 +157,3 @@ def discover_backends() -> dict[str, Backend]:
             continue
         backends[backend.name] = backend
     return backends
-

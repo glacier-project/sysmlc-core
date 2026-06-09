@@ -11,9 +11,7 @@ from sysmlc.cli import main
 if TYPE_CHECKING:
     from sysmlc.backends import OutputOptions
 
-SM_EXAMPLES_DIR = (
-    Path(__file__).resolve().parents[2] / "models" / "sm-examples"
-)
+SM_EXAMPLES_DIR = Path(__file__).resolve().parents[2] / "models" / "sm-examples"
 SM01_DIR = SM_EXAMPLES_DIR / "sm01-helloworld"
 
 TWO_DEFS_MODEL = """\
@@ -79,9 +77,7 @@ def test_backends_lists_discovered_backends(
 
 
 def test_build_uses_sole_state_def(fake: _FakeBackend, tmp_path: Path) -> None:
-    exit_code = main(
-        ["fake", "build", str(SM01_DIR), "-o", str(tmp_path)]
-    )
+    exit_code = main(["fake", "build", str(SM01_DIR), "-o", str(tmp_path)])
     assert exit_code == 0
     assert fake.build_calls == ["SM01::Machine"]
 
@@ -89,9 +85,17 @@ def test_build_uses_sole_state_def(fake: _FakeBackend, tmp_path: Path) -> None:
 def test_build_passes_output_options_to_backend(
     fake: _FakeBackend, tmp_path: Path
 ) -> None:
-    main([
-        "fake", "build", str(SM01_DIR), "-o", str(tmp_path), "-f", "txt",
-    ])
+    main(
+        [
+            "fake",
+            "build",
+            str(SM01_DIR),
+            "-o",
+            str(tmp_path),
+            "-f",
+            "txt",
+        ]
+    )
     assert len(fake.write_calls) == 1
     options = fake.write_calls[0]
     assert options.output_dir == tmp_path
@@ -109,10 +113,17 @@ def test_build_defaults_to_all_formats(
 def test_build_selects_state_def_by_element(
     fake: _FakeBackend, tmp_path: Path
 ) -> None:
-    exit_code = main([
-        "fake", "build", str(SM01_DIR),
-        "-e", "SM01::Machine", "-o", str(tmp_path),
-    ])
+    exit_code = main(
+        [
+            "fake",
+            "build",
+            str(SM01_DIR),
+            "-e",
+            "SM01::Machine",
+            "-o",
+            str(tmp_path),
+        ]
+    )
     assert exit_code == 0
     assert fake.build_calls == ["SM01::Machine"]
 
@@ -129,9 +140,17 @@ def test_unknown_format_is_rejected_by_argparse(
     fake: _FakeBackend, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     with pytest.raises(SystemExit):
-        main([
-            "fake", "build", str(SM01_DIR), "-o", str(tmp_path), "-f", "json",
-        ])
+        main(
+            [
+                "fake",
+                "build",
+                str(SM01_DIR),
+                "-o",
+                str(tmp_path),
+                "-f",
+                "json",
+            ]
+        )
     assert "invalid choice" in capsys.readouterr().err
 
 
@@ -141,9 +160,15 @@ def test_build_ambiguous_element_errors(
     model_dir = tmp_path / "model"
     model_dir.mkdir()
     (model_dir / "two.sysml").write_text(TWO_DEFS_MODEL)
-    exit_code = main([
-        "fake", "build", str(model_dir), "-o", str(tmp_path / "out"),
-    ])
+    exit_code = main(
+        [
+            "fake",
+            "build",
+            str(model_dir),
+            "-o",
+            str(tmp_path / "out"),
+        ]
+    )
     assert exit_code == 1
     assert "--element" in capsys.readouterr().err
 
@@ -151,9 +176,16 @@ def test_build_ambiguous_element_errors(
 def test_build_unknown_element_errors(
     fake: _FakeBackend, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    exit_code = main([
-        "fake", "build", str(SM01_DIR),
-        "-e", "SM01::Missing", "-o", str(tmp_path),
-    ])
+    exit_code = main(
+        [
+            "fake",
+            "build",
+            str(SM01_DIR),
+            "-e",
+            "SM01::Missing",
+            "-o",
+            str(tmp_path),
+        ]
+    )
     assert exit_code == 1
     assert "SM01::Missing" in capsys.readouterr().err

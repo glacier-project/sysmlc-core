@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-
-from __future__ import annotations
 from typing import TYPE_CHECKING
+
 from ..base import Backend, OutputOptions
 
 if TYPE_CHECKING:
     from pathlib import Path
+
     import syside
+
 
 class FrostifierBackend(Backend):
     """Reserved backend for generating Frost simulations from SysML."""
@@ -38,4 +39,3 @@ class FrostifierBackend(Backend):
         raise NotImplementedError(
             f"the {self.name!r} backend is not implemented yet"
         )
-

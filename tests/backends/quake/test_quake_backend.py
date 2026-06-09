@@ -14,9 +14,7 @@ from sysmlc.loader import load_syside_model
 if TYPE_CHECKING:
     import syside
 
-SM_EXAMPLES_DIR = (
-    Path(__file__).resolve().parents[3] / "models" / "sm-examples"
-)
+SM_EXAMPLES_DIR = Path(__file__).resolve().parents[3] / "models" / "sm-examples"
 SM01_DIR = SM_EXAMPLES_DIR / "sm01-helloworld"
 MACHINE_QN = "SM01::Machine"
 
@@ -96,9 +94,7 @@ def test_write_creates_missing_output_dir(
     backend: QuakeBackend, artifact: Statechart, tmp_path: Path
 ) -> None:
     nested = tmp_path / "a" / "b"
-    backend.write(
-        artifact, OutputOptions(output_dir=nested, formats=("yaml",))
-    )
+    backend.write(artifact, OutputOptions(output_dir=nested, formats=("yaml",)))
     assert (nested / "Machine.yaml").is_file()
 
 
