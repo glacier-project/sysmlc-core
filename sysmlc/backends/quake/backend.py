@@ -2,13 +2,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, ClassVar, override
 
-from sismic.io import export_to_plantuml, export_to_yaml
 from sismic.model import Statechart
 
 from sysmlc.backends.base import Backend, OutputOptions
+from sysmlc.backends.quake.builder import build_statechart
+from sysmlc.backends.quake.serialize import to_plantuml, to_yaml
 from sysmlc.errors import SerializationError
-
-from .builder import StatechartBuilder
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -36,7 +35,7 @@ class QuakeBackend(Backend):
     @override
     def build(self, model: syside.Model, element_qn: str) -> object:
         """Build the Sismic statechart for the given state definition."""
-        return StatechartBuilder(model, element_qn).build()
+        return build_statechart(model, element_qn)
 
     @override
     def serialize(self, artifact: object, fmt: str) -> str:
@@ -44,9 +43,9 @@ class QuakeBackend(Backend):
         if not isinstance(artifact, Statechart):
             raise SerializationError("expected a sismic Statechart artifact")
         if fmt == "yaml":
-            return str(export_to_yaml(artifact))
+            return to_yaml(artifact)
         if fmt == "plantuml":
-            return str(export_to_plantuml(artifact))
+            return to_plantuml(artifact)
         raise SerializationError(f"unsupported format: {fmt!r}")
 
     @override

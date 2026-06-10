@@ -17,9 +17,9 @@ from sismic.interpreter import Interpreter
 
 from sysmlc import configure_logging
 from sysmlc.backends.quake import build_statechart
-from sysmlc.explore import iter_model_elements
-from sysmlc.loader import load_syside_model
 from sysmlc.logging import PACKAGE_LOGGER_NAME
+from sysmlc.sysml.loading import load_model
+from sysmlc.sysml.queries import iter_elements
 
 if TYPE_CHECKING:
     from collections import Counter
@@ -130,7 +130,7 @@ def resolve_state_def_qns(model: syside.Model) -> list[str]:
     Raises:
         SystemExit: If the model contains no ``StateDefinition``.
     """
-    state_defs = iter_model_elements(model, syside.StateDefinition)
+    state_defs = iter_elements(model, syside.StateDefinition)
     if not state_defs:
         raise SystemExit("No StateDefinition found in the model.")
     return sorted(str(sd.qualified_name) for sd in state_defs)
@@ -253,7 +253,7 @@ def main() -> int:
         )
         return 1
 
-    model = load_syside_model(model_dir)
+    model = load_model(model_dir)
 
     state_def_qns = resolve_state_def_qns(model)
     logger.info("Found %d StateDefinition(s) in the model", len(state_def_qns))

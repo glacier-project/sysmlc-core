@@ -6,7 +6,7 @@ import syside
 logger = logging.getLogger(__name__)
 
 
-def load_syside_model(model_dir: Path | str) -> syside.Model:
+def load_model(model_dir: Path | str) -> syside.Model:
     """Load a SysML model directory with syside.
 
     Args:

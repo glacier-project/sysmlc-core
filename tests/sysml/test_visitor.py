@@ -1,12 +1,12 @@
 import syside
 
-from sysmlc.explore import SysideVisitor
+from sysmlc.sysml.visitor import ModelVisitor
 
 
-def test_syside_visitor_dispatches_part_definitions_and_part_usages(
+def test_model_visitor_dispatches_part_definitions_and_part_usages(
     model: syside.Model,
 ) -> None:
-    class RecordingVisitor(SysideVisitor):
+    class RecordingVisitor(ModelVisitor):
         def __init__(self, model: syside.Model):
             super().__init__(model)
             self.started = False

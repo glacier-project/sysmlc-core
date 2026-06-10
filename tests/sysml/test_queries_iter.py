@@ -1,12 +1,12 @@
 import syside
 
-from sysmlc.explore import iter_model_elements
+from sysmlc.sysml.queries import iter_elements
 
 
-def test_iter_model_elements_finds_known_part_usages(
+def test_iter_elements_finds_known_part_usages(
     model: syside.Model,
 ) -> None:
-    usages = iter_model_elements(model, syside.PartUsage)
+    usages = iter_elements(model, syside.PartUsage)
     usage_names = {usage.name for usage in usages}
 
     assert "qualityControl" in usage_names

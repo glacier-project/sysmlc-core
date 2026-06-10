@@ -104,33 +104,6 @@ def configure_logging(
     return logger
 
 
-def setup_logging(
-    level: int | str | None = None,
-    config: Mapping[str, Any] | None = None,
-    *,
-    stream: TextIO | None = None,
-    use_color: bool | None = None,
-) -> logging.Logger:
-    """Backward-compatible alias for :func:`configure_logging`.
-
-    Args:
-        level: Explicit logging level override.
-        config: Optional configuration mapping with ``logging_level``.
-        stream: Optional output stream for the package handler.
-        use_color: Optional color override; auto-detected from ``stream``
-            when omitted.
-
-    Returns:
-        The configured package logger.
-    """
-    return configure_logging(
-        level=level,
-        config=config,
-        stream=stream,
-        use_color=use_color,
-    )
-
-
 def _resolve_log_level(
     *,
     level: int | str | None,

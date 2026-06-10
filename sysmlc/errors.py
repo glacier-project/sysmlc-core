@@ -9,19 +9,9 @@ if TYPE_CHECKING:
 class SysmlcError(Exception):
     """Base error for all sysmlc-specific exceptions."""
 
-    pass
-
-
-class ModelTraversalError(SysmlcError):
-    """Raised when an error occurs during model traversal."""
-
-    pass
-
 
 class SerializationError(SysmlcError):
     """Raised when an error occurs during generated artifacts serialization."""
-
-    pass
 
 
 class CodeGenerationError(SysmlcError):

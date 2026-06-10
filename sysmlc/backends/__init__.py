@@ -1,4 +1,4 @@
-from .base import (
+from sysmlc.backends.base import (
     BACKEND_ENTRY_POINT_GROUP,
     Backend,
     OutputOptions,

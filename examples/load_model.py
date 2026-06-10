@@ -5,19 +5,17 @@ from pathlib import Path
 import syside
 
 from sysmlc import configure_logging
-from sysmlc.explore import (
-    SysideModelQueries,
-    SysideVisitor,
-    iter_model_elements,
-)
-from sysmlc.loader import load_syside_model
+from sysmlc.sysml import metadata
+from sysmlc.sysml.loading import load_model
+from sysmlc.sysml.queries import iter_elements
+from sysmlc.sysml.visitor import ModelVisitor
 
 MODEL_DIR = Path(__file__).resolve().parent.parent / "models" / "ice-lab"
 QUALITY_CONTROL_QN = "EquipmentInterfaces::QualityControlEquipment"
 OPCUA_CONNECTION_QN = "OpcUaBinding::OpcUaConnection"
 
 
-class PartCountingVisitor(SysideVisitor):
+class PartCountingVisitor(ModelVisitor):
     """Counts part definitions and part usages encountered in the model."""
 
     def __init__(self, model: syside.Model):
@@ -42,22 +40,25 @@ def main() -> None:
     """Load the ice-lab model."""
     configure_logging("INFO")
 
-    model = load_syside_model(MODEL_DIR)
+    model = load_model(MODEL_DIR)
 
-    part_definitions = iter_model_elements(model, syside.PartDefinition)
+    part_definitions = iter_elements(model, syside.PartDefinition)
     print(f"Part definitions: {len(part_definitions)}")
     for part_definition in part_definitions:
         print(f"  - {part_definition.qualified_name}")
     print()
 
-    queries = SysideModelQueries(model)
-    quality_control = queries.resolve_part_definition(QUALITY_CONTROL_QN)
+    quality_control = metadata.resolve_part_definition(
+        model, QUALITY_CONTROL_QN
+    )
     print(f"Resolved by qualified name: {quality_control.qualified_name}")
     print()
 
-    opcua_connection = queries.resolve_metadata_definition(OPCUA_CONNECTION_QN)
-    annotated = queries.iter_elements_with_metadata(
-        syside.PartUsage, opcua_connection
+    opcua_connection = metadata.resolve_metadata_definition(
+        model, OPCUA_CONNECTION_QN
+    )
+    annotated = metadata.elements_with_metadata(
+        model, syside.PartUsage, opcua_connection
     )
     print(
         f"Part usages annotated with {opcua_connection.name}: {len(annotated)}"

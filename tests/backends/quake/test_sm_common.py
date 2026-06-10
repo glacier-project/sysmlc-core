@@ -6,7 +6,7 @@ import pytest
 from sismic.interpreter import Interpreter
 
 from sysmlc.backends.quake import build_statechart
-from sysmlc.loader import load_syside_model
+from sysmlc.sysml.loading import load_model
 from tests.backends.quake.conftest import ALL_EXAMPLE_QN_PAIRS
 
 if TYPE_CHECKING:
@@ -34,6 +34,6 @@ def test_statechart_executes_without_evaluation_error(
     a future generator branch leaves an undefined identifier in
     emitted Python.
     """
-    model = load_syside_model(example.model_dir)
+    model = load_model(example.model_dir)
     sc = build_statechart(model, state_def_qn)
     Interpreter(sc).execute()

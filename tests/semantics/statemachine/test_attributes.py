@@ -1,0 +1,56 @@
+from pathlib import Path
+
+import syside
+
+from sysmlc.semantics.statemachine import attributes
+from sysmlc.semantics.statemachine.facts import CompositeValue
+from sysmlc.sysml.loading import load_model
+from sysmlc.sysml.queries import resolve
+
+SM_DIR = Path(__file__).resolve().parents[3] / "models" / "sm-examples"
+
+
+def _named_attr(
+    model: syside.Model, qn: str, name: str
+) -> syside.AttributeUsage:
+    machine = resolve(model, syside.StateDefinition, qn)
+    return next(
+        a for a in attributes.scope_attributes(machine) if a.name == name
+    )
+
+
+def test_scalar_binds_to_expression_node() -> None:
+    model = load_model(SM_DIR / "sm04-assignment")
+    compiler = syside.Compiler()
+    stdlib = syside.Stdlib(model.index)
+    counter = _named_attr(model, "SM04::MachineEntryIncrement", "counter")
+    value = attributes.bind_value(counter, compiler, stdlib)
+    assert isinstance(value, syside.Expression)
+
+
+def test_composite_binds_to_composite_value() -> None:
+    model = load_model(SM_DIR / "sm05-chained-references")
+    compiler = syside.Compiler()
+    stdlib = syside.Stdlib(model.index)
+    pt = _named_attr(model, "SM05::MachineChainGuard", "pt")
+    value = attributes.bind_value(pt, compiler, stdlib)
+    assert isinstance(value, CompositeValue)
+    assert [name for name, _ in value.fields] == ["x"]
+
+
+def test_scalar_quantity_binds_to_si_float() -> None:
+    model = load_model(SM_DIR / "sm13-time-trigger")
+    compiler = syside.Compiler()
+    stdlib = syside.Stdlib(model.index)
+    pick = _named_attr(model, "SM13::MachineAfterAttribute", "pickDuration")
+    value = attributes.bind_value(pick, compiler, stdlib)
+    assert value == 120.0
+
+
+def test_iter_scope_attributes_yields_root_attribute() -> None:
+    model = load_model(SM_DIR / "sm04-assignment")
+    machine = resolve(
+        model, syside.StateDefinition, "SM04::MachineEntryIncrement"
+    )
+    names = [attr.name for _, attr in attributes.iter_scope_attributes(machine)]
+    assert names == ["counter"]

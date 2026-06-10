@@ -4,12 +4,12 @@ import logging
 
 import syside
 
-from sysmlc.explore.traversal import iter_model_elements
+from sysmlc.sysml.queries import iter_elements
 
 logger = logging.getLogger(__name__)
 
 
-class SysideVisitor:
+class ModelVisitor:
     """Base visitor for traversing selected elements of a Syside model."""
 
     element_kind: type[syside.Element] = syside.Element
@@ -53,7 +53,7 @@ class SysideVisitor:
     def visit(self) -> None:
         """Traverse the model and dispatch each element to typed hooks."""
         self.start()
-        for element in iter_model_elements(
+        for element in iter_elements(
             self._model,
             self._element_kind,
             include_subtypes=self._include_subtypes,

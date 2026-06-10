@@ -1,13 +1,13 @@
-from .python import (
+from sysmlc.codegen.python import (
     PythonCodeGen,
     PythonCodeGenContext,
     PythonCodeGenError,
-    join_emitted_actions,
+    join_statements,
 )
 
 __all__ = [
     "PythonCodeGen",
     "PythonCodeGenContext",
     "PythonCodeGenError",
-    "join_emitted_actions",
+    "join_statements",
 ]

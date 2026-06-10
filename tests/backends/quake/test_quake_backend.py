@@ -9,7 +9,7 @@ from sismic.model import Statechart
 from sysmlc.backends import OutputOptions, discover_backends
 from sysmlc.backends.quake.backend import QuakeBackend
 from sysmlc.errors import SerializationError
-from sysmlc.loader import load_syside_model
+from sysmlc.sysml.loading import load_model
 
 if TYPE_CHECKING:
     import syside
@@ -26,7 +26,7 @@ def backend() -> QuakeBackend:
 
 @pytest.fixture(scope="module")
 def model() -> syside.Model:
-    return load_syside_model(SM01_DIR)
+    return load_model(SM01_DIR)
 
 
 @pytest.fixture(scope="module")
