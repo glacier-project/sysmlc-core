@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import logging
-from typing import Sequence, overload
+from typing import TYPE_CHECKING, overload
 
 import syside
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 from sysmlc.sysml.names import QualifiedName, normalize_qualified_name
 
@@ -48,7 +51,7 @@ def iter_elements[TElement: syside.Element](
 ) -> Sequence[TElement]: ...
 
 
-def iter_elements( 
+def iter_elements(
     model: syside.Model,
     kind: type[syside.Element] | None = None,
     *,
