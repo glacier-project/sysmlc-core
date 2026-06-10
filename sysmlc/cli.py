@@ -7,16 +7,16 @@ from importlib.metadata import version
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import syside
-
-from .backends import Backend, OutputOptions, discover_backends
-from .errors import SysmlcError
-from .explore import iter_model_elements
-from .loader import load_syside_model
-from .logging import configure_logging
+from sysmlc.backends import Backend, OutputOptions, discover_backends
+from sysmlc.errors import SysmlcError
+from sysmlc.logging import configure_logging
+from sysmlc.sysml.loading import load_model
+from sysmlc.sysml.queries import state_definitions
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+
+    import syside
 
 __all__ = ["main"]
 
@@ -114,8 +114,7 @@ def _select_state_def(model: syside.Model, requested: str | None) -> str:
             absent, or none was requested while the model declares several.
     """
     state_defs = sorted(
-        str(state_def.qualified_name)
-        for state_def in iter_model_elements(model, syside.StateDefinition)
+        str(state_def.qualified_name) for state_def in state_definitions(model)
     )
     if not state_defs:
         raise CliError("the model contains no state definition")
@@ -135,7 +134,7 @@ def _select_state_def(model: syside.Model, requested: str | None) -> str:
 def _cmd_build(args: argparse.Namespace) -> int:
     """Run a ``<backend> build`` command."""
     backend: Backend = args._backend
-    model = load_syside_model(args.model)
+    model = load_model(args.model)
     element_qn = _select_state_def(model, args.element)
 
     artifact = backend.build(model, element_qn)
