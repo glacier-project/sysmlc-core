@@ -1,28 +1,27 @@
 from __future__ import annotations
 
-from typing import override
+from typing import TYPE_CHECKING, override
 
-import syside
+from sysmlc.codegen.python import PythonCodeGen, payload_signature
 
-from ...codegen.python import PythonCodeGen, PythonCodeGenContext
+if TYPE_CHECKING:
+    import syside
 
 
 class SismicCodeGen(PythonCodeGen):
     """Python code generator for Sismic statecharts."""
 
-    def __init__(self, context: PythonCodeGenContext | None = None) -> None:
-        super().__init__(context)
-
     @override
-    def emit_send(self, send: syside.SendActionUsage) -> str:
+    def render_send(self, send: syside.SendActionUsage) -> str:
         """Translate a send action to a sismic ``send(...)`` call.
 
         Emits ``send('<Event>'[, <field>=<expr>, ...])``: ``<Event>`` is the
-        payload type's name; each positional constructor argument
+        payload type's name. Each positional constructor argument
         becomes a kwarg named by the payload attribute it binds to, in
         declaration order.
 
-        Bare-value sends are rejected; payload must be a typed new <Sig>(...)
+        Bare-value sends are rejected by ``payload_signature``. The payload
+        must be a typed ``new <Sig>(...)`` constructor.
 
         Args:
             send: The ``send new <Type>(<args>)`` action to translate.
@@ -36,38 +35,12 @@ class SismicCodeGen(PythonCodeGen):
                 corresponding named attribute, or if an argument uses an
                 expression shape the emitter rejects.
         """
-        payload = send.payload_argument
-        if not isinstance(payload, syside.ConstructorExpression):
-            raise ValueError(
-                "send payload is not a `new <Type>(...)` constructor"
-            )
-        event_type = payload.instantiated_type
-        if not isinstance(event_type, syside.Definition):
-            raise ValueError(
-                "send payload type does not resolve to a definition"
-            )
-        event_name = event_type.name
-        if event_name is None:
-            raise ValueError("send payload type has no resolved name")
-        attributes = event_type.owned_attributes.collect()
-        arguments = payload.arguments.collect()
-        # Each positional argument binds to the payload attribute at the same
-        # position, in declaration order; a send may pass fewer arguments than
-        # the type has attributes (KerML 8.3.4.8.7).
-        kwargs: list[str] = []
-        for index, argument in enumerate(arguments):
-            if index >= len(attributes):
-                raise ValueError(
-                    "send payload has more args than the type has attributes"
-                )
-            name = attributes[index].name
-            if name is None:
-                raise ValueError(
-                    "send payload binds an argument to an unnamed attribute"
-                )
-            kwargs.append(f"{name}={self.emit_expression(argument)}")
+        event_name, pairs = payload_signature(send)
+        kwargs = ", ".join(
+            f"{name}={self.render_expression(argument)}"
+            for name, argument in pairs
+        )
         delimiter = self._context.string_delimiter
-        kwargs_str = ", ".join(kwargs)
         if kwargs:
-            return f"send({delimiter}{event_name}{delimiter}, {kwargs_str})"
+            return f"send({delimiter}{event_name}{delimiter}, {kwargs})"
         return f"send({delimiter}{event_name}{delimiter})"

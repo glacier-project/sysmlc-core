@@ -22,7 +22,7 @@ BACKEND_ENTRY_POINT_GROUP = "sysmlc.backends"
 class OutputOptions:
     """Where and in what formats a backend should write its artifact.
 
-    These are the backend-agnostic output concerns the CLI owns; backend-
+    These are the backend-agnostic output concerns the CLI owns. Backend-
     specific knobs do not belong here.
 
     Attributes:
@@ -45,7 +45,7 @@ class Backend(ABC):
     serialization. The ``build`` method must be implemented to produce the
     target artifact for a given state definition. The ``serialize`` and
     ``summary`` methods may be overridden to support outputting the artifact in
-    different formats or describing it; by default ``serialize`` raises a
+    different formats or describing it. By default ``serialize`` raises a
     ``SerializationError`` indicating the backend does not support that format.
     """
 
@@ -113,8 +113,8 @@ class Backend(ABC):
     def write(self, artifact: object, options: OutputOptions) -> list[Path]:
         """Write the artifact's files into ``options.output_dir``.
 
-        The backend owns its output shape -- a single file or a directory
-        tree -- and the filename and extension for each format. The CLI does
+        The backend owns its output shape (a single file or a directory
+        tree) and the filename and extension for each format. The CLI does
         not assume any particular layout.
 
         Args:

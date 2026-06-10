@@ -44,9 +44,52 @@ _COMPARISON_OPERATORS: Final[frozenset[syside.Operator]] = frozenset(
 )
 
 
-def join_emitted_actions(actions: list[str]) -> str:
+def join_statements(actions: list[str]) -> str:
     """Join emitted action sources in declaration order."""
     return "\n".join(action for action in actions if action)
+
+
+def payload_signature(
+    send: syside.SendActionUsage,
+) -> tuple[str, list[tuple[str, syside.Expression]]]:
+    """Return a send's payload type name and its bound (attribute, arg) pairs.
+
+    Each positional constructor argument binds to the payload attribute at
+    the same position, in declaration order; a send may pass fewer arguments
+    than the type has attributes (KerML 8.3.4.8.7).
+
+    Returns:
+        The payload type's simple name, and one ``(attribute name, argument
+        expression)`` pair per bound constructor argument.
+
+    Raises:
+        ValueError: If the payload is not a ``new <Type>(...)`` constructor
+            resolving to a named definition, or an argument has no
+            corresponding named attribute.
+    """
+    payload = send.payload_argument
+    if not isinstance(payload, syside.ConstructorExpression):
+        raise ValueError("send payload is not a `new <Type>(...)` constructor")
+    event_type = payload.instantiated_type
+    if not isinstance(event_type, syside.Definition):
+        raise ValueError("send payload type does not resolve to a definition")
+    event_name = event_type.name
+    if event_name is None:
+        raise ValueError("send payload type has no resolved name")
+    attributes = event_type.owned_attributes.collect()
+    pairs: list[tuple[str, syside.Expression]] = []
+    for index, argument in enumerate(payload.arguments.collect()):
+        if index >= len(attributes):
+            raise ValueError(
+                "send payload has more args than the type has attributes"
+            )
+        name = attributes[index].name
+        if name is None:
+            raise ValueError(
+                "send payload binds an argument to an unnamed attribute"
+            )
+        pairs.append((name, argument))
+    return event_name, pairs
 
 
 def _assignment_target_base(
@@ -89,12 +132,7 @@ class PythonCodeGenError(UnsupportedConstructError):
 
 @dataclass(frozen=True)
 class PythonCodeGenContext:
-    """Context for the PythonCodeGen to carry through the generation process.
-
-    This class can be extended with additional fields as needed to carry
-    information through the generation process, such as references to the
-    model, symbol tables, or configuration options.
-    """
+    """Context for the PythonCodeGen to carry through the generation process."""
 
     indentation_length: int = 4
     string_delimiter: str = '"'
@@ -118,7 +156,7 @@ class PythonCodeGen:
     def __init__(self, context: PythonCodeGenContext | None = None) -> None:
         self._context = context or PythonCodeGenContext()
 
-    def emit_expression(self, expr: syside.Expression) -> str:
+    def render_expression(self, expr: syside.Expression) -> str:
         """Translate ``expr`` to a Python source string.
 
         Public entry point for the sismic expression translator.
@@ -135,7 +173,7 @@ class PythonCodeGen:
         """
         return self._emit(expr)
 
-    def emit_assignment(self, assign: syside.AssignmentActionUsage) -> str:
+    def render_assignment(self, assign: syside.AssignmentActionUsage) -> str:
         """Translate an assignment action to a Python assignment statement.
 
         Emits ``<target> = <rhs>``, where ``<target>`` is the assigned
@@ -150,15 +188,15 @@ class PythonCodeGen:
         Raises:
             ValueError: If the assignment target has no resolved name, if the
                 value expression is absent, or if the value expression is a
-                node kind ``emit_expression`` does not support.
+                node kind ``render_expression`` does not support.
         """
-        target = self.emit_assignment_target(assign)
+        target = self.render_assignment_target(assign)
         value = assign.value_expression
         if value is None:
             raise ValueError("AssignmentActionUsage has no value expression")
-        return f"{target} = {self.emit_expression(value)}"
+        return f"{target} = {self.render_expression(value)}"
 
-    def emit_assignment_target(
+    def render_assignment_target(
         self, assign: syside.AssignmentActionUsage
     ) -> str:
         """Translate an assignment target to a Python assignment target.
@@ -181,15 +219,15 @@ class PythonCodeGen:
             return target.name
         return f"{base}.{target.name}"
 
-    def emit_action(self, action: syside.ActionUsage) -> str:
+    def render_action(self, action: syside.ActionUsage) -> str:
         """Translate a supported action usage to typed emitted Python."""
         if isinstance(action, syside.AssignmentActionUsage):
-            return self.emit_assignment(action)
+            return self.render_assignment(action)
         if isinstance(action, syside.SendActionUsage):
-            return self.emit_send(action)
+            return self.render_send(action)
         raise PythonCodeGenError("unsupported action type", node=action)
 
-    def emit_send(self, send: syside.SendActionUsage) -> str:
+    def render_send(self, send: syside.SendActionUsage) -> str:
         """Translate a send action to the appropriate Python source.
 
         This method is abstract and must be implemented by subclasses to handle
@@ -203,7 +241,9 @@ class PythonCodeGen:
         Returns:
             Python source for the send action.
         """
-        raise NotImplementedError("emit_send must be implemented by subclasses")
+        raise NotImplementedError(
+            "render_send must be implemented by subclasses"
+        )
 
     def _emit(self, expr: syside.Expression, parent_precedence: int = 0) -> str:
         """Dispatch ``expr`` to its node-type handler.
