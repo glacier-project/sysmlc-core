@@ -58,6 +58,7 @@ select = [
     "C4",     # flake8-comprehensions
     "SIM",    # flake8-simplify
     "TCH",    # flake8-type-checking
+    "TID252", # flake8-tidy-imports: ban relative imports
     "RUF",    # Ruff-specific rules
 ]
 ignore = [
@@ -73,6 +74,10 @@ ignore = [
 "tests/**/*.py" = [
     "D",      # docstrings not required in tests
 ]
+
+[tool.ruff.lint.flake8-tidy-imports]
+# Ban ALL relative imports (the default is "parents")
+ban-relative-imports = "all"
 
 [tool.ruff.lint.pydocstyle]
 # Google docstring convention
