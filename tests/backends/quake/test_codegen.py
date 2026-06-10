@@ -45,6 +45,6 @@ class TestSismicCodeGen:
         )
 
         send = _single_element(model, syside.SendActionUsage)
-        emitted = code_gen.emit_action(send)
+        emitted = code_gen.render_action(send)
 
         assert emitted == f"send({string_delimiter}Ping{string_delimiter})"

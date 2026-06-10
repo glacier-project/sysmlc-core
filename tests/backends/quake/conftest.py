@@ -3,8 +3,8 @@ from pathlib import Path
 
 import syside
 
-from sysmlc.explore import iter_model_elements
-from sysmlc.loader import load_syside_model
+from sysmlc.sysml.loading import load_model
+from sysmlc.sysml.queries import iter_elements
 
 SM_EXAMPLES_DIR = Path(__file__).resolve().parents[3] / "models" / "sm-examples"
 
@@ -56,10 +56,10 @@ def _discover_all_state_def_qns() -> list[tuple[SmExample, str]]:
     """
     pairs: list[tuple[SmExample, str]] = []
     for example in SM_EXAMPLES:
-        model = load_syside_model(example.model_dir)
+        model = load_model(example.model_dir)
         qns = sorted(
             str(sd.qualified_name)
-            for sd in iter_model_elements(model, syside.StateDefinition)
+            for sd in iter_elements(model, syside.StateDefinition)
         )
         pairs.extend((example, qn) for qn in qns)
     return pairs

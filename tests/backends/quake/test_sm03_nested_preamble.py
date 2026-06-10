@@ -7,7 +7,8 @@ import pytest
 from sismic.interpreter import Interpreter
 
 from sysmlc.backends.quake import build_statechart
-from sysmlc.loader import load_syside_model
+from sysmlc.errors import UnsupportedConstructError
+from sysmlc.sysml.loading import load_model
 
 if TYPE_CHECKING:
     import syside
@@ -19,7 +20,7 @@ FIXTURES_DIR = (
 
 @pytest.fixture(scope="module")
 def model() -> syside.Model:
-    return load_syside_model(FIXTURES_DIR)
+    return load_model(FIXTURES_DIR)
 
 
 def test_nested_attr_seeded_into_preamble(model: syside.Model) -> None:
@@ -58,7 +59,8 @@ def test_root_and_nested_attrs_coexist(model: syside.Model) -> None:
 def test_root_nested_collision_raises(model: syside.Model) -> None:
     """Root and nested attributes with the same name raise."""
     with pytest.raises(
-        ValueError, match=r"declares attribute 'x' in two scopes"
+        UnsupportedConstructError,
+        match=r"attribute 'x' is declared in two scopes",
     ):
         build_statechart(
             model, "NestedAttributePreamble::MachineCollisionRootNested"
@@ -68,7 +70,8 @@ def test_root_nested_collision_raises(model: syside.Model) -> None:
 def test_sibling_collision_raises(model: syside.Model) -> None:
     """Sibling composites declaring the same name raise."""
     with pytest.raises(
-        ValueError, match=r"declares attribute 'count' in two scopes"
+        UnsupportedConstructError,
+        match=r"attribute 'count' is declared in two scopes",
     ):
         build_statechart(
             model, "NestedAttributePreamble::MachineCollisionSiblings"

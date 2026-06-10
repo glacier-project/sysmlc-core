@@ -6,7 +6,7 @@ import pytest
 from sismic.interpreter import Interpreter
 
 from sysmlc.backends.quake import build_statechart
-from sysmlc.loader import load_syside_model
+from sysmlc.sysml.loading import load_model
 from tests.backends.quake.conftest import SM_EXAMPLES_BY_DIR
 
 if TYPE_CHECKING:
@@ -17,7 +17,7 @@ EXAMPLE = SM_EXAMPLES_BY_DIR["sm02-event-trigger"]
 
 @pytest.fixture(scope="module")
 def model() -> syside.Model:
-    return load_syside_model(EXAMPLE.model_dir)
+    return load_model(EXAMPLE.model_dir)
 
 
 @pytest.fixture(

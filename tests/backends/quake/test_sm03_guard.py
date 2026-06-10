@@ -7,7 +7,7 @@ import pytest
 from sismic.interpreter import Interpreter
 
 from sysmlc.backends.quake import build_statechart
-from sysmlc.loader import load_syside_model
+from sysmlc.sysml.loading import load_model
 from tests.backends.quake.conftest import SM_EXAMPLES_BY_DIR
 
 if TYPE_CHECKING:
@@ -71,7 +71,7 @@ CASES: list[GuardCase] = [
 
 @pytest.fixture(scope="module")
 def model() -> syside.Model:
-    return load_syside_model(EXAMPLE.model_dir)
+    return load_model(EXAMPLE.model_dir)
 
 
 @pytest.fixture(
@@ -130,7 +130,7 @@ def test_guard_evaluation_drives_target_configuration(
     Per SysML v2 §7.18.3, triggering rule 2: a transition usage with
     a guard expression "can only be triggered if the guard expression
     evaluates to true". End-to-end check that the preamble bindings,
-    the Python emitted by ``emit_expression``, and sismic's evaluator
+    the Python emitted by ``render_expression``, and sismic's evaluator
     round-trip to the expected final configuration per case.
     """
     sc = build_statechart(model, case.state_def_qn)
