@@ -158,7 +158,7 @@ ______________________________________________________________________
 
 ### 1.1 `state def` → statechart root state
 
-*Corpus: [`sm01-helloworld`](../models/sm-examples/sm01-helloworld/sm01.sysml)*
+*Corpus: `sm01-helloworld`*
 
 *Spec: SysML 7.18.1 (states overview), 7.18.2 (state definitions and usages)*
 
@@ -185,7 +185,7 @@ childless `idle`/`running` are basic leaves.
 
 ### 1.2 `entry; then X;` → the root's `initial`
 
-*Corpus: [`sm01-helloworld`](../models/sm-examples/sm01-helloworld/sm01.sysml)*
+*Corpus: `sm01-helloworld`*
 
 *Spec: SysML 7.18.1, 7.18.2 (entry action and target succession); KerML 9.2.11.1
 (state performances)*
@@ -256,7 +256,7 @@ root state:
 
 ### 1.4 leaf `state` → basic state
 
-*Corpus: [`sm01-helloworld`](../models/sm-examples/sm01-helloworld/sm01.sysml)*
+*Corpus: `sm01-helloworld`*
 
 *Spec: SysML 7.18.2 (state definitions and usages)*
 
@@ -275,7 +275,7 @@ state running;
 
 ### 1.5 composite `state X { ... }` → nested composite state
 
-*Corpus: [`sm08-nested-composite`](../models/sm-examples/sm08-nested-composite/sm08.sysml)*
+*Corpus: `sm08-nested-composite`*
 
 *Spec: SysML 7.18.1 (state decomposition), 7.18.2 (state definitions and
 usages)*
@@ -319,7 +319,7 @@ composites reuse the same identifiers, like `groupA::active` vs `groupB::active`
 
 ### 1.6 `parallel` → orthogonal state
 
-*Corpus: [`sm09-parallel`](../models/sm-examples/sm09-parallel/sm09.sysml)*
+*Corpus: `sm09-parallel`*
 
 *Spec: SysML 7.18.1 (parallel states), 7.18.2 (the `parallel` keyword)*
 
@@ -380,7 +380,7 @@ it does need a single `initial`.
 
 ### 1.7 `then done` → final state
 
-*Corpus: [`sm10-done`](../models/sm-examples/sm10-done/sm10.sysml)*
+*Corpus: `sm10-done`*
 
 *Spec: SysML 7.18.3 (transition usages: `done`)*
 
@@ -445,7 +445,7 @@ ______________________________________________________________________
 
 ### 2.1 `attribute` value → `preamble`
 
-*Corpus: [`sm04-assignment`](../models/sm-examples/sm04-assignment/sm04.sysml), [`sm13-time-trigger`](../models/sm-examples/sm13-time-trigger/sm13.sysml)*
+*Corpus: `sm04-assignment`, `sm13-time-trigger`*
 
 *Spec: KerML 7.4.11, 8.3.4.10.2 (feature values); SysML 7.6.3 (`constant`
 modifier), 7.9.2 (time-varying values), 7.13.4 (feature values)*
@@ -506,7 +506,7 @@ preamble: pickDuration = 120.0
 
 ### 2.2 composite attribute → `SimpleNamespace` tree
 
-*Corpus: [`sm05-chained-references`](../models/sm-examples/sm05-chained-references/sm05.sysml)*
+*Corpus: `sm05-chained-references`*
 
 *Spec: SysML 7.7.2 (attribute definitions and usages), 7.6.6 (feature chains),
 7.17.9 (assignment targets); KerML 8.3.4.10.2 (initial values require variable
@@ -642,7 +642,7 @@ with their half of this problem.
 
 ### 3.1 `transition first A then B` → `{target: B}`
 
-*Corpus: [`sm01-helloworld`](../models/sm-examples/sm01-helloworld/sm01.sysml)*
+*Corpus: `sm01-helloworld`*
 
 *Spec: SysML 7.18.3 (transition usages); KerML 9.2.10.1 (transition
 performances), 9.2.11.1 (state performances)*
@@ -676,7 +676,7 @@ statechart:
 
 ### 3.2 `accept E [via port]` → `{event: E}`
 
-*Corpus: [`sm02-event-trigger`](../models/sm-examples/sm02-event-trigger/sm02.sysml)*
+*Corpus: `sm02-event-trigger`*
 
 *Spec: SysML 7.17.8 (accept action usages), 7.18.3 (transition accepter); KerML
 9.2.11.1 (triggers)*
@@ -744,7 +744,7 @@ transition.
 
 ### 3.3 `if <expr>` → `{guard: <python>}`
 
-*Corpus: [`sm03-guard`](../models/sm-examples/sm03-guard/sm03.sysml)*
+*Corpus: `sm03-guard`*
 
 *Spec: SysML 7.18.3 (transition guards); KerML 9.2.10.1 (guard evaluations)*
 
@@ -788,7 +788,7 @@ consume, so this matches SysML's untriggered-transition rule exactly.
 
 ### 3.4 **WiP** `accept after <duration>` → one-shot delayed event
 
-*Corpus: [`sm13-time-trigger`](../models/sm-examples/sm13-time-trigger/sm13.sysml)*
+*Corpus: `sm13-time-trigger`*
 
 *Spec: SysML 7.17.8 (time triggers); KerML 9.2.14 (`TriggerAfter`,
 `TimeSignal`), 9.2.13 (Observation)*
@@ -1127,7 +1127,7 @@ control node, ...) is rejected fail-loud.
 
 ### 4.1 `entry action` / `entry assign` → `on entry`
 
-*Corpus: [`sm04-assignment`](../models/sm-examples/sm04-assignment/sm04.sysml)*
+*Corpus: `sm04-assignment`*
 
 *Spec: SysML 7.18.2 (entry actions), 7.17.9 (assignment action usages)*
 
@@ -1171,7 +1171,7 @@ statechart:
 
 ### 4.2 `exit action` / `exit assign` → `on exit`
 
-*Corpus: [`sm04-assignment`](../models/sm-examples/sm04-assignment/sm04.sysml)*
+*Corpus: `sm04-assignment`*
 
 *Spec: SysML 7.18.2 (exit actions), 7.17.9 (assignment action usages)*
 
@@ -1207,7 +1207,7 @@ statechart:
 
 ### 4.3 `do action` → `on entry` (run once)
 
-*Corpus: [`sm12-do-action`](../models/sm-examples/sm12-do-action/sm12.sysml)*
+*Corpus: `sm12-do-action`*
 
 *Spec: SysML 7.18.1 (do action semantics), 7.18.2 (do actions)*
 
@@ -1267,7 +1267,7 @@ on entry: "log = 1\nlog = log + 10"   # entry assign, then do action
 
 ### 4.4 transition effect (`do action ... then`) → `{action: ...}`
 
-*Corpus: [`sm06-transition-effect`](../models/sm-examples/sm06-transition-effect/sm06.sysml)*
+*Corpus: `sm06-transition-effect`*
 
 *Spec: SysML 7.18.3 (transition effect), 7.17.9 (assignment action usages);
 KerML 9.2.10.1 (effect ordering)*
@@ -1317,7 +1317,7 @@ exercises exactly this order).
 
 ### 4.5 `send new Sig(args) [via port]` → `send("Sig", kwargs)`
 
-*Corpus: [`sm11-send-effect`](../models/sm-examples/sm11-send-effect/sm11.sysml)*
+*Corpus: `sm11-send-effect`*
 
 *Spec: SysML 7.17.7 (send action usages); KerML 8.3.4.8.7 (instantiation
 argument binding)*
