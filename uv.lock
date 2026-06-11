@@ -1023,6 +1023,7 @@ name = "sysmlc"
 version = "0.0.0"
 source = { editable = "." }
 dependencies = [
+    { name = "pyyaml" },
     { name = "sismic" },
     { name = "syside" },
 ]
@@ -1052,6 +1053,7 @@ requires-dist = [
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=4.5.1,<5" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.4.2,<10" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=6.3.0,<8" },
+    { name = "pyyaml", specifier = ">=6,<7" },
     { name = "radon", marker = "extra == 'dev'", specifier = ">=6.0.1,<7" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.15.6,<0.16" },
     { name = "sismic", specifier = ">=1.6.11,<2" },

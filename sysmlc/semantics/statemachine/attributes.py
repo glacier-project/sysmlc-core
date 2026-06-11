@@ -38,12 +38,26 @@ def nested_attributes(
     An attribute is structured when its type resolves to an
     ``AttributeDefinition`` that owns attributes; it is scalar when its type
     resolves to a primitive ``DataType``.
+
+    A usage-local attribute of the same name (a ``:>>`` redefinition giving
+    THIS usage its own value) replaces the definition's field, so per-usage
+    redefinitions win over the type's defaults.
     """
     nested: list[syside.AttributeUsage] = []
     for definition in attr.attribute_definitions.collect():
         if isinstance(definition, syside.AttributeDefinition):
             nested.extend(definition.owned_attributes.collect())
-    return nested
+    if not nested:
+        return nested
+    local = {
+        feature.name: feature
+        for feature in attr.owned_features.collect()
+        if isinstance(feature, syside.AttributeUsage) and feature.name
+    }
+    return [
+        local.get(field.name, field) if field.name else field
+        for field in nested
+    ]
 
 
 def is_scalar_quantity(attr: syside.AttributeUsage) -> bool:

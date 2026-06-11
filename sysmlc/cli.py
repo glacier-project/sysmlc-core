@@ -12,6 +12,7 @@ from sysmlc.errors import SysmlcError
 from sysmlc.logging import configure_logging
 from sysmlc.sysml.loading import load_model
 from sysmlc.sysml.queries import state_definitions
+from sysmlc.values import configure_model, load_values, select_values
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -97,6 +98,14 @@ def _add_build_arguments(
             choices=formats,
             help="output format (default: every supported format)",
         )
+    build.add_argument(
+        "--values",
+        type=Path,
+        help=(
+            "YAML file overriding attribute initial values; nesting "
+            "mirrors qualified names (Pkg -> Def -> attribute: value)"
+        ),
+    )
 
 
 def _select_state_def(model: syside.Model, requested: str | None) -> str:
@@ -136,6 +145,13 @@ def _cmd_build(args: argparse.Namespace) -> int:
     backend: Backend = args._backend
     model = load_model(args.model)
     element_qn = _select_state_def(model, args.element)
+
+    values_path = getattr(args, "values", None)
+    if values_path is not None:
+        overrides = select_values(load_values(values_path), element_qn)
+        # Overrides are applied as source edits + reload, so EVERY backend
+        # builds from the configured model.
+        model = configure_model(model, args.model, element_qn, overrides)
 
     artifact = backend.build(model, element_qn)
     selected = getattr(args, "format", None)

@@ -42,10 +42,12 @@ class _FakeBackend(Backend):
             formats=(("txt", "plain text"),),
         )
         self.build_calls: list[str] = []
+        self.built_models: list[object] = []
         self.write_calls: list[OutputOptions] = []
 
     def build(self, model: object, element_qn: str) -> object:
         self.build_calls.append(element_qn)
+        self.built_models.append(model)
         return f"artifact:{element_qn}"
 
     def write(self, artifact: object, options: OutputOptions) -> list[Path]:
@@ -189,3 +191,79 @@ def test_build_unknown_element_errors(
     )
     assert exit_code == 1
     assert "SM01::Missing" in capsys.readouterr().err
+
+
+CONFIGURABLE_MODEL = """\
+package Cfg {
+    private import ScalarValues::*;
+    state def Machine {
+        attribute speed : Real := 1.0;
+        entry; then a;
+        state a;
+    }
+}
+"""
+
+
+def _write_configurable(tmp_path: Path) -> Path:
+    model_dir = tmp_path / "model"
+    model_dir.mkdir()
+    (model_dir / "m.sysml").write_text(CONFIGURABLE_MODEL)
+    return model_dir
+
+
+def test_build_applies_values_overrides(
+    fake: _FakeBackend, tmp_path: Path
+) -> None:
+    # --values must hand EVERY backend a configured (reloaded) model.
+    import syside
+
+    from sysmlc.sysml.queries import resolve
+
+    model_dir = _write_configurable(tmp_path)
+    values = tmp_path / "values.yaml"
+    values.write_text("Cfg:\n  Machine:\n    speed: 2.5\n")
+    exit_code = main(
+        [
+            "fake",
+            "build",
+            str(model_dir),
+            "--values",
+            str(values),
+            "-o",
+            str(tmp_path / "out"),
+        ]
+    )
+    assert exit_code == 0
+    (model,) = fake.built_models
+    assert isinstance(model, syside.Model)
+    machine = resolve(model, syside.StateDefinition, "Cfg::Machine")
+    (speed,) = [
+        m
+        for m in machine.owned_members.collect()
+        if isinstance(m, syside.AttributeUsage)
+    ]
+    assert speed.feature_value_expression.value == 2.5
+
+
+def test_build_rejects_unknown_value_override(
+    fake: _FakeBackend,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    model_dir = _write_configurable(tmp_path)
+    values = tmp_path / "values.yaml"
+    values.write_text("Cfg:\n  Machine:\n    speeed: 2.5\n")
+    exit_code = main(
+        [
+            "fake",
+            "build",
+            str(model_dir),
+            "--values",
+            str(values),
+            "-o",
+            str(tmp_path / "out"),
+        ]
+    )
+    assert exit_code == 1
+    assert "does not match an attribute" in capsys.readouterr().err
