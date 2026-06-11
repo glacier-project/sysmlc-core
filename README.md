@@ -64,10 +64,20 @@ sysmlc build models/sm-examples/sm01-helloworld --backend quake
 Translate a state machine to a Lingua Franca modal-reactor program with the
 **rosetta** backend. The showcase corpus under `models/showcase/` exercises
 the supported construct set (enums, parameters, payloads, function calls,
-hierarchy, and parallel regions — see `docs/rosetta-showcase-design.md`):
+hierarchy, parallel regions, and asserted constraints — the full
+construct-by-construct mapping is documented in `docs/rosetta-mapping.md`):
 
 ```bash
 sysmlc rosetta build models/showcase/microwave -e Microwave::Microwave -o out/
+```
+
+Attribute initial values can be overridden at build time from a
+hierarchical YAML file (nesting mirrors qualified names; works with any
+backend):
+
+```bash
+sysmlc rosetta build models/showcase/thermostat -e Thermostat::Thermostat \
+  --values models/showcase/thermostat/values.yaml -o out/
 ```
 
 To explore a plant model's structure and OPC-UA metadata (the `ice-lab` model):
