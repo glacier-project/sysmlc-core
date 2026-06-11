@@ -149,9 +149,9 @@ def _cmd_build(args: argparse.Namespace) -> int:
     values_path = getattr(args, "values", None)
     if values_path is not None:
         overrides = select_values(load_values(values_path), element_qn)
-        # Overrides are applied as source edits + reload, so EVERY backend
-        # builds from the configured model.
-        model = configure_model(model, args.model, element_qn, overrides)
+        # Overrides are applied in place on the loaded model (and the
+        # model revalidated), so EVERY backend builds the configured one.
+        model = configure_model(model, element_qn, overrides)
 
     artifact = backend.build(model, element_qn)
     selected = getattr(args, "format", None)

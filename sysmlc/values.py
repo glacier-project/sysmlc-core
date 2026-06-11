@@ -3,31 +3,32 @@
 The values file is YAML whose nesting mirrors SysML qualified names —
 ``Pkg: {Def: {attr: value}}`` — so no ``::`` syntax appears in the file.
 
-Overrides are applied by **editing the model sources at runtime**: each
-override becomes a byte-span text edit (replacing an initializer
-expression, or inserting a usage-local redefinition such as
-``attribute pt : Point { attribute :>> x = 0.7; }``), the patched sources
-are written to a temporary directory, and the model is reloaded from
-there. Reloading re-validates the configured model with the language's own
-rules — e.g. a ``=`` binding is fixed and cannot be redefined, while a
-``default`` can.
+Overrides are applied **in place** on the loaded model through syside's
+low-level editing API: existing initializer literals are mutated (or the
+literal node is replaced when its kind must change), missing initializers
+and per-usage composite fields are created as owned ``FeatureValue``
+relationships and usage-local attributes (the type's defaults are never
+touched), and quantity overrides written in SysML syntax (``"90 [s]"``)
+are converted into the model's declared unit within the same unit KIND —
+a length can never override a duration, and affine temperature units are
+refused (their ratio conversion would be wrong). After editing, the user
+documents are re-run through syside's sema+validation pipeline and any
+diagnostic fails the build.
 
-Quantity overrides use SysML syntax (``"90 [s]"``); the text is inserted
-verbatim after a unit-kind sanity check (a length cannot override a
-duration), so no unit conversion ever happens — the configured model
-simply declares the new quantity.
+Only ``default`` and ``:=`` initializers are overridable; a plain ``=``
+binding is fixed by the model and refused — the same rule the language
+applies to redefinitions.
+
+If :func:`configure_model` raises, the model may be partially edited;
+reload it before further use.
 """
 
 from __future__ import annotations
 
-import atexit
-import json
 import logging
-import shutil
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import syside
 import yaml
@@ -37,17 +38,17 @@ from sysmlc.semantics.statemachine.attributes import (
     is_scalar_quantity,
     nested_attributes,
 )
+from sysmlc.semantics.statemachine.triggers import evaluate_to_number
 from sysmlc.sysml.loading import load_model
 from sysmlc.sysml.queries import iter_elements, resolve
-
-if TYPE_CHECKING:
-    from collections.abc import Iterator
 
 logger = logging.getLogger(__name__)
 
 type ValueScalar = bool | int | float | str
 # A leaf scalar, or a nested mapping overriding a composite's fields.
 type ValueNode = ValueScalar | dict[str, "ValueNode"]
+
+_OVERRIDABLE_HINT = "only `default` and `:=` initial values can be overridden"
 
 
 class ValuesError(SysmlcError):
@@ -135,28 +136,24 @@ def _check_value_nodes(
 
 def configure_model(
     model: syside.Model,
-    model_path: Path,
     element_qn: str,
     values: dict[str, ValueNode],
 ) -> syside.Model:
-    """Apply value overrides by editing the model sources and reloading.
+    """Apply value overrides in place and revalidate the model.
 
     Args:
-        model: The originally loaded model (used to locate attributes and
-            initializer spans).
-        model_path: The file or directory the model was loaded from.
+        model: The loaded model to configure (edited in place).
         element_qn: Qualified name of the state definition whose
             attributes the overrides target.
         values: Overrides from :func:`select_values`.
 
     Returns:
-        A model reloaded from the patched sources. The temporary directory
-        holding them is cleaned up at interpreter exit.
+        The same model, edited and revalidated.
 
     Raises:
         ValuesError: For unknown attribute names, structure mismatches,
-            unit-kind mismatches, or when the configured model fails to
-            reload (e.g. overriding a fixed ``=`` binding).
+            fixed ``=`` bindings, unit-kind mismatches, or when the
+            configured model fails validation.
     """
     if not values:
         return model
@@ -167,7 +164,6 @@ def configure_model(
         if isinstance(member, syside.AttributeUsage) and member.name
     }
     probe = _QuantityProbe(element_qn, values, attributes)
-    edits: list[_Edit] = []
     for name, value in values.items():
         attr = attributes.get(name)
         if attr is None:
@@ -175,73 +171,120 @@ def configure_model(
                 f"override {name!r} does not match an attribute of "
                 f"{element_qn!r}"
             )
-        edits += _attribute_edits(attr, name, value, probe)
-    return _reload_patched(model_path, edits)
+        _apply_attribute(model, attr, name, value, probe)
+    _revalidate(model)
+    return model
 
 
-@dataclass(frozen=True)
-class _Edit:
-    """One byte-span replacement in a source file."""
-
-    path: Path
-    start: int
-    end: int
-    text: str
+# -- in-place edits ----------------------------------------------------------
 
 
-def _document_path(element: syside.Element) -> Path:
-    url = str(element.document.url)
-    return Path(url.removeprefix("file://").removeprefix("file:"))
-
-
-def _span(element: syside.Element) -> tuple[int, int]:
-    cst = element.cst_node
-    assert cst is not None  # parsed elements always carry their syntax
-    return cst.start_byte, cst.end_byte
-
-
-def _is_usage_local(inner: syside.Element, usage: syside.Element) -> bool:
-    """Whether ``inner``'s source text lies inside ``usage``'s declaration."""
-    if _document_path(inner) != _document_path(usage):
-        return False
-    inner_start, inner_end = _span(inner)
-    usage_start, usage_end = _span(usage)
-    return usage_start <= inner_start and inner_end <= usage_end
-
-
-def _attribute_edits(
+def _apply_attribute(
+    model: syside.Model,
     attr: syside.AttributeUsage,
     name: str,
     value: ValueNode,
     probe: _QuantityProbe,
-) -> list[_Edit]:
+) -> None:
     if isinstance(value, dict):
-        return _composite_edits(attr, name, value, probe)
+        _apply_composite(model, attr, name, value, probe)
+        return
     if is_scalar_quantity(attr):
-        return [_quantity_edit(attr, name, value, probe)]
+        _apply_quantity(model, attr, name, value, probe)
+        return
     if nested_attributes(attr):
         raise ValuesError(
             f"attribute {name!r} is a composite; override its fields with "
             "a nested mapping"
         )
-    text = _sysml_scalar(value)
-    expr = attr.feature_value_expression
-    if expr is not None and _is_usage_local(expr, attr):
-        start, end = _span(expr)
-        return [_Edit(_document_path(expr), start, end, text)]
-    # No usage-local initializer: insert one before the closing ';'.
-    keyword = (
-        "default" if attr.direction is syside.FeatureDirectionKind.In else ":="
+    _set_value(attr, name, value)
+
+
+def _value_rel(attr: syside.AttributeUsage) -> syside.FeatureValue | None:
+    for rel in attr.owned_relationships.collect():
+        if isinstance(rel, syside.FeatureValue):
+            return rel
+    return None
+
+
+def _check_overridable(rel: syside.FeatureValue | None, name: str) -> None:
+    if rel is not None and not (rel.is_default or rel.is_initial):
+        raise ValuesError(
+            f"{name!r} is bound with '=' (fixed by the model); "
+            f"{_OVERRIDABLE_HINT}"
+        )
+
+
+_LITERALS = (
+    syside.LiteralBoolean,
+    syside.LiteralInteger,
+    syside.LiteralRational,
+    syside.LiteralString,
+)
+
+
+def _literal_class(value: ValueScalar) -> type[syside.Element]:
+    if isinstance(value, bool):  # bool before int: bool is an int
+        return syside.LiteralBoolean
+    if isinstance(value, int):
+        return syside.LiteralInteger
+    if isinstance(value, float):
+        return syside.LiteralRational
+    return syside.LiteralString
+
+
+def _set_value(
+    attr: syside.AttributeUsage, name: str, value: ValueScalar
+) -> None:
+    """Mutate the attribute's literal initializer, creating it if absent.
+
+    Parsed structure cannot be replaced through the editing API (only
+    mutated or extended), so an override that would change the literal's
+    KIND is refused with a model-side hint.
+    """
+    rel = _value_rel(attr)
+    _check_overridable(rel, name)
+    if rel is None:
+        # No initializer: create one. Typing errors (a string into a
+        # `Real`) are left for revalidation — syside checks conformance.
+        _new_rel, literal = attr.children.append(
+            syside.FeatureValue, _literal_class(value)
+        )
+        assert isinstance(literal, _LITERALS)
+        literal.value = value
+        return
+    existing = rel.value
+    if (
+        isinstance(existing, syside.LiteralRational)
+        and isinstance(value, int | float)
+        and not isinstance(value, bool)
+    ):
+        existing.value = float(value)  # keep the declared rational kind
+        return
+    if isinstance(existing, _literal_class(value)) and isinstance(
+        existing, _LITERALS
+    ):
+        existing.value = value
+        return
+    if isinstance(existing, syside.LiteralInteger) and isinstance(value, float):
+        raise ValuesError(
+            f"override for {name!r} is fractional but the model declares "
+            "an integer literal; declare the initial value as a rational "
+            "(e.g. `2.0`) to allow it"
+        )
+    raise ValuesError(
+        f"override for {name!r} does not match the kind of the model's "
+        "literal initializer; change the model's declared value kind"
     )
-    return [_insert_into_declaration(attr, f" {keyword} {text}")]
 
 
-def _composite_edits(
+def _apply_composite(
+    model: syside.Model,
     attr: syside.AttributeUsage,
     name: str,
     value: dict[str, ValueNode],
     probe: _QuantityProbe,
-) -> list[_Edit]:
+) -> None:
     fields = {
         field.name: field for field in nested_attributes(attr) if field.name
     }
@@ -249,8 +292,11 @@ def _composite_edits(
         raise ValuesError(
             f"attribute {name!r} is not a composite; give it a scalar"
         )
-    edits: list[_Edit] = []
-    redefinitions: list[str] = []
+    local_names = {
+        member.name
+        for member in attr.owned_members.collect()
+        if isinstance(member, syside.AttributeUsage) and member.name
+    }
     for field_name, field_value in value.items():
         field = fields.get(field_name)
         if field is None:
@@ -258,66 +304,42 @@ def _composite_edits(
                 f"override {name}.{field_name} does not match a field of "
                 f"attribute {name!r}"
             )
-        if _is_usage_local(field, attr):
-            edits += _attribute_edits(field, field_name, field_value, probe)
-        else:
-            # Field declared on the attribute def: redefine it on THIS
-            # usage so the type's default stays untouched for other usages.
-            redefinitions.append(_redefinition_text(field_name, field_value))
-    if redefinitions:
-        edits.append(_insert_body(attr, " ".join(redefinitions)))
-    return edits
-
-
-def _redefinition_text(name: str, value: ValueNode) -> str:
-    if isinstance(value, dict):
-        inner = " ".join(_redefinition_text(n, v) for n, v in value.items())
-        return f"attribute :>> {name} {{ {inner} }}"
-    return f"attribute :>> {name} = {_sysml_scalar(value)};"
-
-
-def _insert_into_declaration(attr: syside.AttributeUsage, text: str) -> _Edit:
-    """Insert ``text`` just before the declaration's closing ``;``."""
-    path = _document_path(attr)
-    start, end = _span(attr)
-    tail = path.read_bytes()[start:end]
-    if not tail.rstrip().endswith(b";"):
-        raise ValuesError(
-            f"cannot insert an initializer into attribute "
-            f"{attr.name!r}: unsupported declaration shape"
+        label = f"{name}.{field_name}"
+        if field_name in local_names:
+            _apply_attribute(model, field, label, field_value, probe)
+            continue
+        # The field lives on the attribute def: create a usage-LOCAL
+        # value so the type's default stays untouched for other usages.
+        _check_overridable(_value_rel(field), label)
+        if isinstance(field_value, dict):
+            raise ValuesError(
+                f"override {label} nests deeper than the usage declares; "
+                "declare the nested structure on the usage in the model"
+            )
+        if is_scalar_quantity(field):
+            raise ValuesError(
+                f"quantity field {label} has no usage-local initializer; "
+                "declare one in the model to make it configurable"
+            )
+        _membership, local = attr.children.append(
+            syside.OwningMembership, syside.AttributeUsage
         )
-    semi = start + tail.rindex(b";")
-    return _Edit(path, semi, semi, text)
+        local.declared_name = field_name
+        _set_value(local, label, field_value)
 
 
-def _insert_body(attr: syside.AttributeUsage, body: str) -> _Edit:
-    """Turn ``attribute pt : Point;`` into ``… { <body> }`` (or extend)."""
-    path = _document_path(attr)
-    start, end = _span(attr)
-    source = path.read_bytes()[start:end]
-    stripped = source.rstrip()
-    if stripped.endswith(b";"):
-        semi = start + source.rindex(b";")
-        return _Edit(path, semi, semi + 1, f" {{ {body} }}")
-    if stripped.endswith(b"}"):
-        brace = start + source.rindex(b"}")
-        return _Edit(path, brace, brace, f" {body} ")
-    raise ValuesError(
-        f"cannot insert redefinitions into attribute {attr.name!r}: "
-        "unsupported declaration shape"
-    )
+# -- quantities --------------------------------------------------------------
 
 
-def _sysml_scalar(value: ValueScalar) -> str:
-    """Render an override scalar as SysML literal text."""
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, str):
-        return json.dumps(value)
-    return repr(value)
+@dataclass(frozen=True)
+class _Quantity:
+    """A parsed SysML quantity override."""
 
+    magnitude: float
+    si: float
+    unit_qn: str
+    kind_qn: str
 
-# -- quantities ------------------------------------------------------------
 
 _PROBE_TEMPLATE = """package __SysmlcValuesProbe {{
     private import ScalarValues::*;
@@ -334,7 +356,7 @@ class _QuantityProbe:
     All quantity-string overrides are declared in one probe package
     (``attribute __v0 = 90 [s];``), loaded lazily once, giving full SysML
     parsing — unit aliases, scientific notation — plus the unit referent
-    for the kind check.
+    for the kind check and the SI value for conversion.
     """
 
     def __init__(
@@ -351,20 +373,21 @@ class _QuantityProbe:
             and (attr := attributes.get(name)) is not None
             and is_scalar_quantity(attr)
         ]
-        self._exprs: dict[str, syside.Expression] | None = None
+        self._parsed: dict[str, _Quantity] | None = None
 
-    def expression(self, name: str) -> syside.Expression:
-        if self._exprs is None:
-            self._exprs = self._parse()
-        return self._exprs[name]
+    def quantity(self, name: str) -> _Quantity:
+        if self._parsed is None:
+            self._parsed = self._parse()
+        return self._parsed[name]
 
-    def _parse(self) -> dict[str, syside.Expression]:
+    def _parse(self) -> dict[str, _Quantity]:
         names = [name for name, _ in self._strings]
         declarations = "\n".join(
             f"    attribute __v{i} = {text};"
             for i, (_, text) in enumerate(self._strings)
         )
         snippet = _PROBE_TEMPLATE.format(declarations=declarations)
+        out: dict[str, _Quantity] = {}
         with tempfile.TemporaryDirectory() as workdir:
             probe_file = Path(workdir) / "values_probe.sysml"
             probe_file.write_text(snippet)
@@ -380,16 +403,34 @@ class _QuantityProbe:
                 for e in iter_elements(probe_model, syside.AttributeUsage)
                 if e.name and e.name.startswith("__v")
             }
-        out: dict[str, syside.Expression] = {}
-        for i, name in enumerate(names):
-            expr = parsed[f"__v{i}"].feature_value_expression
-            assert expr is not None
-            out[name] = expr
+            compiler = syside.Compiler()
+            stdlib = syside.Stdlib(probe_model.index)
+            for index, name in enumerate(names):
+                expr = parsed[f"__v{index}"].feature_value_expression
+                assert expr is not None
+                magnitude, unit_qn, kind_qn = _quantity_parts(
+                    expr, f"the override for {name!r}"
+                )
+                si = evaluate_to_number(expr, compiler, stdlib)
+                if si is None:
+                    raise ValuesError(
+                        f"the override for {name!r} does not evaluate to "
+                        "a number"
+                    )
+                assert isinstance(magnitude, _LITERALS)
+                out[name] = _Quantity(
+                    magnitude=float(magnitude.value),
+                    si=float(si),
+                    unit_qn=unit_qn,
+                    kind_qn=kind_qn,
+                )
         return out
 
 
-def _unit_kind(expr: syside.Expression, what: str) -> str:
-    """The unit kind (``ISQBase::DurationUnit``) of a quantity expression."""
+def _quantity_parts(
+    expr: syside.Expression, what: str
+) -> tuple[syside.Element, str, str]:
+    """Split a quantity expression into (magnitude literal, unit, kind)."""
     if (
         not isinstance(expr, syside.OperatorExpression)
         or expr.operator is not syside.Operator.Quantity
@@ -398,87 +439,142 @@ def _unit_kind(expr: syside.Expression, what: str) -> str:
             f"{what} is not a measurement expression of the form "
             "'<number> [<unit>]'"
         )
-    _magnitude, unit = expr.operands.collect()
+    magnitude, unit = expr.operands.collect()
     referent = getattr(unit, "referent", None)
     types = referent.types.collect() if referent is not None else []
-    if not types:
+    if referent is None or not types:
         raise ValuesError(f"{what} has no resolvable measurement unit")
-    return str(types[0].qualified_name)
+    return (
+        magnitude,
+        str(referent.qualified_name),
+        str(types[0].qualified_name),
+    )
 
 
-def _quantity_edit(
+def _apply_quantity(
+    model: syside.Model,
     attr: syside.AttributeUsage,
     name: str,
     value: ValueScalar,
     probe: _QuantityProbe,
-) -> _Edit:
-    expr = attr.feature_value_expression
-    if expr is None or not _is_usage_local(expr, attr):
+) -> None:
+    rel = _value_rel(attr)
+    if rel is None or rel.value is None:
         raise ValuesError(
             f"quantity attribute {name!r} has no usage-local initializer "
             "to override; declare one in the model"
         )
+    _check_overridable(rel, name)
+    expr = rel.value
+    _magnitude, model_unit, model_kind = _quantity_parts(
+        expr, f"the initializer of {name!r}"
+    )
+    assert isinstance(expr, syside.OperatorExpression)  # shape-checked
     if isinstance(value, bool):
         raise ValuesError(
             f"override for quantity attribute {name!r} must be a number "
             "(model units) or a SysML quantity string like '90 [s]'"
         )
     if isinstance(value, int | float):
-        # Magnitude in the model's declared unit: replace just the literal.
-        _unit_kind(expr, f"the initializer of {name!r}")  # shape check
-        assert isinstance(expr, syside.OperatorExpression)
-        magnitude, _unit = expr.operands.collect()
-        start, end = _span(magnitude)
-        return _Edit(_document_path(expr), start, end, repr(value))
-    user_expr = probe.expression(name)
-    user_kind = _unit_kind(user_expr, f"the override for {name!r}")
-    model_kind = _unit_kind(expr, f"the initializer of {name!r}")
-    if user_kind != model_kind:
+        # Magnitude in the model's declared unit.
+        _set_magnitude(expr, value, name)
+        return
+    user = probe.quantity(name)
+    if user.kind_qn != model_kind:
         raise ValuesError(
-            f"the override for {name!r} has unit kind {user_kind}, but the "
-            f"model declares {model_kind}; use a unit of the same kind"
+            f"the override for {name!r} has unit kind {user.kind_qn}, but "
+            f"the model declares {model_kind}; use a unit of the same kind"
         )
-    start, end = _span(expr)
-    return _Edit(_document_path(expr), start, end, value)
-
-
-# -- patch and reload ------------------------------------------------------
-
-
-def _model_files(model_path: Path) -> Iterator[Path]:
-    for file in syside.collect_files_recursively(str(model_path)):
-        yield Path(file)
-
-
-def _reload_patched(model_path: Path, edits: list[_Edit]) -> syside.Model:
-    by_file: dict[Path, list[_Edit]] = {}
-    for edit in edits:
-        by_file.setdefault(edit.path.resolve(), []).append(edit)
-    workdir = Path(tempfile.mkdtemp(prefix="sysmlc-configured-"))
-    atexit.register(shutil.rmtree, workdir, ignore_errors=True)
-    base = model_path if model_path.is_dir() else model_path.parent
-    for file in _model_files(model_path):
-        resolved = file.resolve()
-        relative = (
-            resolved.relative_to(base.resolve())
-            if resolved.is_relative_to(base.resolve())
-            else Path(file.name)
+    if user.unit_qn == model_unit:
+        _set_magnitude(expr, user.magnitude, name)
+        return
+    if "temperature" in model_kind.lower():
+        raise ValuesError(
+            f"cannot convert the override for {name!r}: temperature units "
+            "are affine (a ratio conversion would be wrong); use "
+            f"{model_unit} directly"
         )
-        target = workdir / relative
-        target.parent.mkdir(parents=True, exist_ok=True)
-        content = file.read_bytes()
-        for edit in sorted(
-            by_file.get(resolved, []), key=lambda e: e.start, reverse=True
-        ):
-            content = (
-                content[: edit.start] + edit.text.encode() + content[edit.end :]
-            )
-        target.write_bytes(content)
-    logger.info("Configured model written to %s", workdir)
+    scale = _unit_scale(model, expr, name)
+    _set_magnitude(expr, user.si / scale, name)
+
+
+def _unit_scale(
+    model: syside.Model, expr: syside.OperatorExpression, name: str
+) -> float:
+    """The SI value of ``1 [model unit]`` (linear units only)."""
+    magnitude, _unit = expr.operands.collect()
+    assert isinstance(magnitude, _LITERALS)
+    original = magnitude.value
+    magnitude.value = type(original)(1)
     try:
-        return load_model(workdir)
-    except ValueError as error:
+        scale = evaluate_to_number(
+            expr, syside.Compiler(), syside.Stdlib(model.index)
+        )
+    finally:
+        magnitude.value = original
+    if not scale:
         raise ValuesError(
-            "the configured model is not valid SysML — the overrides may "
-            f"violate the model's rules: {error}"
-        ) from error
+            f"cannot determine the unit scale of {name!r}'s initializer"
+        )
+    return float(scale)
+
+
+def _set_magnitude(
+    expr: syside.OperatorExpression, value: float | int, name: str
+) -> None:
+    """Set the magnitude literal of a quantity expression.
+
+    Parsed literal nodes can only be mutated, not replaced, so a
+    fractional magnitude cannot land in a model-declared integer.
+    """
+    magnitude, _unit = expr.operands.collect()
+    if isinstance(magnitude, syside.LiteralRational):
+        magnitude.value = float(value)
+        return
+    if isinstance(magnitude, syside.LiteralInteger):
+        if float(value).is_integer():
+            magnitude.value = int(value)
+            return
+        raise ValuesError(
+            f"the override for {name!r} works out to the fractional "
+            f"magnitude {float(value)!r}, but the model declares an "
+            "integer; declare the default with a rational magnitude "
+            "(e.g. `2.0 [min]`) or override in the declared unit"
+        )
+    raise ValuesError(
+        f"the magnitude of {name!r}'s initializer is not a literal; "
+        "declare it as one to make it configurable"
+    )
+
+
+# -- revalidation ------------------------------------------------------------
+
+
+def _revalidate(model: syside.Model) -> None:
+    """Re-run sema + validation on the edited user documents.
+
+    Keeps the parse (``BuildState.Parsed``) so in-memory AST edits
+    survive, and surfaces any diagnostic as a configuration error —
+    syside checks value-type conformance for us.
+    """
+    documents = list(model.user_docs)
+    for mutex in documents:
+        with mutex.lock() as document:
+            document.build_state = syside.BuildState.Parsed
+    pipeline = syside.make_pipeline(
+        syside.PipelineOptions(static_index=model.index, lib=model.lib)
+    )
+    options = syside.ScheduleOptions(
+        syside.ValidationTiming.OnType, force_revalidation=True
+    )
+    result = syside.Executor().run(pipeline.schedule(documents, options))
+    errors = [
+        diagnostic
+        for results in result.diagnostics
+        for stage in (results.parser, results.sema, results.validation)
+        for diagnostic in stage
+        if "error" in str(diagnostic.severity).lower()
+    ]
+    if errors:
+        details = "; ".join(str(error) for error in errors[:5])
+        raise ValuesError(f"the configured model is not valid SysML: {details}")

@@ -49,10 +49,12 @@ def nested_attributes(
             nested.extend(definition.owned_attributes.collect())
     if not nested:
         return nested
+    # owned_members (not owned_features): the latter is sema-derived and
+    # blind to members created through the low-level editing API.
     local = {
-        feature.name: feature
-        for feature in attr.owned_features.collect()
-        if isinstance(feature, syside.AttributeUsage) and feature.name
+        member.name: member
+        for member in attr.owned_members.collect()
+        if isinstance(member, syside.AttributeUsage) and member.name
     }
     return [
         local.get(field.name, field) if field.name else field
@@ -107,6 +109,21 @@ def iter_scope_attributes(
         yield from iter_scope_attributes(substate)
 
 
+def feature_value(attr: syside.AttributeUsage) -> syside.Expression | None:
+    """Return the attribute's own value expression, if any.
+
+    Reads the owned ``FeatureValue`` relationship first: syside's
+    ``feature_value_expression`` accessor is blind to values created
+    through the low-level editing API (in-memory configuration), while
+    the relationship is authoritative for parsed and created values
+    alike.
+    """
+    for rel in attr.owned_relationships.collect():
+        if isinstance(rel, syside.FeatureValue):
+            return rel.value
+    return attr.feature_value_expression
+
+
 def bind_value(
     attr: syside.AttributeUsage,
     compiler: syside.Compiler,
@@ -125,9 +142,9 @@ def bind_value(
     """
     nested = nested_attributes(attr)
     if not nested:
-        return attr.feature_value_expression
+        return feature_value(attr)
     if is_scalar_quantity(attr):
-        expr = attr.feature_value_expression
+        expr = feature_value(attr)
         if expr is None:
             return None
         number = triggers.evaluate_to_number(expr, compiler, stdlib)
