@@ -8,6 +8,14 @@ package Thermostat {
         in attribute hysteresis : Real default 0.5;
         inout attribute temperature : Real := 18.0;
 
+        // Asserted invariants become Python runtime checks in the
+        // generated reactor: at startup (catching bad initial or
+        // overridden values) and after every attribute assignment.
+        assert constraint tempBand {
+            temperature >= 5.0 and temperature <= 40.0
+        }
+        assert constraint setpointPositive { setpoint > 5.0 }
+
         entry;
             then heating;
 

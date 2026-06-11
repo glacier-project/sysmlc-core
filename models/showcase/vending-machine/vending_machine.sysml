@@ -26,6 +26,9 @@ package VendingMachine {
         // one it would be skipped and created dynamically on first assign.
         attribute chosen : Product := Product::water;
 
+        // Runtime-checked invariant: dispensing must never overdraw.
+        assert constraint creditNonNegative { credit >= 0 }
+
         entry;
             then idle;
 

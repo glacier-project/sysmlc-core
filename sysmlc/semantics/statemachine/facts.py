@@ -95,6 +95,21 @@ class AttributeBinding:
 
 
 @dataclass(frozen=True)
+class ConstraintFact:
+    """One asserted constraint, with its neutral boolean expression.
+
+    ``scope`` is the owning scope's state path (``""`` = the root state
+    def); ``name`` is the declared constraint name, or ``None`` when
+    anonymous. Only ASSERTED constraints become facts: a plain
+    ``constraint`` is not required to hold.
+    """
+
+    scope: str
+    name: str | None
+    expression: syside.Expression
+
+
+@dataclass(frozen=True)
 class StateFact:
     """A state, with its SysML slots delivered separately (never pre-fused)."""
 

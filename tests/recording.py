@@ -1,5 +1,6 @@
 from sysmlc.semantics.statemachine.facts import (
     AttributeBinding,
+    ConstraintFact,
     StateFact,
     TransitionFact,
 )
@@ -10,11 +11,15 @@ class RecordingBuilder:
 
     def __init__(self) -> None:
         self.attributes: list[AttributeBinding] = []
+        self.constraints: list[ConstraintFact] = []
         self.states: list[StateFact] = []
         self.transitions: list[TransitionFact] = []
 
     def bind_attribute(self, binding: AttributeBinding) -> None:
         self.attributes.append(binding)
+
+    def bind_constraint(self, fact: ConstraintFact) -> None:
+        self.constraints.append(fact)
 
     def add_state(self, state: StateFact) -> None:
         self.states.append(state)
