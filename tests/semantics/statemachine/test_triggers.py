@@ -7,7 +7,7 @@ from sysmlc.semantics.statemachine.driver import StateMachineDriver
 from sysmlc.semantics.statemachine.facts import Trigger, TriggerKind
 from sysmlc.sysml.loading import load_model
 from sysmlc.sysml.queries import resolve
-from tests.semantics.statemachine.conftest import RecordingBuilder
+from tests.recording import RecordingBuilder
 
 SM_DIR = Path(__file__).resolve().parents[3] / "models" / "sm-examples"
 

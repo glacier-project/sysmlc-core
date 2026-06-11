@@ -93,3 +93,8 @@ quote-style = "double"
 indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "auto"
+
+[tool.pytest.ini_options]
+markers = [
+    "lf: compile and run generated Lingua Franca programs (requires lfc + Java)",
+]

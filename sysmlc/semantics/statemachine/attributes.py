@@ -1,15 +1,33 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 import syside
 
 from sysmlc.errors import UnsupportedConstructError
 from sysmlc.semantics.statemachine import states, triggers
-from sysmlc.semantics.statemachine.facts import AttributeValue, CompositeValue
+from sysmlc.semantics.statemachine.facts import (
+    AttributeDirection,
+    AttributeValue,
+    CompositeValue,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+
+
+_DIRECTIONS: Final[dict[syside.FeatureDirectionKind, AttributeDirection]] = {
+    syside.FeatureDirectionKind.In: AttributeDirection.IN,
+    syside.FeatureDirectionKind.Out: AttributeDirection.OUT,
+    syside.FeatureDirectionKind.Inout: AttributeDirection.INOUT,
+}
+
+
+def direction_of(attr: syside.AttributeUsage) -> AttributeDirection:
+    """Classify the attribute's declared direction (NONE if undirected)."""
+    if attr.direction is None:
+        return AttributeDirection.NONE
+    return _DIRECTIONS[attr.direction]
 
 
 def nested_attributes(

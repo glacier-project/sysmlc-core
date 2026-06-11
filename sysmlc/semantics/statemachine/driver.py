@@ -76,6 +76,7 @@ class StateMachineDriver:
                     value=attributes.bind_value(
                         attr, self._compiler, self._stdlib
                     ),
+                    direction=attributes.direction_of(attr),
                 )
             )
 

@@ -15,6 +15,19 @@ class StateKind(Enum):
     FINAL = auto()
 
 
+class AttributeDirection(Enum):
+    """SysML feature direction of a declared attribute.
+
+    ``NONE`` means no direction keyword was written; ``IN``/``OUT``/
+    ``INOUT`` mirror the SysML ``in``/``out``/``inout`` keywords.
+    """
+
+    NONE = auto()
+    IN = auto()
+    OUT = auto()
+    INOUT = auto()
+
+
 class TriggerKind(Enum):
     """Semantic classification of a transition trigger."""
 
@@ -69,11 +82,16 @@ class CompletionTarget:
 
 @dataclass(frozen=True)
 class AttributeBinding:
-    """One attribute seeded into a scope, with its neutral value."""
+    """One attribute seeded into a scope, with its neutral value and direction.
+
+    ``direction`` reflects the SysML ``in``/``out``/``inout`` keyword;
+    ``AttributeDirection.NONE`` means the attribute is undirected.
+    """
 
     scope: str
     name: str
     value: AttributeValue
+    direction: AttributeDirection = AttributeDirection.NONE
 
 
 @dataclass(frozen=True)

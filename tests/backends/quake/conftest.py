@@ -1,47 +1,13 @@
-from dataclasses import dataclass
-from pathlib import Path
-
 import syside
 
 from sysmlc.sysml.loading import load_model
 from sysmlc.sysml.queries import iter_elements
-
-SM_EXAMPLES_DIR = Path(__file__).resolve().parents[3] / "models" / "sm-examples"
-
-
-@dataclass(frozen=True)
-class SmExample:
-    """One entry in the SysML state-machine examples collection.
-
-    Attributes:
-        dir_name: Folder under ``models/sm-examples/`` holding the
-            example's ``.sysml`` sources.
-    """
-
-    dir_name: str
-
-    @property
-    def model_dir(self) -> Path:
-        return SM_EXAMPLES_DIR / self.dir_name
-
-
-SM_EXAMPLES: list[SmExample] = [
-    SmExample("sm01-helloworld"),
-    SmExample("sm02-event-trigger"),
-    SmExample("sm03-guard"),
-    SmExample("sm04-assignment"),
-    SmExample("sm05-chained-references"),
-    SmExample("sm06-transition-effect"),
-    SmExample("sm07-firing-order"),
-    SmExample("sm08-nested-composite"),
-    SmExample("sm09-parallel"),
-    SmExample("sm10-done"),
-    SmExample("sm11-send-effect"),
-    SmExample("sm12-do-action"),
-    SmExample("sm13-time-trigger"),
-]
-
-SM_EXAMPLES_BY_DIR: dict[str, SmExample] = {e.dir_name: e for e in SM_EXAMPLES}
+from tests.backends.sm_examples import (  # noqa: F401  (re-exported)
+    SM_EXAMPLES,
+    SM_EXAMPLES_BY_DIR,
+    SM_EXAMPLES_DIR,
+    SmExample,
+)
 
 
 def _discover_all_state_def_qns() -> list[tuple[SmExample, str]]:
