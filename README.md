@@ -65,10 +65,13 @@ Translate a state machine to a Lingua Franca modal-reactor program with the
 **rosetta** backend. The showcase corpus under `models/showcase/` exercises
 the supported construct set (enums, parameters, payloads, function calls,
 hierarchy, parallel regions, and asserted constraints — the full
-construct-by-construct mapping is documented in `docs/rosetta-mapping.md`):
+construct-by-construct mapping is documented in `docs/rosetta-mapping.md`,
+and `docs/showcase-corpus.md` describes the corpus, including the two
+flagship case studies, milling-workcell and batch-reactor):
 
 ```bash
-sysmlc rosetta build models/showcase/microwave -e Microwave::Microwave -o out/
+sysmlc rosetta build models/showcase/milling-workcell \
+  -e MillingWorkcell::MillingWorkcell -o out/
 ```
 
 Attribute initial values can be overridden at build time from a
