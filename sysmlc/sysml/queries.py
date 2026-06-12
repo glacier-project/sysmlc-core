@@ -122,8 +122,9 @@ def exhibited_state_defs(
         ]
         if len(declared) != 1:
             raise ValueError(
-                f"exhibit {member.name!r} in rig {rig.name!r} must be "
-                "typed by exactly one state def declared in the model"
+                f"exhibit {member.name!r} in rig {rig.name!r} resolves "
+                f"{len(declared)} state defs declared in this model; it "
+                "must be typed by exactly one (not a library type)"
             )
         pairs.append((member.name, declared[0]))
     if len(pairs) != 2:
