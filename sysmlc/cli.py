@@ -93,7 +93,7 @@ def _add_build_arguments(
     build.add_argument(
         "-e",
         "--element",
-        help="qualified name of the state definition to build",
+        help="qualified name of the state definition or rig to build",
     )
     formats = backend.formats()
     if formats:
@@ -181,7 +181,7 @@ def _cmd_build(args: argparse.Namespace) -> int:
     if is_rig and build_composition is None:
         raise CliError(
             f"backend {backend.name!r} cannot build a rig composition; "
-            "select a state definition with --element"
+            "select a state definition with --element if the model declares one"
         )
 
     values_path = getattr(args, "values", None)

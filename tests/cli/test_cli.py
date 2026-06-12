@@ -294,7 +294,8 @@ def test_explicit_rig_element_builds_composition(tmp_path: Path) -> None:
         ]
     )
     assert exit_code == 0
-    assert (tmp_path / "PlantRig.lf").exists()
+    text = (tmp_path / "PlantRig.lf").read_text()
+    assert "reactor PlantRig {" in text
 
 
 def test_explicit_state_def_still_builds_bare_machine(
