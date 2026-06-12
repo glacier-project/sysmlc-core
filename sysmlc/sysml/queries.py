@@ -76,6 +76,69 @@ def state_definitions(model: syside.Model) -> Sequence[syside.StateDefinition]:
     return iter_elements(model, syside.StateDefinition)
 
 
+def rig_definitions(model: syside.Model) -> Sequence[syside.PartDefinition]:
+    """Part definitions that exhibit state usages (testbench rigs)."""
+    return [
+        part_def
+        for part_def in iter_elements(model, syside.PartDefinition)
+        if any(
+            isinstance(member, syside.ExhibitStateUsage)
+            for member in part_def.owned_members.collect()
+        )
+    ]
+
+
+def exhibited_state_defs(
+    model: syside.Model, rig: syside.PartDefinition
+) -> list[tuple[str, syside.StateDefinition]]:
+    """The rig's (usage name, exhibited state def) pairs, validated.
+
+    A rig must hold exactly two named ``exhibit state`` usages, each
+    typed by a state definition declared in the model (library
+    supertypes in ``state_definitions`` heritage are filtered out), and
+    nothing else (documentation aside).
+    """
+    model_defs = {str(sd.qualified_name): sd for sd in state_definitions(model)}
+    pairs: list[tuple[str, syside.StateDefinition]] = []
+    for member in rig.owned_members.collect():
+        if isinstance(member, syside.Documentation | syside.Comment):
+            continue
+        if not isinstance(member, syside.ExhibitStateUsage):
+            raise ValueError(
+                f"rig {rig.name!r} owns {member.name or '<anonymous>'!r}, "
+                "which is not an `exhibit state` usage; a rig holds two "
+                "exhibits and nothing else"
+            )
+        if not member.name:
+            raise ValueError(
+                f"rig {rig.name!r} has an anonymous exhibit; name it — "
+                "the name becomes the LF instance name"
+            )
+        declared = [
+            sd
+            for sd in member.state_definitions.collect()
+            if isinstance(sd, syside.StateDefinition)
+            and str(sd.qualified_name) in model_defs
+        ]
+        if len(declared) != 1:
+            raise ValueError(
+                f"exhibit {member.name!r} in rig {rig.name!r} must be "
+                "typed by exactly one state def declared in the model"
+            )
+        pairs.append((member.name, declared[0]))
+    if len(pairs) != 2:
+        raise ValueError(
+            f"rig {rig.name!r} exhibits {len(pairs)} machines; rosetta "
+            "composes exactly two"
+        )
+    if pairs[0][0] == pairs[1][0]:
+        raise ValueError(
+            f"rig {rig.name!r} exhibits two usages named {pairs[0][0]!r}; "
+            "names must differ"
+        )
+    return pairs
+
+
 def feature_value(attr: syside.AttributeUsage) -> syside.Expression | None:
     """Return the attribute's own value expression, if any.
 
