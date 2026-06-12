@@ -46,6 +46,30 @@ class _TimeTriggerPlan:
     counter: str
 
 
+@dataclass(frozen=True)
+class _ChangeTriggerPlan:
+    """How an ``accept when`` transition pair is emitted.
+
+    Attributes:
+        flag: Context name of the armed-observation flag.
+        condition: The monitored boolean condition, already rendered as
+            source text.
+        emit_consumer: Whether the consumer transition is emitted; only
+            when the SysML transition carries an ``if`` guard that can
+            reject the occurrence.
+        priority: Priority of the real transition, or None when the source
+            has a single eventless transition (no conflict to resolve).
+        consumer_priority: Priority of the consumer transition, just below
+            the real one's; None when no consumer is emitted.
+    """
+
+    flag: str
+    condition: str
+    emit_consumer: bool
+    priority: int | None
+    consumer_priority: int | None
+
+
 class SismicBuilder:
     """Assemble a sismic ``Statechart`` from neutral state-machine facts.
 
@@ -58,7 +82,12 @@ class SismicBuilder:
       per-activation counter bumped ``on entry``, a ``send('_tick_...',
       n=..., delay=...)`` arming call, and an event-triggered transition
       whose guard checks ``event.n``;
-    - the capability rejections: ``at``/``when`` triggers, non-inline ``do``
+    - the armed-flag encoding of ``accept when``: a ``_w_*`` flag re-armed
+      ``on entry``, an eventless transition guarded by the flag and the
+      condition, and, with an ``if`` guard, a lower-priority internal
+      consumer transition that disarms the flag when the occurrence is
+      rejected;
+    - the capability rejections: ``at`` triggers, non-inline ``do``
       bodies, unstable self-loops, and model names starting with ``_``
       (the underscore namespace is reserved for the generated machinery).
 
@@ -80,13 +109,11 @@ class SismicBuilder:
         self._state_facts: list[StateFact] = []
         self._transition_facts: list[TransitionFact] = []
         self._done_finals: set[str] = set()
-        # Emission plans for time triggers, keyed by the transition fact's
-        # position in `_transition_facts`; filled by `_plan_time_triggers`.
-        self._planned_triggers: dict[int, _TimeTriggerPlan] = {}
-        # Arming statements appended to each timed source state's on_entry
-        # (the counter bump plus one send per time trigger), keyed by the
-        # source state's path.
+        self._planned_triggers: dict[
+            int, _TimeTriggerPlan | _ChangeTriggerPlan
+        ] = {}
         self._arming_by_source: dict[str, list[str]] = {}
+        self._eventless_priorities: dict[int, int] = {}
 
     def bind_attribute(self, binding: AttributeBinding) -> None:
         """Seed an attribute into sismic's flat preamble namespace.
@@ -124,7 +151,7 @@ class SismicBuilder:
 
     def result(self) -> Statechart:
         """Build, validate, and return the assembled sismic statechart."""
-        self._plan_time_triggers()
+        self._plan_triggers()
         if self._needs_namespace:
             self._preamble.insert(0, "from types import SimpleNamespace")
         statechart = Statechart(
@@ -134,48 +161,161 @@ class SismicBuilder:
             self._emit_state(statechart, state)
         for index, transition in enumerate(self._transition_facts):
             self._emit_transition(
-                statechart, transition, self._planned_triggers.get(index)
+                statechart,
+                transition,
+                self._planned_triggers.get(index),
+                self._eventless_priorities.get(index),
             )
         statechart.validate()
         return statechart
 
-    def _plan_time_triggers(self) -> None:
-        """Plan the delayed-event machinery for every ``accept after``.
+    def _plan_triggers(self) -> None:
+        """Plan the emitted machinery for time and change triggers.
 
-        Walks the buffered transitions in declaration order and records,
-        for each time trigger, the coordinated pieces its emission needs:
-        the counter initialization (appended to the preamble), the arming
-        statements for the source state's ``on entry`` (a counter bump plus
-        one delayed ``send`` per trigger, stored in ``_arming_by_source``),
-        and the event and counter names the transition will use (stored in
-        ``_planned_triggers``).
-
-        The counter exists to invalidate stale ticks: sismic never cancels
-        a delayed event when its state exits, so a tick armed by an earlier
-        activation must match nothing when it is delivered.
+        Walks the buffered transitions in declaration order, delegating
+        per trigger kind; priorities are assigned up front.
         """
-        per_source_ordinal: dict[str, int] = {}
+        pair_priorities = self._assign_priorities()
+        per_source_after: dict[str, int] = {}
+        per_source_when: dict[str, int] = {}
         for index, transition in enumerate(self._transition_facts):
             trigger = transition.trigger
-            if trigger is None or trigger.kind is not TriggerKind.AFTER:
+            if trigger is None:
                 continue
+            if trigger.kind is TriggerKind.AFTER:
+                self._plan_after(index, transition, per_source_after)
+            elif trigger.kind is TriggerKind.WHEN:
+                self._plan_when(
+                    index,
+                    transition,
+                    per_source_when,
+                    pair_priorities.get(index),
+                )
+
+    def _assign_priorities(self) -> dict[int, tuple[int, int | None]]:
+        """Assign distinct priorities where a change trigger lives.
+
+        A change trigger's real + consumer pair enables together by
+        construction, and same-priority eventless ties raise
+        NonDeterminismError, so every eventless transition of such a
+        source gets a descending declaration-order priority. Fills
+        ``_eventless_priorities`` for plain transitions and returns the
+        pairs' ``(real, consumer)`` priorities by transition position.
+        """
+        when_sources: set[str] = set()
+        slot_totals: dict[str, int] = {}
+        for transition in self._transition_facts:
+            trigger = transition.trigger
+            slots = 0  # Counter for eventless transition.
+            if trigger is None:
+                # A plain transition: one eventless transition.
+                slots = 1
+            elif trigger.kind is TriggerKind.WHEN:
+                when_sources.add(transition.source)
+                # The real + consumer pair with a WHEN+IF.
+                # The real one alone otherwise (WHEN only).
+                slots = 2 if transition.guard is not None else 1
+            if slots:
+                slot_totals[transition.source] = (
+                    slot_totals.get(transition.source, 0) + slots
+                )
+
+        next_priority: dict[str, int] = {}
+        for source in when_sources:
+            if slot_totals[source] > 1:
+                # +1 to avoid reaching 1. Since sismic
+                # serializes as the named priority `high`
+                next_priority[source] = slot_totals[source] + 1
+
+        # Descending priority pool, consumed in declaration order.
+        pair_priorities: dict[int, tuple[int, int | None]] = {}
+        for index, transition in enumerate(self._transition_facts):
             source = transition.source
-            ordinal = per_source_ordinal.get(source, 0) + 1
-            per_source_ordinal[source] = ordinal
-            ident = source.replace("::", "__")
-            counter = f"_n_{ident}"
-            delay = self._render_value(trigger.after)
-            assert delay is not None  # AFTER always carries a duration
-            event_name = f"_tick_{ident}_t{ordinal}"
-            self._planned_triggers[index] = _TimeTriggerPlan(
-                event_name=event_name, counter=counter
+            if source not in next_priority:
+                continue
+            trigger = transition.trigger
+            if trigger is None:
+                self._eventless_priorities[index] = next_priority[source]
+                next_priority[source] -= 1
+            elif trigger.kind is TriggerKind.WHEN:
+                real = next_priority[source]
+                next_priority[source] -= 1
+                consumer = None
+                if transition.guard is not None:
+                    consumer = next_priority[source]
+                    next_priority[source] -= 1
+                pair_priorities[index] = (real, consumer)
+        return pair_priorities
+
+    def _plan_after(
+        self,
+        index: int,
+        transition: TransitionFact,
+        per_source_ordinal: dict[str, int],
+    ) -> None:
+        """Plan the delayed-event machinery for one ``accept after``.
+
+        The counter invalidates stale ticks: sismic never cancels a
+        delayed event when its state exits, so a tick armed by an earlier
+        activation must match nothing when it is delivered.
+        """
+        trigger = transition.trigger
+        assert trigger is not None
+
+        source = transition.source
+        ordinal = per_source_ordinal.get(source, 0) + 1
+        per_source_ordinal[source] = ordinal
+        ident = source.replace("::", "__")
+        counter = f"_n_{ident}"
+        delay = self._render_value(trigger.after)
+        assert delay is not None
+        event_name = f"_tick_{ident}_t{ordinal}"
+        self._planned_triggers[index] = _TimeTriggerPlan(
+            event_name=event_name, counter=counter
+        )
+        if ordinal == 1:
+            self._preamble.append(f"{counter} = 0")
+            self._arming_by_source.setdefault(source, []).append(
+                f"{counter} = {counter} + 1"
             )
-            if source not in self._arming_by_source:
-                self._preamble.append(f"{counter} = 0")
-                self._arming_by_source[source] = [f"{counter} = {counter} + 1"]
-            self._arming_by_source[source].append(
-                f"send('{event_name}', n={counter}, delay={delay})"
-            )
+        self._arming_by_source[source].append(
+            f"send('{event_name}', n={counter}, delay={delay})"
+        )
+
+    def _plan_when(
+        self,
+        index: int,
+        transition: TransitionFact,
+        per_source_ordinal: dict[str, int],
+        priorities: tuple[int, int | None] | None,
+    ) -> None:
+        """Plan the armed-flag machinery for one ``accept when``."""
+        trigger = transition.trigger
+        assert trigger is not None
+
+        source = transition.source
+        ordinal = per_source_ordinal.get(source, 0) + 1
+        per_source_ordinal[source] = ordinal
+        ident = source.replace("::", "__")
+        flag = f"_w_{ident}_t{ordinal}"
+        emit_consumer = transition.guard is not None
+        if priorities is None:
+            priority = None
+            consumer_priority = None
+        else:
+            priority, consumer_priority = priorities
+
+        assert trigger.condition is not None
+
+        self._planned_triggers[index] = _ChangeTriggerPlan(
+            flag=flag,
+            condition=self._codegen.render_expression(trigger.condition),
+            emit_consumer=emit_consumer,
+            priority=priority,
+            consumer_priority=consumer_priority,
+        )
+        self._preamble.append(f"{flag} = False")
+        self._arming_by_source.setdefault(source, []).append(f"{flag} = True")
 
     def _render_value(self, value: AttributeValue) -> str | None:
         if value is None:
@@ -240,7 +380,8 @@ class SismicBuilder:
         self,
         statechart: Statechart,
         transition: TransitionFact,
-        plan: _TimeTriggerPlan | None,
+        plan: _TimeTriggerPlan | _ChangeTriggerPlan | None,
+        priority: int | None,
     ) -> None:
         if transitions.self_loop_is_unstable(transition):
             raise UnsupportedConstructError(
@@ -252,6 +393,9 @@ class SismicBuilder:
             if isinstance(transition.target, CompletionTarget)
             else transition.target
         )
+        if isinstance(plan, _ChangeTriggerPlan):
+            self._emit_change_transitions(statechart, transition, plan, target)
+            return
         statechart.add_transition(
             Transition(
                 source=transition.source,
@@ -259,8 +403,46 @@ class SismicBuilder:
                 event=self._event(transition.trigger, plan),
                 guard=self._guard(transition, plan),
                 action=self._statements(transition.effect),
+                priority=priority,
             )
         )
+
+    def _emit_change_transitions(
+        self,
+        statechart: Statechart,
+        transition: TransitionFact,
+        plan: _ChangeTriggerPlan,
+        target: str,
+    ) -> None:
+        """Emit the transition pair realizing one ``accept when``.
+
+        The consumer disarms in its action, not in a guard side effect,
+        so an aborted macro step consumes nothing; having no target, it
+        consumes without re-running ``on entry`` (which would re-arm).
+        """
+        delivery = f"{plan.flag} and ({plan.condition})"
+        guard = delivery
+        if transition.guard is not None:
+            condition = self._codegen.render_expression(transition.guard)
+            guard = f"{delivery} and ({condition})"
+        statechart.add_transition(
+            Transition(
+                source=transition.source,
+                target=target,
+                guard=guard,
+                action=self._statements(transition.effect),
+                priority=plan.priority,
+            )
+        )
+        if plan.emit_consumer:
+            statechart.add_transition(
+                Transition(
+                    source=transition.source,
+                    guard=delivery,
+                    action=f"{plan.flag} = False",
+                    priority=plan.consumer_priority,
+                )
+            )
 
     def _event(
         self, trigger: Trigger | None, plan: _TimeTriggerPlan | None
@@ -271,19 +453,18 @@ class SismicBuilder:
         trigger triggers on its planned ``_tick_*`` event.
 
         Raises:
-            UnsupportedConstructError: If the trigger is an ``accept at`` or
-                ``accept when`` (no sismic emission for them), or if a signal
-                name starts with the reserved ``_`` prefix.
+            UnsupportedConstructError: If the trigger is an ``accept at``
+                (no sismic emission for it), or if a signal name starts
+                with the reserved ``_`` prefix.
         """
         if trigger is None:
             return None
-        if trigger.kind in (TriggerKind.AT, TriggerKind.WHEN):
+        if trigger.kind is TriggerKind.AT:
             raise UnsupportedConstructError(
-                f"an `accept {trigger.kind.name.lower()}` trigger is "
-                "unsupported."
+                "an `accept at` trigger is unsupported."
             )
         if trigger.kind is TriggerKind.AFTER:
-            assert plan is not None  # planned for every AFTER trigger
+            assert plan is not None
             return plan.event_name
         name = trigger.signal_name
         if name is not None and name.startswith("_"):
@@ -298,12 +479,9 @@ class SismicBuilder:
     ) -> str | None:
         """Compose the transition's sismic guard string, or None.
 
-        A time trigger contributes the stale-tick check ``event.n ==
-        <counter>``; an ``if`` guard contributes its rendered condition;
-        when both are present they are conjoined. The conjunction is what
-        makes ``accept after ... if ...`` faithful to SysML: a deadline
-        delivered while the condition is false is consumed, with no late
-        firing.
+        Conjoining the ``if`` condition with the ``event.n`` check is what
+        makes a time trigger plus guard faithful: a deadline delivered
+        while the condition is false is consumed, with no late firing.
         """
         condition = (
             self._codegen.render_expression(transition.guard)

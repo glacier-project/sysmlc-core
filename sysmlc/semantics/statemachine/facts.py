@@ -47,7 +47,8 @@ class Trigger:
     port's simple name (``via commPort`` -> ``"commPort"``); each is ``None``
     when absent. For AFTER, ``after`` is the duration in SI seconds (float)
     or a syside attribute-reference expression node to be rendered by the
-    backend.
+    backend. For WHEN, ``condition`` is the monitored boolean expression
+    node to be rendered by the backend.
     """
 
     kind: TriggerKind
@@ -55,6 +56,7 @@ class Trigger:
     after: syside.Expression | float | None = None
     payload_name: str | None = None
     via_port: str | None = None
+    condition: syside.Expression | None = None
 
 
 @dataclass(frozen=True)

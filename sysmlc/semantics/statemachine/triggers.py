@@ -56,7 +56,8 @@ def classify(
     - a relative ``accept after <d>`` -> ``Trigger(AFTER, after=<SI seconds>)``,
       or ``Trigger(AFTER, after=<attr-ref node>)`` for a bare/chained reference;
     - an absolute ``accept at`` -> ``Trigger(AT)``;
-    - a change ``accept when`` -> ``Trigger(WHEN)``;
+    - a change ``accept when <cond>`` -> ``Trigger(WHEN, condition=<expr
+      node>)``;
     - an eventless transition -> None.
 
     Whether ``AT``/``WHEN`` are acceptable is a backend (capability) concern, so
@@ -64,7 +65,8 @@ def classify(
 
     Raises:
         ValueError: If an ``after`` duration does not evaluate to a finite,
-            non-negative number.
+            non-negative number, or if an ``accept when`` condition does not
+            resolve to an expression.
     """
     invocation = trigger_invocation(trans)
     if invocation is None:
@@ -93,7 +95,25 @@ def classify(
         )
     if invocation.kind is syside.TriggerKind.At:
         return Trigger(TriggerKind.AT)
-    return Trigger(TriggerKind.WHEN)
+    return Trigger(TriggerKind.WHEN, condition=_change_condition(invocation))
+
+
+def _change_condition(
+    invocation: syside.TriggerInvocationExpression,
+) -> syside.Expression:
+    """Return the monitored boolean condition of an ``accept when`` trigger.
+
+    Raises:
+        ValueError: If the wrapper does not resolve to an expression.
+    """
+    argument = invocation.arguments.collect()[0]
+    if isinstance(argument, syside.FeatureReferenceExpression):
+        referent = argument.referent
+        if isinstance(referent, syside.Expression):
+            return referent
+    raise ValueError(
+        "an `accept when` condition does not resolve to an expression."
+    )
 
 
 def _signal_name(trans: syside.TransitionUsage) -> str | None:
