@@ -7,17 +7,22 @@ from importlib.metadata import version
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import syside
+
 from sysmlc.backends import Backend, OutputOptions, discover_backends
 from sysmlc.errors import SysmlcError
 from sysmlc.logging import configure_logging
 from sysmlc.sysml.loading import load_model
-from sysmlc.sysml.queries import state_definitions
+from sysmlc.sysml.queries import (
+    exhibited_state_defs,
+    resolve,
+    rig_definitions,
+    state_definitions,
+)
 from sysmlc.values import configure_model, load_values, select_values
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
-
-    import syside
+    from collections.abc import Callable, Sequence
 
 __all__ = ["main"]
 
@@ -140,20 +145,68 @@ def _select_state_def(model: syside.Model, requested: str | None) -> str:
     return requested
 
 
+def _select_element(
+    model: syside.Model, requested: str | None
+) -> tuple[str, bool]:
+    """Resolve the element to build: ``(qualified name, is_rig)``.
+
+    An explicit ``--element`` naming a rig selects the composition; with
+    no ``--element`` a model's single rig wins, then the existing
+    single-state-def rule applies.
+    """
+    rigs = sorted(str(rig.qualified_name) for rig in rig_definitions(model))
+    if requested is not None:
+        if requested in rigs:
+            return requested, True
+        return _select_state_def(model, requested), False
+    if len(rigs) == 1:
+        return rigs[0], True
+    if len(rigs) > 1:
+        available = ", ".join(rigs)
+        raise CliError(
+            f"the model declares several rigs ({available}); "
+            "select one with --element"
+        )
+    return _select_state_def(model, None), False
+
+
 def _cmd_build(args: argparse.Namespace) -> int:
     """Run a ``<backend> build`` command."""
     backend: Backend = args._backend
     model = load_model(args.model)
-    element_qn = _select_state_def(model, args.element)
+    element_qn, is_rig = _select_element(model, args.element)
+    build_composition: Callable[[syside.Model, str], object] | None = getattr(
+        backend, "build_composition", None
+    )
+    if is_rig and build_composition is None:
+        raise CliError(
+            f"backend {backend.name!r} cannot build a rig composition; "
+            "select a state definition with --element"
+        )
 
     values_path = getattr(args, "values", None)
     if values_path is not None:
-        overrides = select_values(load_values(values_path), element_qn)
-        # Overrides are applied in place on the loaded model (and the
-        # model revalidated), so EVERY backend builds the configured one.
-        model = configure_model(model, element_qn, overrides)
+        tree = load_values(values_path)
+        targets = (
+            [
+                str(sd.qualified_name)
+                for _, sd in exhibited_state_defs(
+                    model,
+                    resolve(model, syside.PartDefinition, element_qn),
+                )
+            ]
+            if is_rig
+            else [element_qn]
+        )
+        for target_qn in targets:
+            overrides = select_values(tree, target_qn)
+            model = configure_model(model, target_qn, overrides)
 
-    artifact = backend.build(model, element_qn)
+    if is_rig:
+        assert build_composition is not None  # guarded above
+        artifact = build_composition(model, element_qn)
+    else:
+        artifact = backend.build(model, element_qn)
     selected = getattr(args, "format", None)
     options = OutputOptions(
         output_dir=args.output,

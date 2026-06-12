@@ -14,6 +14,10 @@ if TYPE_CHECKING:
 SM_EXAMPLES_DIR = Path(__file__).resolve().parents[2] / "models" / "sm-examples"
 SM01_DIR = SM_EXAMPLES_DIR / "sm01-helloworld"
 
+RIG_DIR = Path(__file__).resolve().parents[1] / (
+    "backends/rosetta/fixtures/rig-pair"
+)
+
 TWO_DEFS_MODEL = """\
 package Two {
     state def First {
@@ -267,3 +271,84 @@ def test_build_rejects_unknown_value_override(
     )
     assert exit_code == 1
     assert "does not match an attribute" in capsys.readouterr().err
+
+
+def test_rig_auto_select_builds_composition(tmp_path: Path) -> None:
+    exit_code = main(["rosetta", "build", str(RIG_DIR), "-o", str(tmp_path)])
+    assert exit_code == 0
+    text = (tmp_path / "PlantRig.lf").read_text()
+    assert "reactor PlantRig {" in text
+    assert "plant = new Plant()" in text
+
+
+def test_explicit_rig_element_builds_composition(tmp_path: Path) -> None:
+    exit_code = main(
+        [
+            "rosetta",
+            "build",
+            str(RIG_DIR),
+            "-e",
+            "RigPair::PlantRig",
+            "-o",
+            str(tmp_path),
+        ]
+    )
+    assert exit_code == 0
+    assert (tmp_path / "PlantRig.lf").exists()
+
+
+def test_explicit_state_def_still_builds_bare_machine(
+    tmp_path: Path,
+) -> None:
+    exit_code = main(
+        [
+            "rosetta",
+            "build",
+            str(RIG_DIR),
+            "-e",
+            "RigPair::Plant",
+            "-o",
+            str(tmp_path),
+        ]
+    )
+    assert exit_code == 0
+    text = (tmp_path / "Plant.lf").read_text()
+    assert "reactor PlantRig" not in text
+    assert "Done_act" in text  # bare build: the send stays a self-event
+
+
+def test_rig_on_backend_without_composition_errors(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    exit_code = main(
+        [
+            "quake",
+            "build",
+            str(RIG_DIR),
+            "-e",
+            "RigPair::PlantRig",
+            "-o",
+            str(tmp_path),
+        ]
+    )
+    assert exit_code == 1
+    assert "cannot build a rig composition" in capsys.readouterr().err
+
+
+def test_rig_values_apply_per_machine(tmp_path: Path) -> None:
+    values = tmp_path / "values.yaml"
+    values.write_text("RigPair:\n  PlantTest:\n    verdict: 1\n")
+    exit_code = main(
+        [
+            "rosetta",
+            "build",
+            str(RIG_DIR),
+            "-o",
+            str(tmp_path / "out"),
+            "--values",
+            str(values),
+        ]
+    )
+    assert exit_code == 0
+    text = (tmp_path / "out" / "PlantRig.lf").read_text()
+    assert "state verdict = {= 1 =}" in text
