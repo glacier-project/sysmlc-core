@@ -53,10 +53,14 @@ package Microwave {
         transition first idle accept StartCmd then cooking;
         // Door-open group interrupt aborts cooking from any substate.
         transition first cooking accept DoorOpen then idle;
-        // Completion semantics: fires when `cooking` reaches its `done`.
+        // Completion semantics: fires when `cooking` reaches its `done`;
+        // announces Finished on commPort so a paired testbench observes it.
         transition first cooking do send new Finished() via commPort then idle;
     }
 
+    // Testbench: after 0.1 s sends StartCmd; expects Finished within 5 s
+    // (the cooking cycle completes at ~0.6 s logical). Missing it latches
+    // verdict := 1, which violates `testPassed` and aborts with exit 1.
     state def MicrowaveTest {
         attribute verdict : Integer := 0;
         assert constraint testPassed { verdict == 0 }
