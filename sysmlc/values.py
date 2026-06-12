@@ -560,6 +560,9 @@ def _revalidate(model: syside.Model) -> None:
     documents = list(model.user_docs)
     for mutex in documents:
         with mutex.lock() as document:
+            # Explicit per-document reset (sema_reset has no whole-index
+            # form); BuildState.Parsed keeps the parse so AST edits survive.
+            syside.sema_reset(document)
             document.build_state = syside.BuildState.Parsed
     pipeline = syside.make_pipeline(
         syside.PipelineOptions(static_index=model.index, lib=model.lib)
