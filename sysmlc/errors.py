@@ -44,3 +44,7 @@ class CodeGenerationError(SysmlcError):
 
 class UnsupportedConstructError(CodeGenerationError):
     """Raised when the generator encounters a construct it doesn't support."""
+
+
+class ValuesError(SysmlcError):
+    """Raised for an unreadable, ill-formed, or inapplicable values file."""
