@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from sismic.model import (
@@ -32,15 +33,34 @@ if TYPE_CHECKING:
     import syside
 
 
+@dataclass(frozen=True)
+class _TimeTriggerPlan:
+    """What an ``accept after`` transition must reference when emitted.
+
+    Attributes:
+        event_name: The synthetic internal event carrying the deadline.
+        counter: Context name of the source state's activation counter.
+    """
+
+    event_name: str
+    counter: str
+
+
 class SismicBuilder:
     """Assemble a sismic ``Statechart`` from neutral state-machine facts.
 
     Implements the ``TargetBuilder`` protocol. This is where every
-    sismic-specific representational choice lives: the flat preamble with its
-    name-collision policy, the ``do`` -> run-once ``on_entry`` fusion, the
-    ``then done`` -> ``FinalState`` synthesis, the ``after(...)`` guard, and the
-    capability rejections (``at``/``when`` triggers, ``after`` combined with an
-    ``if`` guard, non-inline ``do`` bodies, and unstable self-loops).
+    sismic-specific representational choice lives:
+    - the flat preamble, with its name-collision policy;
+    - the ``do`` -> run-once ``on_entry`` fusion;
+    - the ``then done`` -> ``FinalState`` synthesis;
+    - the one-shot delayed-event encoding of ``accept after``: a
+      per-activation counter bumped ``on entry``, a ``send('_tick_...',
+      n=..., delay=...)`` arming call, and an event-triggered transition
+      whose guard checks ``event.n``;
+    - the capability rejections: ``at``/``when`` triggers, non-inline ``do``
+      bodies, unstable self-loops, and model names starting with ``_``
+      (the underscore namespace is reserved for the generated machinery).
 
     Sismic's ``Statechart.preamble`` is read-only after construction, so facts
     are buffered and the whole statechart is built in :meth:`result`.
@@ -60,14 +80,27 @@ class SismicBuilder:
         self._state_facts: list[StateFact] = []
         self._transition_facts: list[TransitionFact] = []
         self._done_finals: set[str] = set()
+        # Emission plans for time triggers, keyed by the transition fact's
+        # position in `_transition_facts`; filled by `_plan_time_triggers`.
+        self._planned_triggers: dict[int, _TimeTriggerPlan] = {}
+        # Arming statements appended to each timed source state's on_entry
+        # (the counter bump plus one send per time trigger), keyed by the
+        # source state's path.
+        self._arming_by_source: dict[str, list[str]] = {}
 
     def bind_attribute(self, binding: AttributeBinding) -> None:
         """Seed an attribute into sismic's flat preamble namespace.
 
         Raises:
             UnsupportedConstructError: If two attributes in different scopes
-                share a simple name (sismic's context is flat).
+                share a simple name (sismic's context is flat), or if an
+                attribute name starts with the reserved ``_`` prefix.
         """
+        if binding.name.startswith("_"):
+            raise UnsupportedConstructError(
+                f"attribute {binding.name!r} starts with an underscore; "
+                "that namespace is reserved for the generated machinery. "
+            )
         if binding.name in self._seen_attrs:
             first = self._seen_attrs[binding.name]
             raise UnsupportedConstructError(
@@ -91,6 +124,7 @@ class SismicBuilder:
 
     def result(self) -> Statechart:
         """Build, validate, and return the assembled sismic statechart."""
+        self._plan_time_triggers()
         if self._needs_namespace:
             self._preamble.insert(0, "from types import SimpleNamespace")
         statechart = Statechart(
@@ -98,10 +132,50 @@ class SismicBuilder:
         )
         for state in self._state_facts:
             self._emit_state(statechart, state)
-        for transition in self._transition_facts:
-            self._emit_transition(statechart, transition)
+        for index, transition in enumerate(self._transition_facts):
+            self._emit_transition(
+                statechart, transition, self._planned_triggers.get(index)
+            )
         statechart.validate()
         return statechart
+
+    def _plan_time_triggers(self) -> None:
+        """Plan the delayed-event machinery for every ``accept after``.
+
+        Walks the buffered transitions in declaration order and records,
+        for each time trigger, the coordinated pieces its emission needs:
+        the counter initialization (appended to the preamble), the arming
+        statements for the source state's ``on entry`` (a counter bump plus
+        one delayed ``send`` per trigger, stored in ``_arming_by_source``),
+        and the event and counter names the transition will use (stored in
+        ``_planned_triggers``).
+
+        The counter exists to invalidate stale ticks: sismic never cancels
+        a delayed event when its state exits, so a tick armed by an earlier
+        activation must match nothing when it is delivered.
+        """
+        per_source_ordinal: dict[str, int] = {}
+        for index, transition in enumerate(self._transition_facts):
+            trigger = transition.trigger
+            if trigger is None or trigger.kind is not TriggerKind.AFTER:
+                continue
+            source = transition.source
+            ordinal = per_source_ordinal.get(source, 0) + 1
+            per_source_ordinal[source] = ordinal
+            ident = source.replace("::", "__")
+            counter = f"_n_{ident}"
+            delay = self._render_value(trigger.after)
+            assert delay is not None  # AFTER always carries a duration
+            event_name = f"_tick_{ident}_t{ordinal}"
+            self._planned_triggers[index] = _TimeTriggerPlan(
+                event_name=event_name, counter=counter
+            )
+            if source not in self._arming_by_source:
+                self._preamble.append(f"{counter} = 0")
+                self._arming_by_source[source] = [f"{counter} = {counter} + 1"]
+            self._arming_by_source[source].append(
+                f"send('{event_name}', n={counter}, delay={delay})"
+            )
 
     def _render_value(self, value: AttributeValue) -> str | None:
         if value is None:
@@ -148,7 +222,9 @@ class SismicBuilder:
         if state.do_action is not None:
             actions.require_inline_one_shot(state.do_action)
             do = self._statements(state.do_action)
-        parts = [part for part in (entry, do) if part is not None]
+        # Armed last: durations must see the values entry/do just assigned.
+        arming = "\n".join(self._arming_by_source.get(state.name, []))
+        parts = [part for part in (entry, do, arming) if part]
         return "\n".join(parts) or None
 
     def _statements(self, action: syside.ActionUsage | None) -> str | None:
@@ -161,9 +237,11 @@ class SismicBuilder:
         return rendered or None
 
     def _emit_transition(
-        self, statechart: Statechart, transition: TransitionFact
+        self,
+        statechart: Statechart,
+        transition: TransitionFact,
+        plan: _TimeTriggerPlan | None,
     ) -> None:
-        guard = self._guard(transition)
         if transitions.self_loop_is_unstable(transition):
             raise UnsupportedConstructError(
                 "A self-loop transition would never stabilize (no event, "
@@ -174,49 +252,70 @@ class SismicBuilder:
             if isinstance(transition.target, CompletionTarget)
             else transition.target
         )
-        event = (
-            transition.trigger.signal_name
-            if transition.trigger is not None
-            and transition.trigger.kind is TriggerKind.SIGNAL
-            else None
-        )
         statechart.add_transition(
             Transition(
                 source=transition.source,
                 target=target,
-                event=event,
-                guard=guard,
+                event=self._event(transition.trigger, plan),
+                guard=self._guard(transition, plan),
                 action=self._statements(transition.effect),
             )
         )
 
-    def _guard(self, transition: TransitionFact) -> str | None:
-        time_guard = self._time_guard(transition.trigger)
+    def _event(
+        self, trigger: Trigger | None, plan: _TimeTriggerPlan | None
+    ) -> str | None:
+        """Return the transition's sismic event name, or None.
+
+        A signal accepter triggers on its payload type's name; a time
+        trigger triggers on its planned ``_tick_*`` event.
+
+        Raises:
+            UnsupportedConstructError: If the trigger is an ``accept at`` or
+                ``accept when`` (no sismic emission for them), or if a signal
+                name starts with the reserved ``_`` prefix.
+        """
+        if trigger is None:
+            return None
+        if trigger.kind in (TriggerKind.AT, TriggerKind.WHEN):
+            raise UnsupportedConstructError(
+                f"an `accept {trigger.kind.name.lower()}` trigger is "
+                "unsupported."
+            )
+        if trigger.kind is TriggerKind.AFTER:
+            assert plan is not None  # planned for every AFTER trigger
+            return plan.event_name
+        name = trigger.signal_name
+        if name is not None and name.startswith("_"):
+            raise UnsupportedConstructError(
+                f"signal {name!r} starts with an underscore; that "
+                "namespace is reserved for the generated machinery. "
+            )
+        return name
+
+    def _guard(
+        self, transition: TransitionFact, plan: _TimeTriggerPlan | None
+    ) -> str | None:
+        """Compose the transition's sismic guard string, or None.
+
+        A time trigger contributes the stale-tick check ``event.n ==
+        <counter>``; an ``if`` guard contributes its rendered condition;
+        when both are present they are conjoined. The conjunction is what
+        makes ``accept after ... if ...`` faithful to SysML: a deadline
+        delivered while the condition is false is consumed, with no late
+        firing.
+        """
         condition = (
             self._codegen.render_expression(transition.guard)
             if transition.guard is not None
             else None
         )
-        if time_guard is not None and condition is not None:
-            raise UnsupportedConstructError(
-                "`accept after` combined with an `if` guard is unsupported."
-            )
-        return time_guard if time_guard is not None else condition
-
-    def _time_guard(self, trigger: Trigger | None) -> str | None:
-        if trigger is None or trigger.kind is TriggerKind.SIGNAL:
-            return None
-        if trigger.kind in (TriggerKind.AT, TriggerKind.WHEN):
-            raise UnsupportedConstructError(
-                f"an `accept {trigger.kind.name.lower()}` trigger is "
-                "unsupported. Only the relative `accept after <duration>` time "
-                "trigger is supported."
-            )
-        after = trigger.after
-        if isinstance(after, float):
-            return f"after({after!r})"
-        assert after is not None  # AFTER always carries a duration
-        return f"after({self._codegen.render_expression(after)})"
+        if plan is None:
+            return condition
+        deadline = f"event.n == {plan.counter}"
+        if condition is None:
+            return deadline
+        return f"{deadline} and ({condition})"
 
     def _final_state(self, statechart: Statechart, scope: str) -> str:
         scope_name = scope or self._name
