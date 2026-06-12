@@ -11,6 +11,7 @@ from sysmlc.semantics.statemachine.facts import (
     AttributeValue,
     CompositeValue,
 )
+from sysmlc.sysml.queries import feature_value as feature_value
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -107,21 +108,6 @@ def iter_scope_attributes(
         yield container, attr
     for substate in states.substates(container):
         yield from iter_scope_attributes(substate)
-
-
-def feature_value(attr: syside.AttributeUsage) -> syside.Expression | None:
-    """Return the attribute's own value expression, if any.
-
-    Reads the owned ``FeatureValue`` relationship first: syside's
-    ``feature_value_expression`` accessor is blind to values created
-    through the low-level editing API (in-memory configuration), while
-    the relationship is authoritative for parsed and created values
-    alike.
-    """
-    for rel in attr.owned_relationships.collect():
-        if isinstance(rel, syside.FeatureValue):
-            return rel.value
-    return attr.feature_value_expression
 
 
 def bind_value(

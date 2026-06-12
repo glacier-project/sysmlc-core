@@ -76,6 +76,21 @@ def state_definitions(model: syside.Model) -> Sequence[syside.StateDefinition]:
     return iter_elements(model, syside.StateDefinition)
 
 
+def feature_value(attr: syside.AttributeUsage) -> syside.Expression | None:
+    """Return the attribute's own value expression, if any.
+
+    Reads the owned ``FeatureValue`` relationship first: syside's
+    ``feature_value_expression`` accessor is blind to values created
+    through the low-level editing API (in-memory configuration), while
+    the relationship is authoritative for parsed and created values
+    alike.
+    """
+    for rel in attr.owned_relationships.collect():
+        if isinstance(rel, syside.FeatureValue):
+            return rel.value
+    return attr.feature_value_expression
+
+
 def _element_sort_key(element: syside.Element) -> tuple[str, str, str]:
     qualified_name = element.qualified_name
     path = element.path
