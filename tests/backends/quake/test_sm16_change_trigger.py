@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
+from sismic.exceptions import NonDeterminismError
 from sismic.interpreter import Interpreter
 
 from sysmlc.backends.quake import build_statechart
@@ -38,18 +39,14 @@ def test_bare_change_trigger_emits_armed_flag_transition(
 def test_guarded_change_trigger_emits_real_and_consumer_pair(
     model: syside.Model,
 ) -> None:
-    """`accept when ... if g` adds a lower-priority consumer transition.
-
-    The real transition fires when the condition and the guard both hold at
-    delivery; the consumer is an internal transition (no target) that
-    disarms the observation when the condition holds but the guard rejects.
-    """
+    """`accept when ... if g` adds a negative-priority consumer transition."""
     sc = build_statechart(model, "SM16::MachineWhenGuard")
     pair = [t for t in sc.transitions if t.source == "idle" and t.guard]
     real = next(t for t in pair if t.target == "running")
     consumer = next(t for t in pair if t.target is None)
     assert real.guard == "_w_idle_t1 and (hot) and (enabled)"
-    assert real.priority > consumer.priority
+    assert real.priority == 0
+    assert consumer.priority < real.priority
     assert consumer.internal
     assert consumer.guard == "_w_idle_t1 and (hot)"
     assert consumer.action == "_w_idle_t1 = False"
@@ -157,27 +154,42 @@ def test_reentry_with_condition_held_true_fires_each_activation(
     assert "running" in interp.configuration
 
 
-def test_two_change_triggers_resolve_in_declaration_order(
+def test_two_change_triggers_fire_independently(
     model: syside.Model,
 ) -> None:
-    """Simultaneous rises on one source pick the first-declared trigger."""
+    """Each of two triggers on one source fires on its own rise."""
     sc = build_statechart(model, "SM16::MachineWhenTwo")
     interp = Interpreter(sc)
     interp.execute()
     interp.context["hot"] = True
-    interp.context["cold"] = True
     interp.execute()
     assert "warmed" in interp.configuration
 
-
-def test_second_change_trigger_fires_when_alone(model: syside.Model) -> None:
-    """The lower-priority trigger works normally when it rises alone."""
     sc = build_statechart(model, "SM16::MachineWhenTwo")
     interp = Interpreter(sc)
     interp.execute()
     interp.context["cold"] = True
     interp.execute()
     assert "chilled" in interp.configuration
+
+
+def test_simultaneous_change_triggers_are_nondeterministic(
+    model: syside.Model,
+) -> None:
+    """Two triggers rising together is an ambiguous model: it fails loud.
+
+    SysML mandates no priority between transitions, so two enabled at the
+    same instant from one source is genuinely ambiguous. Both real transitions
+    keep the default priority, so sismic raises ``NonDeterminismError``
+    at the colliding step.
+    """
+    sc = build_statechart(model, "SM16::MachineWhenTwo")
+    interp = Interpreter(sc)
+    interp.execute()
+    interp.context["hot"] = True
+    interp.context["cold"] = True
+    with pytest.raises(NonDeterminismError):
+        interp.execute()
 
 
 def test_composed_condition_observes_the_whole_expression(

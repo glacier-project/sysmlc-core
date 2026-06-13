@@ -57,19 +57,14 @@ class _ChangeTriggerPlan:
         flag: Context name of the armed-observation flag.
         condition: The monitored boolean condition, already rendered as
             source text.
-        emit_consumer: Whether the consumer transition is emitted; only
-            when the SysML transition carries an ``if`` guard that can
-            reject the occurrence.
-        priority: Priority of the real transition, or None when the source
-            has a single eventless transition (no conflict to resolve).
-        consumer_priority: Priority of the consumer transition, just below
-            the real one's; None when no consumer is emitted.
+        consumer_priority: A distinct negative priority for the consumer
+            transition (below the real transition's sismic default), or
+            None when no ``if`` guard can reject the occurrence and no
+            consumer is emitted.
     """
 
     flag: str
     condition: str
-    emit_consumer: bool
-    priority: int | None
     consumer_priority: int | None
 
 
@@ -86,10 +81,10 @@ class SismicBuilder:
       n=..., delay=...)`` arming call, and an event-triggered transition
       whose guard checks ``event.n``;
     - the armed-flag encoding of ``accept when``: a ``_w_*`` flag re-armed
-      ``on entry``, an eventless transition guarded by the flag and the
-      condition, and, with an ``if`` guard, a lower-priority internal
-      consumer transition that disarms the flag when the occurrence is
-      rejected;
+      ``on entry``, an eventless transition (at sismic's default priority)
+      guarded by the flag and the condition, and, with an ``if`` guard, a
+      negative-priority internal consumer transition that disarms the flag
+      when the occurrence is rejected;
     - the capability rejections: ``at`` triggers, non-inline ``do``
       bodies, unstable self-loops, and model names starting with ``_``
       (the underscore namespace is reserved for the generated machinery).
@@ -116,7 +111,6 @@ class SismicBuilder:
             int, _TimeTriggerPlan | _ChangeTriggerPlan
         ] = {}
         self._arming_by_source: dict[str, list[str]] = {}
-        self._eventless_priorities: dict[int, int] = {}
 
     def bind_attribute(self, binding: AttributeBinding) -> None:
         """Seed an attribute into sismic's flat preamble namespace.
@@ -164,10 +158,7 @@ class SismicBuilder:
             self._emit_state(statechart, state)
         for index, transition in enumerate(self._transition_facts):
             self._emit_transition(
-                statechart,
-                transition,
-                self._planned_triggers.get(index),
-                self._eventless_priorities.get(index),
+                statechart, transition, self._planned_triggers.get(index)
             )
         statechart.validate()
         return statechart
@@ -176,11 +167,11 @@ class SismicBuilder:
         """Plan the emitted machinery for time and change triggers.
 
         Walks the buffered transitions in declaration order, delegating
-        per trigger kind; priorities are assigned up front.
+        per trigger kind.
         """
-        pair_priorities = self._assign_priorities()
         per_source_after: dict[str, int] = {}
         per_source_when: dict[str, int] = {}
+        next_consumer: dict[str, int] = {}
         for index, transition in enumerate(self._transition_facts):
             trigger = transition.trigger
             if trigger is None:
@@ -191,67 +182,8 @@ class SismicBuilder:
                 )
             elif isinstance(trigger, WhenTrigger):
                 self._plan_when(
-                    index,
-                    trigger,
-                    transition,
-                    per_source_when,
-                    pair_priorities.get(index),
+                    index, trigger, transition, per_source_when, next_consumer
                 )
-
-    def _assign_priorities(self) -> dict[int, tuple[int, int | None]]:
-        """Assign distinct priorities where a change trigger lives.
-
-        A change trigger's real + consumer pair enables together by
-        construction, and same-priority eventless ties raise
-        NonDeterminismError, so every eventless transition of such a
-        source gets a descending declaration-order priority. Fills
-        ``_eventless_priorities`` for plain transitions and returns the
-        pairs' ``(real, consumer)`` priorities by transition position.
-        """
-        when_sources: set[str] = set()
-        slot_totals: dict[str, int] = {}
-        for transition in self._transition_facts:
-            trigger = transition.trigger
-            slots = 0  # Counter for eventless transition.
-            if trigger is None:
-                # A plain transition: one eventless transition.
-                slots = 1
-            elif isinstance(trigger, WhenTrigger):
-                when_sources.add(transition.source)
-                # The real + consumer pair with a WHEN+IF.
-                # The real one alone otherwise (WHEN only).
-                slots = 2 if transition.guard is not None else 1
-            if slots:
-                slot_totals[transition.source] = (
-                    slot_totals.get(transition.source, 0) + slots
-                )
-
-        next_priority: dict[str, int] = {}
-        for source in when_sources:
-            if slot_totals[source] > 1:
-                # +1 to avoid reaching 1. Since sismic
-                # serializes as the named priority `high`
-                next_priority[source] = slot_totals[source] + 1
-
-        # Descending priority pool, consumed in declaration order.
-        pair_priorities: dict[int, tuple[int, int | None]] = {}
-        for index, transition in enumerate(self._transition_facts):
-            source = transition.source
-            if source not in next_priority:
-                continue
-            trigger = transition.trigger
-            if trigger is None:
-                self._eventless_priorities[index] = next_priority[source]
-                next_priority[source] -= 1
-            elif isinstance(trigger, WhenTrigger):
-                real = next_priority[source]
-                next_priority[source] -= 1
-                consumer = None
-                if transition.guard is not None:
-                    consumer = next_priority[source]
-                    next_priority[source] -= 1
-                pair_priorities[index] = (real, consumer)
-        return pair_priorities
 
     def _plan_after(
         self,
@@ -291,25 +223,28 @@ class SismicBuilder:
         trigger: WhenTrigger,
         transition: TransitionFact,
         per_source_ordinal: dict[str, int],
-        priorities: tuple[int, int | None] | None,
+        next_consumer: dict[str, int],
     ) -> None:
-        """Plan the armed-flag machinery for one ``accept when``."""
+        """Plan the armed-flag machinery for one ``accept when``.
+
+        The real transition keeps sismic's default priority;
+        only the consumer use a distinct negative priority.
+        """
         source = transition.source
         ordinal = per_source_ordinal.get(source, 0) + 1
         per_source_ordinal[source] = ordinal
         ident = source.replace("::", "__")
         flag = f"_w_{ident}_t{ordinal}"
-        emit_consumer = transition.guard is not None
-        if priorities is None:
-            priority = None
-            consumer_priority = None
-        else:
-            priority, consumer_priority = priorities
+        consumer_priority = None
+        if transition.guard is not None:
+            # Distinct negatives per source, from -2 down: below the real's
+            # default 0, and skipping -1, which sismic serializes as the
+            # named priority `low`.
+            consumer_priority = next_consumer.get(source, -2)
+            next_consumer[source] = consumer_priority - 1
         self._planned_triggers[index] = _ChangeTriggerPlan(
             flag=flag,
             condition=self._codegen.render_expression(trigger.condition),
-            emit_consumer=emit_consumer,
-            priority=priority,
             consumer_priority=consumer_priority,
         )
         self._preamble.append(f"{flag} = False")
@@ -379,7 +314,6 @@ class SismicBuilder:
         statechart: Statechart,
         transition: TransitionFact,
         plan: _TimeTriggerPlan | _ChangeTriggerPlan | None,
-        priority: int | None,
     ) -> None:
         if transitions.self_loop_is_unstable(transition):
             raise UnsupportedConstructError(
@@ -401,7 +335,6 @@ class SismicBuilder:
                 event=self._event(transition.trigger, plan),
                 guard=self._guard(transition, plan),
                 action=self._statements(transition.effect),
-                priority=priority,
             )
         )
 
@@ -429,10 +362,9 @@ class SismicBuilder:
                 target=target,
                 guard=guard,
                 action=self._statements(transition.effect),
-                priority=plan.priority,
             )
         )
-        if plan.emit_consumer:
+        if plan.consumer_priority is not None:
             statechart.add_transition(
                 Transition(
                     source=transition.source,
