@@ -168,4 +168,58 @@ package ChargingStation {
             do assign authRetries := 0
             then idle;
     }
+
+    // Testbench: sends PlugIn at 0.2 s; then AuthResult(code=7, denied) at
+    // 1.2 s abs (+1.0 s relative) and AuthResult(code=1, granted) at 1.6 s
+    // abs (+0.4 s relative), driving the station through handshake → one auth
+    // retry → three-phase charge → finishing.  Waits for SessionReport (sent
+    // by finishing's timed ``accept after 0.5 s`` transition) to confirm the
+    // charge session completed.  A 30 s fail-window is generous: the full
+    // cycle takes ~14 s logical with tight thermal overrides (tempLimit=45,
+    // coolThreshold=40).
+    //
+    // No ``announcing`` transient latch needed: SessionReport is emitted in
+    // the ``finishing`` state's timed reaction (``accept after 0.5 s``), not
+    // directly in a reaction that consumed a tb input, so lfc 0.11 sees no
+    // read-input + write-output cycle at the same logical tag.
+    state def ChargingStationTest {
+        attribute verdict : Integer := 0;
+        assert constraint testPassed { verdict == 0 }
+
+        port commPort;
+
+        entry; then plugWait;
+        state plugWait;
+        state authDenyWait;
+        state authGrantWait;
+        state sessionWait;
+        state fail {
+            entry assign verdict := 1;
+        }
+
+        // PlugIn at 0.2 s (abs)
+        transition first plugWait
+            accept after 0.2 [s]
+            do send new PlugIn() via commPort
+            then authDenyWait;
+        // AuthResult(denied) at 1.2 s abs (+1.0 s relative from PlugIn)
+        transition first authDenyWait
+            accept after 1.0 [s]
+            do send new AuthResult(7) via commPort
+            then authGrantWait;
+        // AuthResult(granted) at 1.6 s abs (+0.4 s relative from deny)
+        transition first authGrantWait
+            accept after 0.4 [s]
+            do send new AuthResult(1) via commPort
+            then sessionWait;
+        // SessionReport arrives from plant's finishing transition (~14 s logical)
+        transition first sessionWait accept SessionReport then done;
+        transition first sessionWait accept after 30.0 [s] then fail;
+        transition first fail then done;
+    }
+
+    part def ChargingStationRig {
+        exhibit state plant : ChargingStation;
+        exhibit state tb : ChargingStationTest;
+    }
 }
