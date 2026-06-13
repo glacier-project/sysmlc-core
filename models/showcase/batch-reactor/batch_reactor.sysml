@@ -142,9 +142,10 @@ package BatchReactor {
 
     // Testbench: at 0.2 s sends StartRecipe; waits for BatchDone (announced
     // by the reactor on every completed batch).  A generous 30 s fail-window
-    // accommodates the full fill/heat/react/cool/drain cycle (~5.7 s logical
-    // with the sped-up values.yaml overrides: sampleTime=0.5 s, batchTarget=1,
-    // inflowRate=60, heatRate=65, coolRate=60, drainRate=60).
+    // accommodates the full fill/heat/react/cool/drain cycle (~7.2 s logical
+    // with the sped-up values.yaml overrides: batchTarget=1, inflowRate=60,
+    // heatRate=65, coolRate=60, drainRate=60; sampleTime stays at model
+    // default 1.0 s).
     //
     // No `announcing` transient latch needed: BatchDone is sent on a GUARDED
     // eventless completion transition from `draining` (level<=0 guard), not
