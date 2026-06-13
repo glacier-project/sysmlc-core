@@ -139,4 +139,41 @@ package BatchReactor {
             }
             then filling;
     }
+
+    // Testbench: at 0.2 s sends StartRecipe; waits for BatchDone (announced
+    // by the reactor on every completed batch).  A generous 30 s fail-window
+    // accommodates the full fill/heat/react/cool/drain cycle (~5.7 s logical
+    // with the sped-up values.yaml overrides: sampleTime=0.5 s, batchTarget=1,
+    // inflowRate=60, heatRate=65, coolRate=60, drainRate=60).
+    //
+    // No `announcing` transient latch needed: BatchDone is sent on a GUARDED
+    // eventless completion transition from `draining` (level<=0 guard), not
+    // directly in the same reaction that consumes an input -- so there is no
+    // read-input + write-output cycle that lfc 0.11 would flag.
+    state def BatchReactorTest {
+        attribute verdict : Integer := 0;
+        assert constraint testPassed { verdict == 0 }
+
+        port commPort;
+
+        entry; then starting;
+        state starting;
+        state batchWait;
+        state fail {
+            entry assign verdict := 1;
+        }
+
+        transition first starting
+            accept after 0.2 [s]
+            do send new StartRecipe() via commPort
+            then batchWait;
+        transition first batchWait accept BatchDone then done;
+        transition first batchWait accept after 30.0 [s] then fail;
+        transition first fail then done;
+    }
+
+    part def BatchReactorRig {
+        exhibit state plant : BatchReactor;
+        exhibit state tb : BatchReactorTest;
+    }
 }
