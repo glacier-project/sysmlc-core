@@ -9,6 +9,10 @@ package LevelCrossing {
     item def BarrierFault {
         attribute severity : Integer;
     }
+    // Announced on commPort when the opening sequence completes and the
+    // crossing returns to open after a safe train passage; lets a paired
+    // testbench observe that a full safe cycle was completed.
+    item def Reopened;
 
     // A railway level crossing: a timed securing sequence (warn lights,
     // bell, barrier), a closed state that holds until BOTH the bell
@@ -22,6 +26,8 @@ package LevelCrossing {
         in attribute maxFaults : Integer default 3;
         attribute trainsPassed : Integer := 0;
         attribute faults : Integer := 0;
+
+        port commPort;
 
         assert constraint counters {
             trainsPassed >= 0 and faults >= 0 and faults <= maxFaults
@@ -91,8 +97,17 @@ package LevelCrossing {
 
         // Join: bell cycle finished AND train passed.
         transition first closed then opening;
+        // Completion of the opening sequence: increment the counter and
+        // announce Reopened on commPort so a paired testbench can observe
+        // a full safe cycle. The opening→open transition is a COMPLETION
+        // transition (no `accept` trigger): it fires at the next microstep
+        // after opening.done is entered, so the send is not in the same
+        // reaction that consumed TrainPassed — no LF causality cycle.
         transition first opening
-            do assign trainsPassed := trainsPassed + 1
+            do action {
+                assign trainsPassed := trainsPassed + 1;
+                send new Reopened() via commPort;
+            }
             then open;
 
         // Any barrier fault while closed latches the fail-safe: barriers
@@ -100,5 +115,52 @@ package LevelCrossing {
         transition first closed accept BarrierFault then failSafe;
 
         transition first failSafe accept Reset then open;
+    }
+
+    // Testbench: at 0.3 s sends TrainApproaching; at 4 s (abs) sends
+    // TrainPassed; then waits for Reopened — the announcement the plant
+    // emits when the opening sequence completes and the crossing returns
+    // to open after a full safe passage cycle. A 10 s fail-window covers
+    // the full scenario (securing ~1.5 s + closed ~1.5 s + opening ~1.1 s
+    // + margins). Missing Reopened latches verdict := 1 → testPassed
+    // violated → exit 1.
+    //
+    // No `announcing` transient latch needed: Reopened is sent on a
+    // COMPLETION transition from `opening` (not in the reaction that
+    // consumed TrainPassed), so lfc 0.11 sees no read-input+write-output
+    // cycle at the same logical tag.
+    state def LevelCrossingTest {
+        attribute verdict : Integer := 0;
+        assert constraint testPassed { verdict == 0 }
+
+        port commPort;
+
+        entry; then sendApproach;
+        state sendApproach;
+        state sendPassed;
+        state reopenWait;
+        state fail {
+            entry assign verdict := 1;
+        }
+
+        // Send TrainApproaching at 0.3 s: the crossing enters securing.
+        transition first sendApproach
+            accept after 0.3 [s]
+            do send new TrainApproaching() via commPort
+            then sendPassed;
+        // Send TrainPassed at 4 s (abs): the closed join releases and the
+        // opening sequence begins.
+        transition first sendPassed
+            accept after 3.7 [s]
+            do send new TrainPassed() via commPort
+            then reopenWait;
+        transition first reopenWait accept Reopened then done;
+        transition first reopenWait accept after 10.0 [s] then fail;
+        transition first fail then done;
+    }
+
+    part def LevelCrossingRig {
+        exhibit state plant : LevelCrossing;
+        exhibit state tb : LevelCrossingTest;
     }
 }
