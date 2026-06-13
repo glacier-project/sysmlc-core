@@ -18,15 +18,18 @@ from sysmlc.errors import UnsupportedConstructError
 from sysmlc.semantics.statemachine import actions, transitions
 from sysmlc.semantics.statemachine.driver import StateMachineDriver
 from sysmlc.semantics.statemachine.facts import (
+    AfterTrigger,
     AttributeBinding,
     AttributeValue,
+    AtTrigger,
     CompletionTarget,
     CompositeValue,
+    SignalTrigger,
     StateFact,
     StateKind,
     TransitionFact,
     Trigger,
-    TriggerKind,
+    WhenTrigger,
 )
 
 if TYPE_CHECKING:
@@ -182,11 +185,14 @@ class SismicBuilder:
             trigger = transition.trigger
             if trigger is None:
                 continue
-            if trigger.kind is TriggerKind.AFTER:
-                self._plan_after(index, transition, per_source_after)
-            elif trigger.kind is TriggerKind.WHEN:
+            if isinstance(trigger, AfterTrigger):
+                self._plan_after(
+                    index, trigger, transition.source, per_source_after
+                )
+            elif isinstance(trigger, WhenTrigger):
                 self._plan_when(
                     index,
+                    trigger,
                     transition,
                     per_source_when,
                     pair_priorities.get(index),
@@ -210,7 +216,7 @@ class SismicBuilder:
             if trigger is None:
                 # A plain transition: one eventless transition.
                 slots = 1
-            elif trigger.kind is TriggerKind.WHEN:
+            elif isinstance(trigger, WhenTrigger):
                 when_sources.add(transition.source)
                 # The real + consumer pair with a WHEN+IF.
                 # The real one alone otherwise (WHEN only).
@@ -237,7 +243,7 @@ class SismicBuilder:
             if trigger is None:
                 self._eventless_priorities[index] = next_priority[source]
                 next_priority[source] -= 1
-            elif trigger.kind is TriggerKind.WHEN:
+            elif isinstance(trigger, WhenTrigger):
                 real = next_priority[source]
                 next_priority[source] -= 1
                 consumer = None
@@ -250,7 +256,8 @@ class SismicBuilder:
     def _plan_after(
         self,
         index: int,
-        transition: TransitionFact,
+        trigger: AfterTrigger,
+        source: str,
         per_source_ordinal: dict[str, int],
     ) -> None:
         """Plan the delayed-event machinery for one ``accept after``.
@@ -259,15 +266,11 @@ class SismicBuilder:
         delayed event when its state exits, so a tick armed by an earlier
         activation must match nothing when it is delivered.
         """
-        trigger = transition.trigger
-        assert trigger is not None
-
-        source = transition.source
         ordinal = per_source_ordinal.get(source, 0) + 1
         per_source_ordinal[source] = ordinal
         ident = source.replace("::", "__")
         counter = f"_n_{ident}"
-        delay = self._render_value(trigger.after)
+        delay = self._render_value(trigger.duration)
         assert delay is not None
         event_name = f"_tick_{ident}_t{ordinal}"
         self._planned_triggers[index] = _TimeTriggerPlan(
@@ -285,14 +288,12 @@ class SismicBuilder:
     def _plan_when(
         self,
         index: int,
+        trigger: WhenTrigger,
         transition: TransitionFact,
         per_source_ordinal: dict[str, int],
         priorities: tuple[int, int | None] | None,
     ) -> None:
         """Plan the armed-flag machinery for one ``accept when``."""
-        trigger = transition.trigger
-        assert trigger is not None
-
         source = transition.source
         ordinal = per_source_ordinal.get(source, 0) + 1
         per_source_ordinal[source] = ordinal
@@ -304,9 +305,6 @@ class SismicBuilder:
             consumer_priority = None
         else:
             priority, consumer_priority = priorities
-
-        assert trigger.condition is not None
-
         self._planned_triggers[index] = _ChangeTriggerPlan(
             flag=flag,
             condition=self._codegen.render_expression(trigger.condition),
@@ -459,15 +457,16 @@ class SismicBuilder:
         """
         if trigger is None:
             return None
-        if trigger.kind is TriggerKind.AT:
+        if isinstance(trigger, AtTrigger):
             raise UnsupportedConstructError(
                 "an `accept at` trigger is unsupported."
             )
-        if trigger.kind is TriggerKind.AFTER:
+        if isinstance(trigger, AfterTrigger):
             assert plan is not None
             return plan.event_name
+        assert isinstance(trigger, SignalTrigger)
         name = trigger.signal_name
-        if name is not None and name.startswith("_"):
+        if name.startswith("_"):
             raise UnsupportedConstructError(
                 f"signal {name!r} starts with an underscore; that "
                 "namespace is reserved for the generated machinery. "

@@ -1,16 +1,15 @@
 from sysmlc.semantics.statemachine.facts import (
     AttributeBinding,
+    SignalTrigger,
     StateFact,
     StateKind,
-    Trigger,
-    TriggerKind,
 )
 
 
-def test_trigger_defaults() -> None:
-    t = Trigger(kind=TriggerKind.AFTER, after=120.0)
-    assert t.signal_name is None
-    assert t.after == 120.0
+def test_signal_trigger_defaults() -> None:
+    t = SignalTrigger(signal_name="Tick")
+    assert t.payload_name is None
+    assert t.via_port is None
 
 
 def test_state_fact_constructible() -> None:

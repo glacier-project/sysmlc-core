@@ -5,9 +5,8 @@ import syside
 from sysmlc.semantics.statemachine import states, transitions
 from sysmlc.semantics.statemachine.facts import (
     CompletionTarget,
+    SignalTrigger,
     TransitionFact,
-    Trigger,
-    TriggerKind,
 )
 from sysmlc.sysml.loading import load_model
 from sysmlc.sysml.queries import resolve
@@ -61,7 +60,7 @@ def test_self_loop_detection() -> None:
     with_event = TransitionFact(
         source="a",
         target="a",
-        trigger=Trigger(TriggerKind.SIGNAL, signal_name="E"),
+        trigger=SignalTrigger(signal_name="E"),
         guard=None,
         effect=None,
     )

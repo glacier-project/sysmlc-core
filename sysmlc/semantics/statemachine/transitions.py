@@ -6,7 +6,7 @@ from sysmlc.semantics.statemachine import states
 from sysmlc.semantics.statemachine.facts import (
     CompletionTarget,
     TransitionFact,
-    TriggerKind,
+    WhenTrigger,
 )
 
 
@@ -86,6 +86,6 @@ def self_loop_is_unstable(transition: TransitionFact) -> bool:
     trigger = transition.trigger
     if trigger is None:
         return transition.guard is None or transition.effect is None
-    if trigger.kind is TriggerKind.WHEN:
+    if isinstance(trigger, WhenTrigger):
         return transition.effect is None
     return False

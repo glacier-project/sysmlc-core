@@ -4,7 +4,13 @@ import math
 
 import syside
 
-from sysmlc.semantics.statemachine.facts import Trigger, TriggerKind
+from sysmlc.semantics.statemachine.facts import (
+    AfterTrigger,
+    AtTrigger,
+    SignalTrigger,
+    Trigger,
+    WhenTrigger,
+)
 
 
 def trigger_invocation(
@@ -51,17 +57,13 @@ def classify(
 ) -> Trigger | None:
     """Classify a transition's accepter into a neutral ``Trigger``, or None.
 
-    - a signal ``accept E via port`` -> ``Trigger(SIGNAL, signal_name=E,
-      payload_name=<declared name or None>, via_port=<port or None>)``;
-    - a relative ``accept after <d>`` -> ``Trigger(AFTER, after=<SI seconds>)``,
-      or ``Trigger(AFTER, after=<attr-ref node>)`` for a bare/chained reference;
-    - an absolute ``accept at`` -> ``Trigger(AT)``;
-    - a change ``accept when <cond>`` -> ``Trigger(WHEN, condition=<expr
-      node>)``;
+    - a signal ``accept E via port`` -> ``SignalTrigger``;
+    - a relative ``accept after <d>`` -> ``AfterTrigger`` carrying the SI
+      seconds, or the attr-ref node for a bare/chained reference;
+    - an absolute ``accept at`` -> ``AtTrigger``;
+    - a change ``accept when <cond>`` -> ``WhenTrigger`` carrying the
+      condition node;
     - an eventless transition -> None.
-
-    Whether ``AT``/``WHEN`` are acceptable is a backend (capability) concern, so
-    this classifies them faithfully rather than rejecting them.
 
     Raises:
         ValueError: If an ``after`` duration does not evaluate to a finite,
@@ -73,8 +75,7 @@ def classify(
         name = _signal_name(trans)
         if name is None:
             return None
-        return Trigger(
-            TriggerKind.SIGNAL,
+        return SignalTrigger(
             signal_name=name,
             payload_name=_payload_name(trans),
             via_port=_via_port(trans),
@@ -88,14 +89,13 @@ def classify(
                 syside.FeatureChainExpression,
             ),
         ):
-            return Trigger(TriggerKind.AFTER, after=duration)
-        return Trigger(
-            TriggerKind.AFTER,
-            after=_duration_seconds(invocation, compiler, stdlib),
+            return AfterTrigger(duration=duration)
+        return AfterTrigger(
+            duration=_duration_seconds(invocation, compiler, stdlib)
         )
     if invocation.kind is syside.TriggerKind.At:
-        return Trigger(TriggerKind.AT)
-    return Trigger(TriggerKind.WHEN, condition=_change_condition(invocation))
+        return AtTrigger()
+    return WhenTrigger(condition=_change_condition(invocation))
 
 
 def _change_condition(

@@ -28,35 +28,49 @@ class AttributeDirection(Enum):
     INOUT = auto()
 
 
-class TriggerKind(Enum):
-    """Semantic classification of a transition trigger."""
+@dataclass(frozen=True)
+class SignalTrigger:
+    """A signal accepter: ``accept E [via port]``.
 
-    SIGNAL = auto()
-    AFTER = auto()
-    AT = auto()
-    WHEN = auto()
+    ``signal_name`` is the accepted payload type's simple name;
+    ``payload_name`` is the declared payload parameter name (``accept
+    reading : Tick`` -> ``"reading"``) and ``via_port`` the receiver
+    port's simple name, each ``None`` when absent.
+    """
+
+    signal_name: str
+    payload_name: str | None = None
+    via_port: str | None = None
 
 
 @dataclass(frozen=True)
-class Trigger:
-    """A transition accepter, classified by kind.
+class AfterTrigger:
+    """A relative time trigger: ``accept after <duration>``.
 
-    For SIGNAL, ``signal_name`` is the accepted payload type's simple name,
-    ``payload_name`` is the declared payload parameter name (``accept
-    reading : Tick`` -> ``"reading"``), and ``via_port`` is the receiver
-    port's simple name (``via commPort`` -> ``"commPort"``); each is ``None``
-    when absent. For AFTER, ``after`` is the duration in SI seconds (float)
-    or a syside attribute-reference expression node to be rendered by the
-    backend. For WHEN, ``condition`` is the monitored boolean expression
-    node to be rendered by the backend.
+    ``duration`` is the duration in SI seconds (float) or a syside
+    attribute-reference expression node to be rendered by the backend.
     """
 
-    kind: TriggerKind
-    signal_name: str | None = None
-    after: syside.Expression | float | None = None
-    payload_name: str | None = None
-    via_port: str | None = None
-    condition: syside.Expression | None = None
+    duration: syside.Expression | float
+
+
+@dataclass(frozen=True)
+class AtTrigger:
+    """An absolute time trigger: ``accept at <instant>``."""
+
+
+@dataclass(frozen=True)
+class WhenTrigger:
+    """A change trigger: ``accept when <condition>``.
+
+    ``condition`` is the monitored boolean expression node to be rendered
+    by the backend.
+    """
+
+    condition: syside.Expression
+
+
+type Trigger = SignalTrigger | AfterTrigger | AtTrigger | WhenTrigger
 
 
 @dataclass(frozen=True)
