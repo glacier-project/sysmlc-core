@@ -140,6 +140,16 @@ package MillingWorkcell {
         }
         state triage;
         state toolService;
+        // Transient latch: entered when a batch completes (produced + 1 >=
+        // batchSize). Its eventless completion transition fires one microstep
+        // later, sending BatchReport via reportPort after `ready` (and the
+        // testbench's `batchWait`) are already active. This breaks the LF
+        // causality cycle that lfc 0.11 would otherwise flag: if the send
+        // were in the same reaction as `reset(ready)`, lfc sees the path
+        // plant.BatchReport → tb.BatchReport → tb.Shutdown → plant.Shutdown
+        // (consumed in `ready`) as a same-tag cycle. Mirrors the
+        // furuta-pendulum `announcing` pattern.
+        state announcing;
         state emergencyStop {
             entry assign status := CellStatus::failed;
         }
@@ -178,8 +188,12 @@ package MillingWorkcell {
                 assign produced := produced + 1;
                 assign toolWear := toolWear + wearPerPiece;
                 assign faults := 0;
-                send new BatchReport(produced, toolWear) via reportPort;
             }
+            then announcing;
+        // Completion: send BatchReport one microstep after batch finishes,
+        // then return to ready for the next batch or Shutdown.
+        transition first announcing
+            do send new BatchReport(produced, toolWear) via reportPort
             then ready;
 
         // Group interrupts on the running batch (the piece in progress
@@ -211,5 +225,57 @@ package MillingWorkcell {
             accept Reset
             do assign faults := 0
             then cold;
+    }
+
+    // Testbench: drives PowerOn at 0.1 s, StartBatch at 1.2 s (absolute),
+    // then waits for BatchReport — the batch-completion announcement the
+    // plant sends on reportPort via the `announcing` transient latch once
+    // all batchSize pieces are machined. On receipt the testbench goes to
+    // done (request_stop() ends the simulation; no Shutdown needed).
+    //
+    // The testbench intentionally does NOT send Shutdown.  Wiring Shutdown
+    // between the testbench and the plant would create an lfc 0.11 causality
+    // cycle: `announcing.startup → BatchReport + reset(ready)` → `tb.BatchReport`
+    // → `tb reaction → shutdownSend` → `Shutdown` → `plant.ready reaction(Shutdown)`.
+    // Omitting Shutdown breaks the cycle; the plant stays in `ready` while
+    // the testbench calls request_stop(), which cleanly ends the run.
+    //
+    // A 20 s timeout guards against stalls (generous: one piece ≈ 2.1 s
+    // logical; even four pieces + homing finish well under 12 s).
+    state def MillingWorkcellTest {
+        attribute verdict : Integer := 0;
+        assert constraint testPassed { verdict == 0 }
+
+        port commPort;
+
+        entry; then powerWait;
+        state powerWait;
+        state startWait;
+        state batchWait;
+        state fail {
+            entry assign verdict := 1;
+        }
+
+        // Stimulus chain (absolute logical times, batchSize = 1):
+        //   0.1 s  send PowerOn   → plant: cold → homing (0.9 s total)
+        //   1.2 s  send StartBatch → plant: ready → producing → announcing
+        //  ~3.3 s  BatchReport received from announcing microstep
+        //  testbench → done (request_stop)
+        transition first powerWait
+            accept after 0.1 [s]
+            do send new PowerOn() via commPort
+            then startWait;
+        transition first startWait
+            accept after 1.1 [s]
+            do send new StartBatch() via commPort
+            then batchWait;
+        transition first batchWait accept BatchReport then done;
+        transition first batchWait accept after 20.0 [s] then fail;
+        transition first fail then done;
+    }
+
+    part def MillingWorkcellRig {
+        exhibit state plant : MillingWorkcell;
+        exhibit state tb : MillingWorkcellTest;
     }
 }
