@@ -4,6 +4,7 @@ import pytest
 import syside
 
 from sysmlc.sysml.loading import load_model
+from sysmlc.sysml.queries import resolve
 
 
 def test_load_model_loads_ice_lab(model: syside.Model) -> None:
@@ -19,3 +20,12 @@ def test_load_model_raises_on_diagnostic_errors(
 
     with pytest.raises(ValueError, match="syside diagnostics"):
         load_model(tmp_path)
+
+
+def test_sysmlc_library_is_always_available(tmp_path: Path) -> None:
+    (tmp_path / "m.sysml").write_text(
+        "package M {\n  state def S { entry; then a; state a; }\n}\n"
+    )
+    model = load_model(tmp_path)
+    fn = resolve(model, syside.ActionDefinition, "sysmlc::log")
+    assert fn.name == "log"
