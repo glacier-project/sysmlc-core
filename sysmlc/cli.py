@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import logging
+import shutil
 import sys
 from importlib.metadata import version
 from pathlib import Path
@@ -111,6 +113,12 @@ def _add_build_arguments(
             "mirrors qualified names (Pkg -> Def -> attribute: value)"
         ),
     )
+    build.add_argument(
+        "--python",
+        type=Path,
+        help="(rosetta only) a Python file whose top-level functions back "
+        "external calc-def calls; matched to SysML functions by simple name",
+    )
 
 
 def _select_state_def(model: syside.Model, requested: str | None) -> str:
@@ -202,11 +210,29 @@ def _cmd_build(args: argparse.Namespace) -> int:
             overrides = select_values(tree, target_qn)
             model = configure_model(model, target_qn, overrides)
 
+    external: tuple[str, frozenset[str]] | None = None
+    python_path = getattr(args, "python", None)
+    if python_path is not None:
+        if backend.name != "rosetta":
+            raise CliError(
+                f"backend {backend.name!r} does not support --python"
+            )
+        tree = ast.parse(python_path.read_text())
+        names = frozenset(
+            node.name
+            for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        )
+        external = (python_path.stem, names)
+
+    build_kwargs: dict[str, object] = (
+        {"external": external} if external is not None else {}
+    )
     if is_rig:
         assert build_composition is not None  # guarded above
-        artifact = build_composition(model, element_qn)
+        artifact = build_composition(model, element_qn, **build_kwargs)
     else:
-        artifact = backend.build(model, element_qn)
+        artifact = backend.build(model, element_qn, **build_kwargs)
     selected = getattr(args, "format", None)
     options = OutputOptions(
         output_dir=args.output,
@@ -214,6 +240,11 @@ def _cmd_build(args: argparse.Namespace) -> int:
         basename=element_qn.split("::")[-1],
     )
     written = backend.write(artifact, options)
+
+    if python_path is not None:
+        for path in written:
+            if path.suffix == ".lf":
+                shutil.copy(python_path, path.parent / python_path.name)
 
     for path in written:
         logger.info("Wrote %s", path)

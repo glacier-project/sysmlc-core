@@ -353,3 +353,44 @@ def test_rig_values_apply_per_machine(tmp_path: Path) -> None:
     assert exit_code == 0
     text = (tmp_path / "out" / "PlantRig.lf").read_text()
     assert "state verdict = {= 1 =}" in text
+
+
+def test_build_with_python_copies_module_and_imports(tmp_path: Path) -> None:
+    from sysmlc.cli import main
+
+    model = tmp_path / "model"
+    model.mkdir()
+    (model / "m.sysml").write_text(
+        "package M {\n"
+        "  private import ScalarValues::*;\n"
+        "  private import SI::*;\n"
+        "  package P { calc def step { in x : Real; return : Real; } }\n"
+        "  state def S {\n"
+        "    attribute x : Real := 0.0;\n"
+        "    entry; then a; state a; state b;\n"
+        "    transition first a accept after 0.1 [s]\n"
+        "      do assign x := P::step(x) then b;\n"
+        "  }\n"
+        "}\n"
+    )
+    py = tmp_path / "ext.py"
+    py.write_text("def step(x):\n    return x + 1.0\n")
+    out = tmp_path / "out"
+    rc = main(
+        [
+            "rosetta",
+            "build",
+            str(model),
+            "-e",
+            "M::S",
+            "-o",
+            str(out),
+            "--python",
+            str(py),
+        ]
+    )
+    assert rc == 0
+    lf = (out / "S.lf").read_text()
+    assert "from ext import step" in lf
+    assert "self.x = step(self.x)" in lf
+    assert (out / "ext.py").exists()  # copied next to the .lf
