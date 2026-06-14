@@ -27,5 +27,5 @@ def test_sysmlc_library_is_always_available(tmp_path: Path) -> None:
         "package M {\n  state def S { entry; then a; state a; }\n}\n"
     )
     model = load_model(tmp_path)
-    fn = resolve(model, syside.ActionDefinition, "sysmlc::log")
+    fn = resolve(model, syside.CalculationDefinition, "sysmlc::log")
     assert fn.name == "log"
