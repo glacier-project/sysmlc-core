@@ -7,41 +7,40 @@ How each SysML v2 state-machine construct is translated into an executable
 
 Status of every construct, implemented and planned. **Done**: implemented.
 **Done, to refine**: implemented, with a known gap detailed in the section's
-Limitation callout. **Being replaced**: implemented, but the current emission
-was found unfaithful. **Not yet**: not implemented.
+Limitation callout. **Not yet**: not implemented.
 
-| Construct                                                            | Status          | Notes                                                                                                                      |
-| -------------------------------------------------------------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `state def` → statechart                                             | Done            |                                                                                                                            |
-| `entry; then X` → `initial`                                          | Done, to refine | only simple state targets are currently supported. Qualified-name targets (nested-state paths) are rejected (coverage gap) |
-| `first start then X` → `initial`                                     | Done, to refine | only simple state targets are currently supported. Qualified-name targets (nested-state paths) are rejected (coverage gap) |
-| leaf `state` → basic state                                           | Done            |                                                                                                                            |
-| composite `state` → nested state                                     | Done            |                                                                                                                            |
-| `parallel` → orthogonal state                                        | Done            |                                                                                                                            |
-| `then done` → final state                                            | Done            |                                                                                                                            |
-| attribute value → `preamble`                                         | Done, to refine | `=`/`constant` guarantees not enforced; bound expressions snapshotted                                                      |
-| composite attribute → namespace                                      | Done, to refine | usage-site redefinitions and bindings ignored                                                                              |
-| bare `transition first A then B`                                     | Done            |                                                                                                                            |
-| transition into a nested state (`then running.hot`)                  | Done            | enters the composite bypassing its default entry; documented pair still missing in this file                               |
-| transition spellings (`then X;`, `accept E then X;` in a state body) | Done, to refine | the standalone `first A then B;` succession (no `transition` keyword) is silently dropped                                  |
-| `accept E` (signal) → `event`                                        | Done, to refine | `via` port dropped; payload binding not readable                                                                           |
-| `if` guard → `guard`                                                 | Done            |                                                                                                                            |
-| `accept after` (time)                                                | Being replaced  | emitted as an `after()` guard today, unfaithful with `if` guards and self-loops; one-shot event replacement designed       |
-| `accept at` (time)                                                   | Not yet         | rejected today; replacement designed                                                                                       |
-| `accept when` (change)                                               | Not yet         | rejected today; replacement designed                                                                                       |
-| `entry`/`exit` actions                                               | Done, to refine | referencing form (`entry helper;`) silently dropped                                                                        |
-| `do` action (terminating body)                                       | Done            | ongoing bodies (`accept`, loops) rejected for now                                                                          |
-| transition effect → `action`                                         | Done, to refine | referencing form silently dropped                                                                                          |
-| `send` → `send(...)`                                                 | Done, to refine | `via` port dropped                                                                                                         |
-| enum literals → Python `Enum`                                        | Not yet         |                                                                                                                            |
-| referenced / performed actions                                       | Not yet         | `entry helper;`, `do A;`, perform in any action slot: fixes the silent drops of the entry/exit and effect rows             |
-| readable accept payload                                              | Not yet         | payload references emitted as `event.<field>`: fixes the `accept E` row's gap                                              |
-| `assert constraint` in a state                                       | Not yet         | asserted constraint usages become sismic `invariants`, checked while the state is active                                   |
-| `assert constraint` on a transition                                  | Not yet         | asserted constraint usages become sismic preconditions/postconditions, checked around the firing                           |
-| exhibit / entry point                                                | Not yet         | build the statechart from an exhibited state usage, not only a `state def`                                                 |
-| submachine reuse (`state s1 : Sub;`)                                 | Not yet         | a state usage typed by a `state def`; today it is **silently flattened** to a leaf, losing the def's whole content         |
-| ongoing `do` activities                                              | Not yet         | event-gated and time-gated do-loops, mixed control loops                                                                   |
-| multi-machine simulation                                             | Not yet         | addressing, dispatch-once and scheduling over sismic's `bind()`                                                            |
+| Construct                                                            | Status          | Notes                                                                                                               |
+| -------------------------------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `state def` → statechart                                             | **Done**        |                                                                                                                     |
+| `entry; then X` → `initial`                                          | Done, to refine | only simple state targets are currently supported. Qualified-name targets (nested-state paths) are rejected          |
+| `first start then X` → `initial`                                     | Done, to refine | only simple state targets are currently supported. Qualified-name targets (nested-state paths) are rejected          |
+| leaf `state` → basic state                                           | **Done**        |                                                                                                                     |
+| composite `state` → nested state                                     | **Done**        |                                                                                                                     |
+| `parallel` → orthogonal state                                        | **Done**        |                                                                                                                     |
+| `then done` → final state                                            | **Done**        |                                                                                                                     |
+| attribute value → `preamble`                                         | Done, to refine | `=`/`constant` guarantees not enforced; bound expressions snapshotted                                               |
+| composite attribute → namespace                                      | Done, to refine | usage-site redefinitions and bindings ignored                                                                       |
+| bare `transition first A then B`                                     | **Done**        |                                                                                                                     |
+| transition into a nested state (`then running.hot`)                  | **Done**        | enters the composite bypassing its default entry; documented pair still missing in this file                        |
+| transition spellings (`then X;`, `accept E then X;` in a state body) | Done, to refine | the standalone `first A then B;` succession (no `transition` keyword) is silently dropped                           |
+| `accept E` (signal) → `event`                                        | Done, to refine | `via` port dropped; payload binding not readable                                                                    |
+| `if` guard → `guard`                                                 | **Done**        |                                                                                                                     |
+| `accept after` (time)                                                | **Done**        | one-shot delayed `_tick_*` event armed on entry; composes with `if` guards and self-loops                           |
+| `accept at` (time)                                                   | Not yet         | same delayed-event machinery as `accept after`, deferred                                                            |
+| `accept when` (change)                                               | Done, to refine | armed flag plus consumer transition; the condition is sampled once per macro step, so an inter-step pulse is missed |
+| `entry`/`exit` actions                                               | Done, to refine | referencing form (`entry helper;`) silently dropped                                                                 |
+| `do` action (terminating body)                                       | **Done**        | ongoing bodies (`accept`, loops) rejected for now                                                                   |
+| transition effect → `action`                                         | Done, to refine | referencing form silently dropped                                                                                   |
+| `send` → `send(...)`                                                 | Done, to refine | `via` port dropped                                                                                                  |
+| enum literals → Python `Enum`                                        | Not yet         |                                                                                                                     |
+| referenced / performed actions                                       | Not yet         | `entry helper;`, `do A;`, perform in any action slot: fixes the silent drops of the entry/exit and effect rows      |
+| readable accept payload                                              | Not yet         | payload references emitted as `event.<field>`: fixes the `accept E` row's gap                                       |
+| `assert constraint` in a state                                       | Not yet         | asserted constraint usages become sismic `invariants`, checked while the state is active                            |
+| `assert constraint` on a transition                                  | Not yet         | asserted constraint usages become sismic preconditions/postconditions, checked around the firing                    |
+| exhibit / entry point                                                | Not yet         | build the statechart from an exhibited state usage, not only a `state def`                                          |
+| submachine reuse (`state s1 : Sub;`)                                 | Not yet         | a state usage typed by a `state def`; today it is **silently flattened** to a leaf, losing the def's whole content  |
+| ongoing `do` activities                                              | Not yet         | event-gated and time-gated do-loops, mixed control loops                                                            |
+| multi-machine simulation                                             | Not yet         | addressing, dispatch-once and scheduling over sismic's `bind()`                                                     |
 
 ## How to read this
 
@@ -59,11 +58,7 @@ was found unfaithful. **Not yet**: not implemented.
 Every rule is a real **SysML input → emitted YAML output** pair, drawn from the
 `models/sm-examples/` corpus and its generated `output/sismic/` artifacts.
 Generate outputs with `uv run python examples/run_sismic.py <example>`, which builds every state def in the example and writes
-`output/sismic/<example>/<Machine>.{yaml,puml}`. One exception, marked 🚧 in
-place: the time and change trigger sections of chapter 3 (3.4 to 3.6) are
-**work in progress** and show the upcoming replacement design instead of the
-current generator output, because the previously documented mapping was found
-unfaithful.
+`output/sismic/<example>/<Machine>.{yaml,puml}`.
 
 ## The statechart at a glance
 
@@ -616,10 +611,10 @@ every macro step** the source is active, memoryless, with nothing to consume.
 So every accepter maps to something sismic consumes exactly once:
 
 - a **signal** accepter (`accept E`) → `event` (3.2);
-- a **time** accepter (`accept after <d>`, `accept at <t>`) → a uniquely named
-  **delayed internal event**, armed `on entry` (3.4, 3.5);
+- a **time** accepter (`accept after <d>`) → a uniquely named **delayed
+  internal event**, armed `on entry` (3.4); `accept at <t>` is not implemented yet;
 - a **change** accepter (`accept when <cond>`) → an **armed flag** plus a
-  transition pair that fires or consumes at most once per activation (3.6);
+  transition pair that fires or consumes at most once per activation (3.5);
 - an **`if`** guard → the `guard` slot, conjoined with the machinery above;
 - the **effect** → the `action` (Section 4).
 
@@ -628,17 +623,8 @@ only for the bare distinct-target forms, where firing vacates the source and
 the condition is seen at most once. The moment an `if` guard or a self-loop keeps
 the source active past the delivery instant, the still-true guard re-offers an occurrence
 SysML has already consumed: a guard `after(2) and g` fires on a
-7-second-stale deadline when `g` rises late. Sections 3.4 and 3.6 each open
+7-second-stale deadline when `g` rises late. Sections 3.4 and 3.5 each open
 with their half of this problem.
-
-> 🚧 **Work in progress:** the time and change trigger mapping in this
-> chapter is being replaced. The mapping this doc previously described, and
-> the one the builder still emits today (`accept after <d>` →
-> `{guard: after(<seconds>)}`, with `at`/`when` and `after ... if` rejected
-> fail-loud), was found unfaithful for exactly the reason above: the guard is
-> re-evaluated every step, so it re-offers occurrences SysML has already consumed. Sections
-> 3.4, 3.5 and 3.6 therefore document the **upcoming replacement design**,
-> not the current emitter output.
 
 ### 3.1 `transition first A then B` → `{target: B}`
 
@@ -786,7 +772,7 @@ statechart:
 active: false only means "not yet". With no accepter there is nothing to
 consume, so this matches SysML's untriggered-transition rule exactly.
 
-### 3.4 **WiP** `accept after <duration>` → one-shot delayed event
+### 3.4 `accept after <duration>` → one-shot delayed event
 
 *Corpus: `sm13-time-trigger`*
 
@@ -836,7 +822,7 @@ statechart:
     - name: idle
       on entry: |
         _n_idle = _n_idle + 1
-        send("_tick_idle_t1", n=_n_idle, delay=120.0)
+        send('_tick_idle_t1', n=_n_idle, delay=120.0)
       transitions:
       - {event: _tick_idle_t1, guard: event.n == _n_idle, target: running}
     - name: running
@@ -874,7 +860,7 @@ statechart:
     - name: idle
       on entry: |
         _n_idle = _n_idle + 1
-        send("_tick_idle_t1", n=_n_idle, delay=pickDuration)
+        send('_tick_idle_t1', n=_n_idle, delay=pickDuration)
       transitions:
       - {event: _tick_idle_t1, guard: event.n == _n_idle, target: running}
     - name: running
@@ -889,13 +875,14 @@ the guard is false is consumed, which is exactly the SysML behavior:
 
 ```sysml
 state def MachineAfterGuard {
-    attribute ready : Boolean := false;
+    attribute ready : Boolean := true;
     entry;
         then idle;
     state idle;
     state running;
 
     transition first idle accept after 5 [s] if ready then running;
+    transition first running then done;
 }
 ```
 
@@ -903,7 +890,7 @@ state def MachineAfterGuard {
 statechart:
   name: MachineAfterGuard
   preamble: |
-    ready = False
+    ready = True
     _n_idle = 0
   root state:
     initial: idle
@@ -912,10 +899,13 @@ statechart:
     - name: idle
       on entry: |
         _n_idle = _n_idle + 1
-        send("_tick_idle_t1", n=_n_idle, delay=5.0)
+        send('_tick_idle_t1', n=_n_idle, delay=5.0)
       transitions:
       - {event: _tick_idle_t1, guard: event.n == _n_idle and (ready), target: running}
-    - {name: running}
+    - name: running
+      transitions:
+      - {target: done}
+    - {name: done, type: final}
 ```
 
 *Why the counter:* sismic never cancels a scheduled event when its sending
@@ -933,143 +923,121 @@ bare distinct-target form was ever observationally equivalent under the old
 `after(...)` guard; the event encoding is emitted uniformly so there is one
 mechanism and one story.
 
-> ⚠️ **Reserved names:** `_tick_*` event names and `_n_*` context names belong
-> to the generator. A model attribute or signal colliding with a
-> reserved prefix is rejected fail-loud.
+> ⚠️ **Reserved names:** the underscore namespace belongs to the generated
+> machinery (the `_tick_*` events and `_n_*` counters here, the `_w_*` flags
+> in 3.5). A model attribute or signal whose name starts with `_` is rejected
+> fail-loud.
 
-> ⚠️ **Boundary:** a zero-delay timed self-loop (`accept after 0 [s]` back to
-> its own source) re-arms on every entry and starves any other time trigger on
-> the same state; it never quiesces, so it must only be run under a
-> bounded `execute(max_steps=...)`.
+### 3.5 `accept when <cond>` → armed flag + consumer transition
 
-### 3.5 **WiP** `accept at <instant>` → one-shot delayed event, armed conditionally
-
-*Corpus: none yet (will be added when this lands)*
-
-*Spec: SysML 7.17.8 (time triggers); KerML 9.2.14 (`TriggerAt`)*
-
-An absolute time trigger rides the same machinery as 3.4; only the arming
-differs. The deadline is absolute, so the delay is computed at arming time:
-`on entry` evaluates the instant against the interpreter clock (whose epoch is
-0, a documented convention: SysML leaves the clock unbound) and schedules the
-tick only when the result is not already in the past.
-
-```sysml
-state def MachineAt {
-    attribute startInstant : TimeInstantValue default 8 [s];
-    entry;
-        then idle;
-    state idle;
-    state running;
-
-    transition first idle accept at startInstant then running;
-}
-```
-
-```yaml
-statechart:
-  name: MachineAt
-  preamble: |
-    startInstant = 8.0
-    _n_idle = 0
-  root state:
-    initial: idle
-    name: MachineAt
-    states:
-    - name: idle
-      on entry: |
-        _n_idle = _n_idle + 1
-        _d_idle_t1 = (startInstant) - time
-        if _d_idle_t1 >= 0:
-            send("_tick_idle_t1", n=_n_idle, delay=_d_idle_t1)
-      transitions:
-      - {event: _tick_idle_t1, guard: event.n == _n_idle, target: running}
-    - {name: running}
-```
-
-*Why the `>= 0` arming conditional:* KerML's time condition is a strict
-equality, and on an advancing clock an instant already in the past never
-satisfies it again: the literal reading of `at T` armed after `T` is **never
-fires**. The conditional implements exactly that reading (without it, the
-negative delay silently degrades into fire-at-next-step, the looser
-"reaches" reading of the SysML prose). Choosing the literal reading is a
-documented decision; the alternative is one `max(0, ...)` away if ever wanted.
-
-> ⚠️ **Limitation:** SysML prose says the signal occurs when current time
-> "reaches" the instant; KerML encodes strict equality. A discrete simulator
-> cannot sample exact equality, so delivery is at the first macro step at or
-> past the deadline; for a future instant the two readings agree there.
-
-### 3.6 **WiP** `accept when <cond>` → armed flag + consumer pair
-
-*Corpus: none yet (will be added when this lands)*
+*Corpus: `sm16-change-trigger`*
 
 *Spec: SysML 7.17.8 (change triggers), 8.4.13.6 (`TriggerWhen`); KerML 9.2.13
 (Observation: `ObserveChange`, `ChangeMonitor`)*
 
-**The semantics being implemented**: a change trigger arms
-**one observation per activation** of its source state. The signal is sent at
-the first false-to-true crossing observed while the state is active, OR
-**immediately if the condition is already true at arming**: that is the
-spec's own parenthetical ("or sent immediately if the expression is true when
-first evaluated"), matched by the stdlib wiring, so a change trigger is *not*
-a pure edge. If the `if` guard is false at delivery, the signal is
-**consumed**: nothing fires for the rest of that activation, even if the
-condition falls and rises again. Re-entering the state arms a fresh
-observation, so a still-true condition fires again, once, after every
-re-entry. Arming happens at state entry (the spec leaves the instant unpinned;
-entry is the documented tool choice).
+**The semantics.** A change trigger arms **one observation per activation**
+of its source state. The signal is sent at the first false-to-true crossing
+observed while the state is active, OR **immediately if the condition is
+already true at arming**: that is the spec's own parenthetical ("or sent
+immediately if the expression is true when first evaluated"), matched by the
+stdlib wiring, so a change trigger is *not* a pure edge. If the `if` guard is
+false at delivery, the signal is **consumed**: nothing fires for the rest of
+that activation, even if the condition falls and rises again. Re-entering the
+state arms a fresh observation, so a still-true condition fires again, once,
+after every re-entry. Arming happens at state entry (the spec leaves the
+instant unpinned; entry is the documented tool choice).
 
-**The mapping.** No events needed. Per trigger, the `preamble` initializes an
-**armed flag**, the source's `on entry` re-arms it, and the trigger becomes a
-transition **pair** sharing that flag:
-
-- the **real** transition: guard `armed and (cond) and (g)`, the user's
-  target and effect, higher priority;
-- a synthetic **consumer**: an internal transition (no `target`, so firing it
-  exits and enters nothing) with guard `armed and (cond)` and action
-  `armed = False`, lower priority.
-
-While `g` holds at the delivery instant, the higher-priority real transition
-wins and fires; while `g` is false, the consumer fires instead and disarms:
-consumption, expressed as chart structure. For a bare `accept when` with no
-`if` guard the consumer is not emitted (there is no guard to reject delivery),
-leaving just the real transition.
+**The mapping.** No events needed. The `preamble` initializes an **armed
+flag**, the source's `on entry` re-arms it, and the trigger becomes an
+eventless transition guarded by the flag and the condition. A bare
+`accept when` is exactly that single transition:
 
 ```sysml
-state def MachineWhen {
-    attribute cold : Boolean := false;
-    attribute enabled : Boolean := true;
+state def MachineWhenBare {
+    attribute hot : Boolean := false;
     entry;
         then idle;
     state idle;
     state running;
 
-    transition first idle accept when cold if enabled then running;
+    transition first idle accept when hot then running;
+    transition first running then done;
 }
 ```
 
 ```yaml
 statechart:
-  name: MachineWhen
+  name: MachineWhenBare
   preamble: |
-    cold = False
-    enabled = True
+    hot = False
     _w_idle_t1 = False
   root state:
     initial: idle
-    name: MachineWhen
+    name: MachineWhenBare
     states:
     - name: idle
       on entry: _w_idle_t1 = True
       transitions:
-      - guard: _w_idle_t1 and (cold) and (enabled)
-        priority: 2
-        target: running
-      - guard: _w_idle_t1 and (cold)
-        priority: 1
-        action: _w_idle_t1 = False
-    - {name: running}
+      - {guard: _w_idle_t1 and (hot), target: running}
+    - name: running
+      transitions:
+      - {target: done}
+    - {name: done, type: final}
+```
+
+**The consumer.** With an `if` guard, a false guard at the delivery instant
+must consume the occurrence, so a second transition is emitted: a synthetic
+**consumer**, an internal transition (no `target`, so firing it exits and
+enters nothing) guarded by `<flag> and (<cond>)` with action `<flag> = False`. The real transition keeps sismic's default priority; the consumer
+sits below it at a negative one. When the guard holds the real transition
+wins and fires; when it does not, the consumer fires instead and disarms:
+consumption, expressed as chart structure. (The `Kick` round trip through
+`away` below is just how the corpus machine re-enters `idle` to demonstrate
+re-arming.)
+
+```sysml
+item def Kick;
+
+state def MachineWhenGuard {
+    attribute hot : Boolean := false;
+    attribute enabled : Boolean := true;
+    entry;
+        then idle;
+    state idle;
+    state away;
+    state running;
+
+    transition first idle accept when hot if enabled then running;
+    transition first idle accept Kick then away;
+    transition first away accept Kick then idle;
+    transition first running then done;
+}
+```
+
+```yaml
+statechart:
+  name: MachineWhenGuard
+  preamble: |
+    hot = False
+    enabled = True
+    _w_idle_t1 = False
+  root state:
+    initial: idle
+    name: MachineWhenGuard
+    states:
+    - name: idle
+      on entry: _w_idle_t1 = True
+      transitions:
+      - {guard: _w_idle_t1 and (hot) and (enabled), target: running}
+      - {action: _w_idle_t1 = False, guard: _w_idle_t1 and (hot), priority: -2}
+      - {event: Kick, target: away}
+    - name: away
+      transitions:
+      - {event: Kick, target: idle}
+    - name: running
+      transitions:
+      - {target: done}
+    - {name: done, type: final}
 ```
 
 *Why the disarm lives in an action, not in the guard:* the one-transition
@@ -1087,27 +1055,41 @@ transition would exit and re-enter `idle`, re-running `on entry`: user entry
 actions would execute again and the flag would be re-armed, undoing the
 consumption. An internal transition fires its action while staying put.
 
-*Why priorities:* the generator assigns descending declaration-order
-priorities to every eventless transition sharing a source (higher number wins
-in sismic). That keeps each real transition above its consumer, makes several
-`when` triggers on one source deterministic instead of a
-`NonDeterminismError`, and pins a tie rule for free: a `when` and an `after`
-due at the same instant resolve **when-first**, because eventless transitions
-are selected before event delivery (the ordering in "The statechart at a
-glance").
+*Why the real transition keeps the default priority:* two transitions enabled
+from one source in the same step is, in SysML, a genuine ambiguity (7.18.3
+mandates no priority between transitions). Leaving the real transitions at the
+default priority lets sismic raise `NonDeterminismError` on such a model,
+exactly as it would for two plain `if` transitions: the generator does not
+silently invent an order. Only the consumers are pushed out of the way, to
+distinct negative priorities so two rejected observations never collide with
+each other. One tie is decided structurally rather than by us: a `when` and an
+`after` due at the same instant resolve **when-first**, because eventless
+transitions are selected before event delivery (the ordering in "The
+statechart at a glance").
 
-> ⚠️ **Limitation (sampling):** the condition is observed once per macro step.
-> A pulse that rises and falls entirely between two macro steps is missed;
-> rises must persist until the next step. The spec pins no sampling instant,
-> so this cadence is a documented tool choice.
+> ⚠️ **Limitation (sampling approximation):** SysML defines `accept when` as
+> a change event: a `ChangeSignal` is produced when the condition changes from
+> false to true, or immediately if it is already true when first evaluated.
+> Quake currently approximates this on top of sismic by sampling the condition
+> once per macro step, so a pulse that rises and falls entirely between two
+> macro steps is missed.
+>
+> A full-fidelity implementation would require a Quake runtime/evaluator that
+> observes context changes, detects the false-to-true edge, and queues an
+> internal sismic event for the corresponding `when` observation. The generated
+> transition would then consume that internal event instead of relying on the
+> condition still being true at the next macro step. In implementation terms,
+> the builder would emit an event-triggered transition for a synthetic
+> `_when_*` event and register the condition to observe in runtime metadata
+> emitted with the statechart. The Quake evaluator would replace sismic's plain
+> execution dictionary with an observable context: assignments such as
+> `hot = True` or nested updates such as `box.inner.z = 10` would notify the
+> evaluator, which would re-check the armed `when` conditions from that
+> metadata. If one crosses from false to true, the evaluator enqueues the
+> corresponding synthetic event.
 
-> ⚠️ **Boundary:** a `when` self-loop whose effect cannot falsify its own
-> condition never quiesces: the literal SysML model re-fires once per
-> activation, indefinitely. (The spec does **not** say "fires once": the only
-> "once" near 7.17.8 is a comment inside a transition-free example.) The
-> generator rejects the shape at build time for the same reason it rejects the
-> bare eventless self-loop: the macro-step engine cannot terminate on it. That
-> is an engine limitation, never a claim that the model is invalid SysML.
+> ⚠️ **Boundary:** `when` self-loops are currently rejected as a conservative
+> guardrail against non-quiescing `execute()` runs.
 
 ______________________________________________________________________
 
