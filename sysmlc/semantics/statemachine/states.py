@@ -57,22 +57,36 @@ def resolve_initial(
         ValueError: If no entry pseudostate is declared, or if no succession
             from the entry pseudostate to a ``StateUsage`` can be found.
     """
-    entry = container.entry_action
-    if entry is None:
-        raise ValueError(
-            f"State {container.qualified_name} has no entry "
-            "pseudostate; expected an `entry; then <state>;` declaration."
-        )
+    # Case 1: "entry; then <state>;"
+    if (entry := container.entry_action):
+        for feat in container.owned_features.collect():
+            if not isinstance(feat, syside.SuccessionAsUsage):
+                continue
+            if feat.source is not entry:
+                continue
+            for target in feat.targets.collect():
+                if isinstance(target, syside.StateUsage):
+                    return target
+
+    # Case 2: "first start then <state>;"
     for feat in container.owned_features.collect():
         if not isinstance(feat, syside.SuccessionAsUsage):
             continue
-        if feat.source is not entry:
-            continue
-        for target in feat.targets.collect():
-            if isinstance(target, syside.StateUsage):
-                return target
+        
+        src = feat.source
+        src_name = str(src.qualified_name) if src else None
+        
+        if src_name == "States::StateAction::start":
+            for target in feat.targets.collect():
+                if isinstance(target, syside.StateUsage):
+                    return target
+                #if isinstance(target, syside.Feature) and hasattr(target, "owner"):
+                    #if isinstance(target.owner, syside.StateUsage):
+                    #    return target.owner
+
     raise ValueError(
         f"No entry succession found for state "
         f"{container.qualified_name}; expected an "
-        f"`entry; then <state>;` declaration."
+        f"`entry; then <state>;` declaration or a "
+        f"`first start then <state>;` declaration."
     )
