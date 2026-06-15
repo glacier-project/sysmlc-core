@@ -10,7 +10,7 @@ package Stopwatch {
     // lets a paired testbench observe the stop event.
     item def Stopped;
 
-    state def Stopwatch {
+    state def StopwatchBehavior {
         attribute elapsed : Integer := 0;
 
         port commPort;
@@ -21,7 +21,7 @@ package Stopwatch {
         state stopped;
         state running;
 
-        transition first stopped accept StartCmd then running;
+        transition first stopped accept StartCmd via commPort then running;
         // Periodic tick: the after-self-loop re-enters `running`, which
         // restarts the mode timer -- one increment per second.
         transition first running
@@ -31,7 +31,7 @@ package Stopwatch {
         // Completion: announces Stopped on commPort so a paired testbench
         // observes the run/stop cycle.
         transition first running
-            accept StopCmd
+            accept StopCmd via commPort
             do send new Stopped() via commPort
             then stopped;
         transition first stopped
@@ -68,13 +68,17 @@ package Stopwatch {
             do send new StartCmd() via commPort
             then runningWait;
         transition first runningWait accept after 3.4 [s] then stopWait;
-        transition first stopWait accept Stopped then done;
+        transition first stopWait accept Stopped via commPort then done;
         transition first stopWait accept after 10.0 [s] then fail;
         transition first fail then done;
     }
 
-    part def StopwatchRig {
-        exhibit state plant : Stopwatch;
-        exhibit state tb : StopwatchTest;
+    part def Stopwatch       { port commPort; exhibit state : StopwatchBehavior; }
+    part def StopwatchTester { port commPort; exhibit state : StopwatchTest; }
+
+    part stopwatchSystem {
+        part plant : Stopwatch;
+        part tb    : StopwatchTester;
+        connect plant.commPort to tb.commPort;
     }
 }
