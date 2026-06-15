@@ -9,7 +9,8 @@ models that a full backend would reject can still yield their interface.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections import defaultdict
+from dataclasses import dataclass, field
 
 import syside
 
@@ -26,10 +27,20 @@ from sysmlc.semantics.statemachine.facts import (
 
 @dataclass(frozen=True)
 class MachineInterface:
-    """The signal surface of one state machine."""
+    """The signal surface of one state machine.
+
+    ``accepted``/``sent`` are the flat name sets the rig path consumes. The
+    ``*_via`` maps additionally scope each signal to the ``via`` port it
+    travels through (``accept E via p`` / ``send E via p``), which the part
+    assembler uses for port-based connection routing; a signal with no
+    ``via`` port keys on ``None``. The maps are additive — the rig path reads
+    only the flat sets, so its output is unchanged.
+    """
 
     accepted: frozenset[str]
     sent: frozenset[str]
+    accepted_via: dict[str | None, frozenset[str]] = field(default_factory=dict)
+    sent_via: dict[str | None, frozenset[str]] = field(default_factory=dict)
 
 
 class SignalInterfaceCollector:
@@ -43,6 +54,8 @@ class SignalInterfaceCollector:
     def __init__(self) -> None:
         self._accepted: set[str] = set()
         self._sent: set[str] = set()
+        self._accepted_via: dict[str | None, set[str]] = defaultdict(set)
+        self._sent_via: dict[str | None, set[str]] = defaultdict(set)
 
     def bind_attribute(self, binding: AttributeBinding) -> None:
         """Ignore attributes (the interface is signals only)."""
@@ -58,12 +71,16 @@ class SignalInterfaceCollector:
         if trigger is not None and trigger.kind is TriggerKind.SIGNAL:
             assert trigger.signal_name is not None
             self._accepted.add(trigger.signal_name)
+            self._accepted_via[trigger.via_port].add(trigger.signal_name)
         self._scan(transition.effect)
 
     def result(self) -> MachineInterface:
         """Return the collected interface."""
         return MachineInterface(
-            accepted=frozenset(self._accepted), sent=frozenset(self._sent)
+            accepted=frozenset(self._accepted),
+            sent=frozenset(self._sent),
+            accepted_via=_freeze(self._accepted_via),
+            sent_via=_freeze(self._sent_via),
         )
 
     def _scan(self, slot: syside.ActionUsage | None) -> None:
@@ -71,6 +88,7 @@ class SignalInterfaceCollector:
             if isinstance(action, syside.SendActionUsage):
                 event_name, _pairs = payload_signature(action)
                 self._sent.add(event_name)
+                self._sent_via[_send_via_port(action)].add(event_name)
 
 
 def machine_interface(
@@ -82,3 +100,24 @@ def machine_interface(
     )
     assert isinstance(result, MachineInterface)
     return result
+
+
+def _send_via_port(send: syside.SendActionUsage) -> str | None:
+    """Return the simple name of a send's ``via`` (sender) port, or None.
+
+    ``send E via p`` stores ``p`` as the sender argument (a
+    ``FeatureReferenceExpression`` whose referent is the ``PortUsage``) —
+    the mirror of the accepter's ``receiver_argument`` (``triggers._via_port``).
+    """
+    sender = send.sender_argument
+    if isinstance(sender, syside.FeatureReferenceExpression):
+        referent = sender.referent
+        if referent is not None:
+            return referent.name
+    return None
+
+
+def _freeze(
+    via: dict[str | None, set[str]],
+) -> dict[str | None, frozenset[str]]:
+    return {port: frozenset(signals) for port, signals in via.items()}
