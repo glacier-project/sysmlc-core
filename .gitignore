@@ -173,3 +173,6 @@ scratch/
 # Generated artifacts
 output/
 .envrc
+
+# Agent implementation/plan docs — kept on disk, intentionally untracked
+docs/*-plan.md
