@@ -2,6 +2,7 @@ package SM13 {
     private import SI::*;
     private import ScalarValues::*;
     private import ISQ::DurationValue;
+    private import Time::TimeInstantValue;
 
     // Time trigger with a literal duration in seconds.
     state def MachineAfterSeconds {
@@ -61,6 +62,17 @@ package SM13 {
         transition first running then done;
     }
 
+    // Absolute time trigger via a TimeInstantValue attribute.
+    state def MachineAt {
+        attribute deadline : TimeInstantValue default 8 [s];
+        entry;
+            then idle;
+        state idle;
+        state running;
+        transition first idle accept at deadline then running;
+        transition first running then done;
+    }
+
     // A timed self-loop: each re-entry re-arms a fresh deadline.
     state def MachineAfterSelfLoop {
         attribute entries : Integer := 0;
@@ -84,6 +96,19 @@ package SM13 {
         state away;
         state running;
         transition first idle accept after 10 [s] then running;
+        transition first idle accept Leave then away;
+        transition first away accept Back then idle;
+    }
+
+    // Re-entering after the absolute instant has passed does not fire.
+    state def MachineAtReentry {
+        attribute deadline : TimeInstantValue default 5 [s];
+        entry;
+            then idle;
+        state idle;
+        state away;
+        state running;
+        transition first idle accept at deadline then running;
         transition first idle accept Leave then away;
         transition first away accept Back then idle;
     }

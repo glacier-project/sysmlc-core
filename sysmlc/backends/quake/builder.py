@@ -38,7 +38,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class _TimeTriggerPlan:
-    """What an ``accept after`` transition must reference when emitted.
+    """What an ``accept after`` or ``accept at`` transition references.
 
     Attributes:
         event_name: The synthetic internal event carrying the deadline.
@@ -76,18 +76,20 @@ class SismicBuilder:
     - the flat preamble, with its name-collision policy;
     - the ``do`` -> run-once ``on_entry`` fusion;
     - the ``then done`` -> ``FinalState`` synthesis;
-    - the one-shot delayed-event encoding of ``accept after``: a
+    - the one-shot delayed-event encoding of ``accept after`` and
+      ``accept at``: a
       per-activation counter bumped ``on entry``, a ``send('_tick_...',
       n=..., delay=...)`` arming call, and an event-triggered transition
-      whose guard checks ``event.n``;
+      whose guard checks ``event.n``. Absolute-time triggers additionally
+      use ``_d_*`` arming-delta variables and send only for non-past
+      instants;
     - the armed-flag encoding of ``accept when``: a ``_w_*`` flag re-armed
       ``on entry``, an eventless transition (at sismic's default priority)
       guarded by the flag and the condition, and, with an ``if`` guard, a
       negative-priority internal consumer transition that disarms the flag
       when the occurrence is rejected;
-    - the capability rejections: ``at`` triggers, non-inline ``do``
-      bodies, unstable self-loops, and model names starting with ``_``
-      (the underscore namespace is reserved for the generated machinery).
+    - the capability rejections: non-inline ``do`` bodies, unstable
+      self-loops, and model names starting with ``_``.
 
     Sismic's ``Statechart.preamble`` is read-only after construction, so facts
     are buffered and the whole statechart is built in :meth:`result`.
@@ -169,30 +171,30 @@ class SismicBuilder:
         Walks the buffered transitions in declaration order, delegating
         per trigger kind.
         """
-        per_source_after: dict[str, int] = {}
+        per_source_time: dict[str, int] = {}
         per_source_when: dict[str, int] = {}
         next_consumer: dict[str, int] = {}
         for index, transition in enumerate(self._transition_facts):
             trigger = transition.trigger
             if trigger is None:
                 continue
-            if isinstance(trigger, AfterTrigger):
-                self._plan_after(
-                    index, trigger, transition.source, per_source_after
+            if isinstance(trigger, (AfterTrigger, AtTrigger)):
+                self._plan_time(
+                    index, trigger, transition.source, per_source_time
                 )
             elif isinstance(trigger, WhenTrigger):
                 self._plan_when(
                     index, trigger, transition, per_source_when, next_consumer
                 )
 
-    def _plan_after(
+    def _plan_time(
         self,
         index: int,
-        trigger: AfterTrigger,
+        trigger: AfterTrigger | AtTrigger,
         source: str,
         per_source_ordinal: dict[str, int],
     ) -> None:
-        """Plan the delayed-event machinery for one ``accept after``.
+        """Plan the delayed-event machinery for one time trigger.
 
         The counter invalidates stale ticks: sismic never cancels a
         delayed event when its state exits, so a tick armed by an earlier
@@ -202,7 +204,11 @@ class SismicBuilder:
         per_source_ordinal[source] = ordinal
         ident = source.replace("::", "__")
         counter = f"_n_{ident}"
-        delay = self._render_value(trigger.duration)
+        delay = (
+            self._render_value(trigger.duration)
+            if isinstance(trigger, AfterTrigger)
+            else self._render_value(trigger.instant)
+        )
         assert delay is not None
         event_name = f"_tick_{ident}_t{ordinal}"
         self._planned_triggers[index] = _TimeTriggerPlan(
@@ -213,8 +219,18 @@ class SismicBuilder:
             self._arming_by_source.setdefault(source, []).append(
                 f"{counter} = {counter} + 1"
             )
-        self._arming_by_source[source].append(
-            f"send('{event_name}', n={counter}, delay={delay})"
+        if isinstance(trigger, AfterTrigger):
+            self._arming_by_source[source].append(
+                f"send('{event_name}', n={counter}, delay={delay})"
+            )
+            return
+        delta = f"_d_{ident}_t{ordinal}"
+        self._arming_by_source[source].extend(
+            [
+                f"{delta} = ({delay}) - time",
+                f"if {delta} >= 0:",
+                f"    send('{event_name}', n={counter}, delay={delta})",
+            ]
         )
 
     def _plan_when(
@@ -383,17 +399,12 @@ class SismicBuilder:
         trigger triggers on its planned ``_tick_*`` event.
 
         Raises:
-            UnsupportedConstructError: If the trigger is an ``accept at``
-                (no sismic emission for it), or if a signal name starts
-                with the reserved ``_`` prefix.
+            UnsupportedConstructError: If a signal name starts with the
+                reserved ``_`` prefix.
         """
         if trigger is None:
             return None
-        if isinstance(trigger, AtTrigger):
-            raise UnsupportedConstructError(
-                "an `accept at` trigger is unsupported."
-            )
-        if isinstance(trigger, AfterTrigger):
+        if isinstance(trigger, (AfterTrigger, AtTrigger)):
             assert plan is not None
             return plan.event_name
         assert isinstance(trigger, SignalTrigger)

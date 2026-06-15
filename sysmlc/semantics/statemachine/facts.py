@@ -56,7 +56,13 @@ class AfterTrigger:
 
 @dataclass(frozen=True)
 class AtTrigger:
-    """An absolute time trigger: ``accept at <instant>``."""
+    """An absolute time trigger: ``accept at <instant>``.
+
+    ``instant`` is the instant in SI seconds (float) or a syside
+    attribute-reference expression node to be rendered by the backend.
+    """
+
+    instant: syside.Expression | float
 
 
 @dataclass(frozen=True)

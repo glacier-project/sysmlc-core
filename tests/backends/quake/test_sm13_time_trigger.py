@@ -178,6 +178,61 @@ def test_after_with_guard_false_at_deadline_consumes_the_occurrence(
     assert not interp.final
 
 
+def test_absolute_time_trigger_emits_arming_delta(
+    model: syside.Model,
+) -> None:
+    """An absolute time trigger arms a tick only for a non-past instant."""
+    sc = build_statechart(model, "SM13::MachineAt")
+    assert sc.preamble == "deadline = 8.0\n_n_idle = 0"
+    assert len(sc.transitions) == 2
+    timed = next(t for t in sc.transitions if t.source == "idle")
+    assert timed.target == "running"
+    assert timed.event == "_tick_idle_t1"
+    assert timed.guard == "event.n == _n_idle"
+    assert sc.state_for("idle").on_entry == (
+        "_n_idle = _n_idle + 1\n"
+        "_d_idle_t1 = (deadline) - time\n"
+        "if _d_idle_t1 >= 0:\n"
+        "    send('_tick_idle_t1', n=_n_idle, delay=_d_idle_t1)"
+    )
+
+
+def test_absolute_time_trigger_fires_at_instant(
+    model: syside.Model,
+) -> None:
+    """The transition fires when the clock reaches the absolute instant."""
+    sc = build_statechart(model, "SM13::MachineAt")
+    interp = Interpreter(sc)
+    interp.execute()
+    interp.clock.time = 7.9
+    interp.execute()
+    assert not interp.final
+    interp.clock.time = 8.0
+    interp.execute()
+    assert interp.final
+
+
+def test_absolute_time_reentry_after_instant_never_fires(
+    model: syside.Model,
+) -> None:
+    """Re-entry after the instant has passed does not arm a new tick."""
+    sc = build_statechart(model, "SM13::MachineAtReentry")
+    interp = Interpreter(sc)
+    interp.execute()
+    interp.clock.time = 2.0
+    interp.queue("Leave")
+    interp.execute()
+    assert "away" in interp.configuration
+    interp.clock.time = 6.0
+    interp.queue("Back")
+    interp.execute()
+    assert "idle" in interp.configuration
+    interp.clock.time = 50.0
+    interp.execute()
+    assert "idle" in interp.configuration
+    assert not interp.final
+
+
 def test_timed_self_loop_rearms_a_fresh_deadline_each_entry(
     model: syside.Model,
 ) -> None:

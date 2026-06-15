@@ -60,15 +60,17 @@ def classify(
     - a signal ``accept E via port`` -> ``SignalTrigger``;
     - a relative ``accept after <d>`` -> ``AfterTrigger`` carrying the SI
       seconds, or the attr-ref node for a bare/chained reference;
-    - an absolute ``accept at`` -> ``AtTrigger``;
+    - an absolute ``accept at <t>`` -> ``AtTrigger`` carrying the SI
+      seconds, or the attr-ref node for a bare/chained reference;
     - a change ``accept when <cond>`` -> ``WhenTrigger`` carrying the
       condition node;
     - an eventless transition -> None.
 
     Raises:
         ValueError: If an ``after`` duration does not evaluate to a finite,
-            non-negative number, or if an ``accept when`` condition does not
-            resolve to an expression.
+            non-negative number, if an ``at`` instant does not evaluate to a
+            finite number, or if an ``accept when`` condition does not resolve
+            to an expression.
     """
     invocation = trigger_invocation(trans)
     if invocation is None:
@@ -94,7 +96,16 @@ def classify(
             duration=_duration_seconds(invocation, compiler, stdlib)
         )
     if invocation.kind is syside.TriggerKind.At:
-        return AtTrigger()
+        instant = invocation.arguments.collect()[0]
+        if isinstance(
+            instant,
+            (
+                syside.FeatureReferenceExpression,
+                syside.FeatureChainExpression,
+            ),
+        ):
+            return AtTrigger(instant=instant)
+        return AtTrigger(instant=_instant_seconds(invocation, compiler, stdlib))
     return WhenTrigger(condition=_change_condition(invocation))
 
 
@@ -176,16 +187,66 @@ def _duration_seconds(
         ValueError: If the duration does not evaluate to a finite, non-negative
             number.
     """
-    number = evaluate_to_number(invocation, compiler, stdlib)
-    if number is None:
-        raise ValueError(
-            "an `accept after` duration does not evaluate to a number; the "
-            "duration must be a DurationValue with a resolvable value."
-        )
-    seconds = float(number)
-    if not math.isfinite(seconds) or seconds < 0:
+    seconds = _finite_seconds(
+        invocation,
+        compiler,
+        stdlib,
+        construct="accept after",
+        quantity="duration",
+        value_type="DurationValue",
+    )
+    if seconds < 0:
         raise ValueError(
             f"an `accept after` duration evaluates to {seconds!r}; the "
             "duration must be a finite, non-negative DurationValue."
+        )
+    return seconds
+
+
+def _instant_seconds(
+    invocation: syside.TriggerInvocationExpression,
+    compiler: syside.Compiler,
+    stdlib: syside.Stdlib,
+) -> float:
+    """Evaluate an absolute time trigger's instant to SI base seconds.
+
+    Raises:
+        ValueError: If the instant does not evaluate to a finite number.
+    """
+    return _finite_seconds(
+        invocation,
+        compiler,
+        stdlib,
+        construct="accept at",
+        quantity="instant",
+        value_type="TimeInstantValue",
+    )
+
+
+def _finite_seconds(
+    invocation: syside.TriggerInvocationExpression,
+    compiler: syside.Compiler,
+    stdlib: syside.Stdlib,
+    *,
+    construct: str,
+    quantity: str,
+    value_type: str,
+) -> float:
+    """Evaluate a time trigger quantity to finite SI base seconds.
+
+    Raises:
+        ValueError: If the quantity does not evaluate to a finite number.
+    """
+    number = evaluate_to_number(invocation, compiler, stdlib)
+    if number is None:
+        raise ValueError(
+            f"an `{construct}` {quantity} does not evaluate to a number; the "
+            f"{quantity} must be a {value_type} with a resolvable value."
+        )
+    seconds = float(number)
+    if not math.isfinite(seconds):
+        raise ValueError(
+            f"an `{construct}` {quantity} evaluates to {seconds!r}; the "
+            f"{quantity} must be a finite {value_type}."
         )
     return seconds
