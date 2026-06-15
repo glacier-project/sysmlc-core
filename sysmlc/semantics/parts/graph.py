@@ -1,8 +1,8 @@
 """Extract a SysML part graph into backend-neutral data.
 
 Walks a top-level part *usage* and records its nested parts (each typed by a
-``part def`` that inlines a single ``exhibit state``), the declared ports of
-each part, and the explicit ``connect`` edges as port pairs. The part
+``part def`` that inlines one or more ``exhibit state`` members), the declared
+ports of each part, and the explicit ``connect`` edges as port pairs. The part
 assembler consumes this to emit one reactor per part def plus a ``main
 reactor`` wiring them through their connected ports (see ``parts/__init__``
 for the verified syside accessors).
