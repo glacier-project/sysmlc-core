@@ -22,19 +22,11 @@ package SM14 {
 
     state def MachineCallEffect {
         attribute theta : Real := 0.0;
-
-        action logAct : sysmlc::log { in :>> tag = "plant"; in :>> value = theta; }
-
-        entry; then idle;
-        state idle;
+        entry; then ticking;
         state ticking;
-        transition first idle
-            accept after 0.1 [s]
-            do logAct
-            then ticking;
         transition first ticking
             accept after 0.1 [s]
             do assign theta := Plant::step(theta, 0.1)
-            then idle;
+            then ticking;
     }
 }

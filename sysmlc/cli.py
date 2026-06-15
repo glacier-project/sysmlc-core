@@ -218,10 +218,11 @@ def _cmd_build(args: argparse.Namespace) -> int:
                 f"backend {backend.name!r} does not support --python"
             )
         tree = ast.parse(python_path.read_text())
+        # Only top-level sync functions are eligible: an async function
+        # cannot be a pure synchronous reaction call, so excluding it fails
+        # loud at build rather than emitting a broken coroutine call.
         names = frozenset(
-            node.name
-            for node in tree.body
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            node.name for node in tree.body if isinstance(node, ast.FunctionDef)
         )
         external = (python_path.stem, names)
 
