@@ -12,7 +12,7 @@ package Microwave {
     // `heating` substate runs two parallel regions (heater and turntable).
     // Substates never reference root attributes: rosetta renders composite
     // scopes as child reactors that cannot see the parent's state.
-    state def Microwave {
+    state def MicrowaveBehavior {
         port commPort;
 
         entry;
@@ -50,7 +50,7 @@ package Microwave {
             transition first heating then done;
         }
 
-        transition first idle accept StartCmd then cooking;
+        transition first idle accept StartCmd via commPort then cooking;
         // Door-open group interrupt aborts cooking from any substate.
         transition first cooking accept DoorOpen then idle;
         // Completion semantics: fires when `cooking` reaches its `done`;
@@ -78,13 +78,17 @@ package Microwave {
             accept after 0.1 [s]
             do send new StartCmd() via commPort
             then cookingWait;
-        transition first cookingWait accept Finished then done;
+        transition first cookingWait accept Finished via commPort then done;
         transition first cookingWait accept after 5.0 [s] then fail;
         transition first fail then done;
     }
 
-    part def MicrowaveRig {
-        exhibit state plant : Microwave;
-        exhibit state tb : MicrowaveTest;
+    part def Microwave       { port commPort; exhibit state : MicrowaveBehavior; }
+    part def MicrowaveTester { port commPort; exhibit state : MicrowaveTest; }
+
+    part microwaveSystem {
+        part plant : Microwave;
+        part tb    : MicrowaveTester;
+        connect plant.commPort to tb.commPort;
     }
 }
