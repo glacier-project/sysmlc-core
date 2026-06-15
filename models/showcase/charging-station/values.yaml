@@ -2,10 +2,10 @@
 # envelope that makes the derating loop visible in short runs. Build with:
 #
 #   sysmlc rosetta build models/showcase/charging-station \
-#     -e ChargingStation::ChargingStation \
+#     -e ChargingStation::ChargingStationBehavior \
 #     --values models/showcase/charging-station/values.yaml
 ChargingStation:
-  ChargingStation:
+  ChargingStationBehavior:
     tempLimit: 45.0
     coolThreshold: 40.0
     authTimeout: "1.5 [s]"

@@ -20,8 +20,8 @@ package ChargingStation {
     // (ramp-up / bulk / top-off) with thermal derating, and per-session
     // energy accounting. Protocol flavor: payload-coded responses,
     // timeouts, retries, and priority-ordered guards.
-    state def ChargingStation {
-        port gridPort;
+    state def ChargingStationBehavior {
+        port commPort;
 
         in attribute targetEnergy : Real default 22.0;
         in attribute rampRate : Real default 4.0;
@@ -76,18 +76,18 @@ package ChargingStation {
         state finishing;
         state faulted;
 
-        transition first idle accept PlugIn then handshake;
+        transition first idle accept PlugIn via commPort then handshake;
         transition first handshake then authorizing;
 
         // Authorization: a coded response or a timeout; denials and
         // timeouts consume the retry budget.
         transition first authorizing
-            accept r : AuthResult
+            accept r : AuthResult via commPort
             if r.code == 1
             do assign authRetries := 0
             then rampUp;
         transition first authorizing
-            accept r : AuthResult
+            accept r : AuthResult via commPort
             if r.code != 1
             then authRetry;
         transition first authorizing accept after authTimeout then authRetry;
@@ -148,23 +148,23 @@ package ChargingStation {
             then finishing;
 
         // An operator stop ends the session early from any phase.
-        transition first rampUp accept StopRequest then finishing;
-        transition first bulk accept StopRequest then finishing;
-        transition first cooling accept StopRequest then finishing;
-        transition first topOff accept StopRequest then finishing;
+        transition first rampUp accept StopRequest via commPort then finishing;
+        transition first bulk accept StopRequest via commPort then finishing;
+        transition first cooling accept StopRequest via commPort then finishing;
+        transition first topOff accept StopRequest via commPort then finishing;
 
         transition first finishing
             accept after 0.5 [s]
             do action {
                 assign totalEnergy := totalEnergy + sessionEnergy;
                 assign sessions := sessions + 1;
-                send new SessionReport(sessionEnergy, sessions) via gridPort;
+                send new SessionReport(sessionEnergy, sessions) via commPort;
                 assign sessionEnergy := 0.0;
             }
             then idle;
 
         transition first faulted
-            accept Reset
+            accept Reset via commPort
             do assign authRetries := 0
             then idle;
     }
@@ -213,13 +213,17 @@ package ChargingStation {
             do send new AuthResult(1) via commPort
             then sessionWait;
         // SessionReport arrives from plant's finishing transition (~14 s logical)
-        transition first sessionWait accept SessionReport then done;
+        transition first sessionWait accept SessionReport via commPort then done;
         transition first sessionWait accept after 30.0 [s] then fail;
         transition first fail then done;
     }
 
-    part def ChargingStationRig {
-        exhibit state plant : ChargingStation;
-        exhibit state tb : ChargingStationTest;
+    part def ChargingStation       { port commPort; exhibit state : ChargingStationBehavior; }
+    part def ChargingStationTester { port commPort; exhibit state : ChargingStationTest; }
+
+    part chargingStationSystem {
+        part plant : ChargingStation;
+        part tb    : ChargingStationTester;
+        connect plant.commPort to tb.commPort;
     }
 }
