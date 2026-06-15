@@ -9,6 +9,7 @@ from sysmlc.semantics.statemachine.facts import (
 def test_signal_trigger_defaults() -> None:
     t = SignalTrigger(signal_name="Tick")
     assert t.payload_name is None
+    assert t.payload_feature is None
     assert t.via_port is None
 
 

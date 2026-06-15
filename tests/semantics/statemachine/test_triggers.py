@@ -62,6 +62,16 @@ def test_signal_trigger_uses_payload_name() -> None:
     assert trigger.signal_name == "Tick"
 
 
+def test_named_payload_feature_is_transition_payload() -> None:
+    model = load_model(SM_DIR / "sm02-event-trigger")
+    compiler = syside.Compiler()
+    stdlib = syside.Stdlib(model.index)
+    _, trans = _from_idle(model, "SM02::MachineNamed")
+    trigger = triggers.classify(trans, compiler, stdlib)
+    assert isinstance(trigger, SignalTrigger)
+    assert trigger.payload_feature is trans.payload
+
+
 def test_eventless_transition_is_none() -> None:
     model = load_model(SM_DIR / "sm01-helloworld")
     compiler = syside.Compiler()
@@ -95,6 +105,8 @@ def test_named_payload_is_captured(recording_builder: RecordingBuilder) -> None:
     )
     assert trigger.signal_name == "Tick"
     assert trigger.payload_name == "reading"
+    assert trigger.payload_feature is not None
+    assert trigger.payload_feature.name == "reading"
     assert trigger.via_port == "commPort"
 
 
@@ -104,6 +116,7 @@ def test_unnamed_payload_is_none(recording_builder: RecordingBuilder) -> None:
     )
     assert trigger.signal_name == "Tick"
     assert trigger.payload_name is None
+    assert trigger.payload_feature is None
     assert trigger.via_port is None
 
 

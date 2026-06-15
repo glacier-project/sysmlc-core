@@ -11,7 +11,7 @@ from tests.backends.quake.conftest import SM_EXAMPLES_BY_DIR
 
 if TYPE_CHECKING:
     import syside
-    from sismic.model import Statechart
+    from sismic.model import Statechart, Transition
 
 EXAMPLE = SM_EXAMPLES_BY_DIR["sm11-send-effect"]
 
@@ -22,6 +22,14 @@ def _action_of(sc: Statechart, source: str, target: str) -> str | None:
         if transition.source == source and transition.target == target:
             action: str | None = transition.action
             return action
+    raise AssertionError(f"no transition {source} -> {target}")
+
+
+def _transition(sc: Statechart, source: str, target: str) -> Transition:
+    """The transition from ``source`` to ``target``."""
+    for transition in sc.transitions:
+        if transition.source == source and transition.target == target:
+            return transition
     raise AssertionError(f"no transition {source} -> {target}")
 
 
@@ -48,6 +56,33 @@ def test_string_payload_arg_emitted_as_kwarg(model: syside.Model) -> None:
     assert _action_of(sc, "idle", "armed") == 'send("Note", text="hi")'
 
 
+def test_accept_payload_guard_uses_event_field(
+    model: syside.Model,
+) -> None:
+    """A payload field read in a guard emits sismic's ``event.<field>``."""
+    sc = build_statechart(model, "SM11::MachineReadablePayloadGuard")
+    transition = _transition(sc, "armed", "fired")
+    assert transition.event == "Measurement"
+    assert transition.guard == "event.value > 0.5"
+
+
+def test_accept_payload_effect_uses_event_field(
+    model: syside.Model,
+) -> None:
+    """A payload field read in an effect emits sismic's ``event.<field>``."""
+    sc = build_statechart(model, "SM11::MachineReadablePayloadEffect")
+    assert _action_of(sc, "armed", "fired") == "captured = event.value"
+
+
+def test_accept_payload_chain_uses_event_root(
+    model: syside.Model,
+) -> None:
+    """A payload field chain rewrites only the payload root to ``event``."""
+    sc = build_statechart(model, "SM11::MachineReadablePayloadChain")
+    transition = _transition(sc, "armed", "fired")
+    assert transition.guard == "event.sample.value > 0.5"
+
+
 def test_mixed_effect_emits_assign_then_send(model: syside.Model) -> None:
     """A mixed effect body emits the assign and the send, in order."""
     sc = build_statechart(model, "SM11::MachineMixed")
@@ -69,6 +104,40 @@ def test_self_send_drives_accept_end_to_end(model: syside.Model) -> None:
 def test_payload_send_drives_accept_end_to_end(model: syside.Model) -> None:
     """A payload-carrying send is accepted by the same machine end-to-end."""
     sc = build_statechart(model, "SM11::MachinePayload")
+    interpreter = Interpreter(sc)
+    interpreter.execute()
+    assert "fired" in interpreter.configuration
+
+
+def test_payload_guard_reads_sent_value(model: syside.Model) -> None:
+    """The accepted payload value gates the transition at runtime."""
+    sc = build_statechart(model, "SM11::MachineReadablePayloadGuard")
+    interpreter = Interpreter(sc)
+    interpreter.execute()
+    assert "fired" in interpreter.configuration
+
+
+def test_payload_guard_rejects_sent_value(model: syside.Model) -> None:
+    """A false payload guard leaves the accepting state active."""
+    sc = build_statechart(model, "SM11::MachineReadablePayloadRejected")
+    interpreter = Interpreter(sc)
+    interpreter.execute()
+    assert "armed" in interpreter.configuration
+    assert "fired" not in interpreter.configuration
+
+
+def test_payload_effect_reads_sent_value(model: syside.Model) -> None:
+    """The transition effect can read the accepted payload value."""
+    sc = build_statechart(model, "SM11::MachineReadablePayloadEffect")
+    interpreter = Interpreter(sc)
+    interpreter.execute()
+    assert "fired" in interpreter.configuration
+    assert interpreter.context["captured"] == 0.9
+
+
+def test_payload_chain_reads_sent_value(model: syside.Model) -> None:
+    """The accepted payload can be read through a chained field."""
+    sc = build_statechart(model, "SM11::MachineReadablePayloadChain")
     interpreter = Interpreter(sc)
     interpreter.execute()
     assert "fired" in interpreter.configuration

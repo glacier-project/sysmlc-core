@@ -5,6 +5,13 @@ package SM11 {
     item def Reading {
         attribute value : Integer;
     }
+    attribute def Sample {
+        attribute value : Real = 0.75;
+    }
+    item def Measurement {
+        attribute value : Real;
+        attribute sample : Sample;
+    }
     item def Note {
         attribute text : String;
     }
@@ -44,6 +51,80 @@ package SM11 {
         state fired;
         transition first idle do send new Note("hi") via commPort then armed;
         transition first armed accept Note via commPort then fired;
+    }
+
+    // A named accept payload can be read from the transition guard.
+    state def MachineReadablePayloadGuard {
+        attribute current : Real := 0.9;
+        port commPort;
+        entry;
+            then idle;
+        state idle;
+        state armed;
+        state fired;
+        transition first idle
+            do send new Measurement(current) via commPort
+            then armed;
+        transition first armed
+            accept reading : Measurement via commPort
+            if reading.value > 0.5
+            then fired;
+    }
+
+    // A rejected payload guard consumes the event and leaves the source active.
+    state def MachineReadablePayloadRejected {
+        attribute current : Real := 0.4;
+        port commPort;
+        entry;
+            then idle;
+        state idle;
+        state armed;
+        state fired;
+        transition first idle
+            do send new Measurement(current) via commPort
+            then armed;
+        transition first armed
+            accept reading : Measurement via commPort
+            if reading.value > 0.5
+            then fired;
+    }
+
+    // A named accept payload can be read from the transition effect.
+    state def MachineReadablePayloadEffect {
+        attribute current : Real := 0.9;
+        attribute captured : Real := 0.0;
+        port commPort;
+        entry;
+            then idle;
+        state idle;
+        state armed;
+        state fired;
+        transition first idle
+            do send new Measurement(current) via commPort
+            then armed;
+        transition first armed
+            accept reading : Measurement via commPort
+            do assign captured := reading.value
+            then fired;
+    }
+
+    // Payload references can be chained beyond a single field.
+    state def MachineReadablePayloadChain {
+        attribute current : Real := 0.9;
+        attribute sample : Sample;
+        port commPort;
+        entry;
+            then idle;
+        state idle;
+        state armed;
+        state fired;
+        transition first idle
+            do send new Measurement(current, sample) via commPort
+            then armed;
+        transition first armed
+            accept reading : Measurement via commPort
+            if reading.sample.value > 0.5
+            then fired;
     }
 
     // A mixed effect body: an assignment and a send, in declaration order.
