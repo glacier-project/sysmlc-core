@@ -12,8 +12,8 @@ Limitation callout. **Not yet**: not implemented.
 | Construct                                                            | Status          | Notes                                                                                                               |
 | -------------------------------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------- |
 | `state def` → statechart                                             | **Done**        |                                                                                                                     |
-| `entry; then X` → `initial`                                          | Done, to refine | only simple state targets are currently supported. Qualified-name targets (nested-state paths) are rejected          |
-| `first start then X` → `initial`                                     | Done, to refine | only simple state targets are currently supported. Qualified-name targets (nested-state paths) are rejected          |
+| `entry; then X` → `initial`                                          | Done, to refine | only simple state targets are currently supported. Qualified-name targets (nested-state paths) are rejected         |
+| `first start then X` → `initial`                                     | Done, to refine | only simple state targets are currently supported. Qualified-name targets (nested-state paths) are rejected         |
 | leaf `state` → basic state                                           | **Done**        |                                                                                                                     |
 | composite `state` → nested state                                     | **Done**        |                                                                                                                     |
 | `parallel` → orthogonal state                                        | **Done**        |                                                                                                                     |
@@ -26,7 +26,7 @@ Limitation callout. **Not yet**: not implemented.
 | `accept E` (signal) → `event`                                        | Done, to refine | `via` port dropped; payload binding not readable                                                                    |
 | `if` guard → `guard`                                                 | **Done**        |                                                                                                                     |
 | `accept after` (time)                                                | **Done**        | one-shot delayed `_tick_*` event armed on entry; composes with `if` guards and self-loops                           |
-| `accept at` (time)                                                   | Not yet         | same delayed-event machinery as `accept after`, deferred                                                            |
+| `accept at` (time)                                                   | **Done**        | one-shot delayed `_tick_*` event using `_d_* = instant - time`; past instants do not fire                           |
 | `accept when` (change)                                               | Done, to refine | armed flag plus consumer transition; the condition is sampled once per macro step, so an inter-step pulse is missed |
 | `entry`/`exit` actions                                               | Done, to refine | referencing form (`entry helper;`) silently dropped                                                                 |
 | `do` action (terminating body)                                       | **Done**        | ongoing bodies (`accept`, loops) rejected for now                                                                   |
@@ -611,10 +611,10 @@ every macro step** the source is active, memoryless, with nothing to consume.
 So every accepter maps to something sismic consumes exactly once:
 
 - a **signal** accepter (`accept E`) → `event` (3.2);
-- a **time** accepter (`accept after <d>`) → a uniquely named **delayed
-  internal event**, armed `on entry` (3.4); `accept at <t>` is not implemented yet;
+- a **time** accepter (`accept after <d>`, `accept at <t>`) → a uniquely named
+  **delayed internal event**, armed `on entry` (3.4, 3.5);
 - a **change** accepter (`accept when <cond>`) → an **armed flag** plus a
-  transition pair that fires or consumes at most once per activation (3.5);
+  transition pair that fires or consumes at most once per activation (3.6);
 - an **`if`** guard → the `guard` slot, conjoined with the machinery above;
 - the **effect** → the `action` (Section 4).
 
@@ -623,8 +623,8 @@ only for the bare distinct-target forms, where firing vacates the source and
 the condition is seen at most once. The moment an `if` guard or a self-loop keeps
 the source active past the delivery instant, the still-true guard re-offers an occurrence
 SysML has already consumed: a guard `after(2) and g` fires on a
-7-second-stale deadline when `g` rises late. Sections 3.4 and 3.5 each open
-with their half of this problem.
+7-second-stale deadline when `g` rises late. Sections 3.4 through 3.6 cover
+the machinery that preserves this consumed-on-delivery behavior.
 
 ### 3.1 `transition first A then B` → `{target: B}`
 
@@ -925,10 +925,73 @@ mechanism and one story.
 
 > ⚠️ **Reserved names:** the underscore namespace belongs to the generated
 > machinery (the `_tick_*` events and `_n_*` counters here, the `_w_*` flags
-> in 3.5). A model attribute or signal whose name starts with `_` is rejected
+> in 3.6). A model attribute or signal whose name starts with `_` is rejected
 > fail-loud.
 
-### 3.5 `accept when <cond>` → armed flag + consumer transition
+### 3.5 `accept at <instant>` → one-shot delayed event
+
+*Corpus: `sm13-time-trigger`*
+
+*Spec: SysML 7.17.8 (time triggers); KerML 9.2.14 (`TriggerAt`,
+`TimeSignal`), 9.2.13 (Observation)*
+
+`accept at` uses the same event machinery as `accept after`: one
+`TimeSignal` occurrence is armed per activation of the source state, the
+transition consumes a real `_tick_*` event, and the activation counter rejects
+stale ticks. The difference is how the delay is computed. `accept after d`
+uses `d` directly as a relative duration. `accept at t` treats `t` as an
+absolute instant on the interpreter clock, whose epoch is 0, and computes the
+remaining delay at arming time.
+
+If the instant is already in the past at arming, the backend sends no event.
+The emitted code checks `instant - time >= 0`, so a past instant is ignored rather than fired immediately.
+
+```sysml
+state def MachineAt {
+    attribute deadline : TimeInstantValue default 8 [s];
+    entry;
+        then idle;
+    state idle;
+    state running;
+
+    transition first idle accept at deadline then running;
+    transition first running then done;
+}
+```
+
+```yaml
+statechart:
+  name: MachineAt
+  preamble: |
+    deadline = 8.0
+    _n_idle = 0
+  root state:
+    initial: idle
+    name: MachineAt
+    states:
+    - name: idle
+      on entry: |
+        _n_idle = _n_idle + 1
+        _d_idle_t1 = (deadline) - time
+        if _d_idle_t1 >= 0:
+            send('_tick_idle_t1', n=_n_idle, delay=_d_idle_t1)
+      transitions:
+      - {event: _tick_idle_t1, guard: event.n == _n_idle, target: running}
+    - name: running
+      transitions:
+      - {target: done}
+    - {name: done, type: final}
+```
+
+*Why the `_d_*` variable:* the instant is evaluated when `idle` is entered,
+using the current sismic `time`. Entering at `time = 0` with `deadline = 8.0`
+sets `_d_idle_t1` to `8.0` and schedules the tick for `t = 8`. Re-entering at
+`time = 9` sets it to `-1.0`, so no tick is sent and the transition cannot fire
+late. If an `if` guard is present, it is still conjoined with
+`event.n == _n_idle`, so a false guard at the delivery instant consumes the
+occurrence exactly as with `accept after`.
+
+### 3.6 `accept when <cond>` → armed flag + consumer transition
 
 *Corpus: `sm16-change-trigger`*
 
@@ -1062,8 +1125,8 @@ default priority lets sismic raise `NonDeterminismError` on such a model,
 exactly as it would for two plain `if` transitions: the generator does not
 silently invent an order. Only the consumers are pushed out of the way, to
 distinct negative priorities so two rejected observations never collide with
-each other. One tie is decided structurally rather than by us: a `when` and an
-`after` due at the same instant resolve **when-first**, because eventless
+each other. One tie is decided structurally rather than by us: a `when` and a
+time trigger due at the same instant resolve **when-first**, because eventless
 transitions are selected before event delivery (the ordering in "The
 statechart at a glance").
 
