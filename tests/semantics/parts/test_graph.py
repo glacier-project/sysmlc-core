@@ -14,9 +14,9 @@ def test_part_graph_extracts_system() -> None:
     assert g.name == "pingSystem"
     assert [p.usage_name for p in g.parts] == ["plant", "tb"]
     assert g.parts[0].definition_name == "Plant"
-    assert g.parts[0].behavior_qn == "Part01::PlantBehavior"
+    assert g.parts[0].behaviors == (("Plant", "Part01::PlantBehavior"),)
     assert g.parts[1].definition_name == "Tester"
-    assert g.parts[1].behavior_qn == "Part01::TesterBehavior"
+    assert g.parts[1].behaviors == (("Tester", "Part01::TesterBehavior"),)
     assert g.connections == ((("plant", "commPort"), ("tb", "commPort")),)
 
 
@@ -31,3 +31,15 @@ def test_part_graph_rejects_zero_exhibit_part() -> None:
     g = load_model(Path("models/sm-examples/part-zero-exhibit"))
     with pytest.raises(UnsupportedConstructError, match="no exhibit"):
         part_graph(g, "PartZero::sys")
+
+
+def test_part_node_carries_multiple_exhibits() -> None:
+    g = part_graph(
+        load_model(Path("models/sm-examples/part-multi-exhibit")),
+        "PartMulti::sys",
+    )
+    composite = next(p for p in g.parts if p.usage_name == "rig")
+    assert composite.behaviors == (
+        ("plant", "PartMulti::PlantBehavior"),
+        ("tb", "PartMulti::TesterBehavior"),
+    )

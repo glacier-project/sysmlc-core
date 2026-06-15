@@ -24,11 +24,11 @@ type Connection = tuple[Endpoint, Endpoint]
 
 @dataclass(frozen=True)
 class PartNode:
-    """One nested part: its usage name, its def, behavior, and ports."""
+    """One nested part: its usage name, its def, behaviors, and ports."""
 
     usage_name: str  # e.g. "plant"
     definition_name: str  # e.g. "Plant" (-> reactor class name)
-    behavior_qn: str  # the single exhibited state def's qn
+    behaviors: tuple[tuple[str, str], ...]  # ((exhibit_name, behavior_qn), ...)
     ports: tuple[str, ...]  # the part def's declared port names
 
 
@@ -102,16 +102,25 @@ def _part_node(usage: syside.PartUsage, model_defs: set[str]) -> PartNode:
             f"part def {definition.name!r} has no exhibit; pure composite "
             "parts (0 exhibits) are not supported in this increment"
         )
-    if len(exhibits) > 1:
+    multi = len(exhibits) > 1
+    if multi and any(e.name is None for e in exhibits):
         raise UnsupportedConstructError(
-            f"part def {definition.name!r} has {len(exhibits)} exhibits; "
-            "multi-exhibit parts land in Plan 2b"
+            f"part def {definition.name!r} has {len(exhibits)} exhibits but "
+            "one or more exhibits have no usage name; a multi-exhibit part "
+            "def must name each exhibit (e.g. `exhibit state plant : P;`)"
         )
-    behavior_qn = _exhibited_behavior(exhibits[0], definition, model_defs)
+    def_name = definition.name or "<anonymous>"
+    behaviors: tuple[tuple[str, str], ...] = tuple(
+        (
+            exhibit.name if exhibit.name is not None else def_name,
+            _exhibited_behavior(exhibit, definition, model_defs),
+        )
+        for exhibit in exhibits
+    )
     return PartNode(
         usage_name=usage_name,
         definition_name=definition.name or "<anonymous>",
-        behavior_qn=behavior_qn,
+        behaviors=behaviors,
         ports=ports,
     )
 
