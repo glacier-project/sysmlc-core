@@ -2,10 +2,10 @@
 # recipe (handy for simulation runs and the test bench). Build with:
 #
 #   sysmlc rosetta build models/showcase/batch-reactor \
-#     -e BatchReactor::BatchReactor \
+#     -e BatchReactor::BatchReactorBehavior \
 #     --values models/showcase/batch-reactor/values.yaml
 BatchReactor:
-  BatchReactor:
+  BatchReactorBehavior:
     batchTarget: 1
     inflowRate: 60.0
     heatRate: 65.0

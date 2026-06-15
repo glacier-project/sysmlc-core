@@ -22,8 +22,8 @@ package BatchReactor {
     // Phase dynamics follow the thermostat idiom: ONE periodic
     // after-self-loop per mode plus a guarded eventless transition
     // checked on every re-entry.
-    state def BatchReactor {
-        port plantPort;
+    state def BatchReactorBehavior {
+        port commPort;
 
         in attribute tankCapacity : Real default 100.0;
         in attribute targetLevel : Real default 60.0;
@@ -86,25 +86,25 @@ package BatchReactor {
         state cooling;
         state draining;
 
-        transition first idle accept StartRecipe then filling;
+        transition first idle accept StartRecipe via commPort then filling;
 
         transition first filling
             accept after sampleTime
             do assign level := min(level + inflowRate, tankCapacity)
             then filling;
         transition first filling if level >= targetLevel then heating;
-        transition first filling accept Abort then draining;
+        transition first filling accept Abort via commPort then draining;
 
         transition first heating
             accept after sampleTime
             do assign temperature := min(temperature + heatRate, 150.0)
             then heating;
         transition first heating if temperature >= targetTemp then reacting;
-        transition first heating accept Abort then draining;
+        transition first heating accept Abort via commPort then draining;
 
         // Join of agitation and the watchdog window.
         transition first reacting then cooling;
-        transition first reacting accept Abort then venting;
+        transition first reacting accept Abort via commPort then venting;
 
         transition first venting
             accept after 1.5 [s]
@@ -128,14 +128,14 @@ package BatchReactor {
             if level <= 0.0 and batches + 1 >= batchTarget
             do action {
                 assign batches := batches + 1;
-                send new BatchDone(batches) via plantPort;
+                send new BatchDone(batches) via commPort;
             }
             then done;
         transition first draining
             if level <= 0.0 and batches + 1 < batchTarget
             do action {
                 assign batches := batches + 1;
-                send new BatchDone(batches) via plantPort;
+                send new BatchDone(batches) via commPort;
             }
             then filling;
     }
@@ -168,13 +168,17 @@ package BatchReactor {
             accept after 0.2 [s]
             do send new StartRecipe() via commPort
             then batchWait;
-        transition first batchWait accept BatchDone then done;
+        transition first batchWait accept BatchDone via commPort then done;
         transition first batchWait accept after 30.0 [s] then fail;
         transition first fail then done;
     }
 
-    part def BatchReactorRig {
-        exhibit state plant : BatchReactor;
-        exhibit state tb : BatchReactorTest;
+    part def BatchReactor       { port commPort; exhibit state : BatchReactorBehavior; }
+    part def BatchReactorTester { port commPort; exhibit state : BatchReactorTest; }
+
+    part batchReactorSystem {
+        part plant : BatchReactor;
+        part tb    : BatchReactorTester;
+        connect plant.commPort to tb.commPort;
     }
 }
