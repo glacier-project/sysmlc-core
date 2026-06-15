@@ -20,6 +20,7 @@ from sysmlc.sysml.queries import (
     resolve,
     rig_definitions,
     state_definitions,
+    top_level_part_usages,
 )
 from sysmlc.values import configure_model, load_values, select_values
 
@@ -119,6 +120,17 @@ def _add_build_arguments(
         help="(rosetta only) a Python file whose top-level functions back "
         "external calc-def calls; matched to SysML functions by simple name",
     )
+    build.add_argument(
+        "--timeout",
+        help="(rosetta part systems only) LF run timeout for the generated "
+        'main reactor\'s target header, e.g. "5 sec"',
+    )
+    build.add_argument(
+        "--fast",
+        action="store_true",
+        help="(rosetta part systems only) set `fast: true` in the generated "
+        "main reactor's target header",
+    )
 
 
 def _select_state_def(model: syside.Model, requested: str | None) -> str:
@@ -155,37 +167,82 @@ def _select_state_def(model: syside.Model, requested: str | None) -> str:
 
 def _select_element(
     model: syside.Model, requested: str | None
-) -> tuple[str, bool]:
-    """Resolve the element to build: ``(qualified name, is_rig)``.
+) -> tuple[str, str]:
+    """Resolve the element to build: ``(qualified name, kind)``.
 
-    An explicit ``--element`` naming a rig selects the composition; with
-    no ``--element`` a model's single rig wins, then the existing
-    single-state-def rule applies.
+    ``kind`` is ``"part"`` (a top-level part usage -> main reactor),
+    ``"rig"`` (a two-exhibit testbench composition), or ``"statedef"`` (a
+    lone state definition). An explicit ``--element`` selects by name; with
+    no ``--element`` a model's single part usage wins, then a single rig,
+    then the single-state-def rule. Existing models declare no qualifying
+    part usage, so their selection is unchanged.
     """
+    parts = sorted(
+        str(usage.qualified_name) for usage in top_level_part_usages(model)
+    )
     rigs = sorted(str(rig.qualified_name) for rig in rig_definitions(model))
     if requested is not None:
+        if requested in parts:
+            return requested, "part"
         if requested in rigs:
-            return requested, True
-        return _select_state_def(model, requested), False
+            return requested, "rig"
+        return _select_state_def(model, requested), "statedef"
+    if len(parts) == 1:
+        return parts[0], "part"
+    if len(parts) > 1:
+        available = ", ".join(parts)
+        raise CliError(
+            f"the model declares several top-level part usages ({available}); "
+            "select one with --element"
+        )
     if len(rigs) == 1:
-        return rigs[0], True
+        return rigs[0], "rig"
     if len(rigs) > 1:
         available = ", ".join(rigs)
         raise CliError(
             f"the model declares several rigs ({available}); "
             "select one with --element"
         )
-    return _select_state_def(model, None), False
+    return _select_state_def(model, None), "statedef"
+
+
+def _target_options(
+    args: argparse.Namespace, backend: Backend
+) -> tuple[tuple[str, str], ...]:
+    """Build the LF target options from ``--fast``/``--timeout`` (rosetta)."""
+    options: list[tuple[str, str]] = []
+    if getattr(args, "fast", False):
+        options.append(("fast", "true"))
+    timeout = getattr(args, "timeout", None)
+    if timeout is not None:
+        options.append(("timeout", timeout))
+    if options and backend.name != "rosetta":
+        raise CliError(
+            f"backend {backend.name!r} does not support --timeout/--fast"
+        )
+    return tuple(options)
 
 
 def _cmd_build(args: argparse.Namespace) -> int:
     """Run a ``<backend> build`` command."""
     backend: Backend = args._backend
     model = load_model(args.model)
-    element_qn, is_rig = _select_element(model, args.element)
+    element_qn, kind = _select_element(model, args.element)
+    target_options = _target_options(args, backend)
+    if target_options and kind != "part":
+        raise CliError(
+            "--timeout/--fast only apply to a top-level part usage "
+            "(a generated main reactor); the selected element is a "
+            f"{kind!r}"
+        )
+
+    if kind == "part":
+        return _build_part(args, backend, model, element_qn, target_options)
+
     build_composition: Callable[[syside.Model, str], object] | None = getattr(
         backend, "build_composition", None
     )
+    is_rig = kind == "rig"
     if is_rig and build_composition is None:
         raise CliError(
             f"backend {backend.name!r} cannot build a rig composition; "
@@ -234,6 +291,38 @@ def _cmd_build(args: argparse.Namespace) -> int:
         artifact = build_composition(model, element_qn, **build_kwargs)
     else:
         artifact = backend.build(model, element_qn, **build_kwargs)
+    return _write_artifact(args, backend, element_qn, artifact, python_path)
+
+
+def _build_part(
+    args: argparse.Namespace,
+    backend: Backend,
+    model: syside.Model,
+    usage_qn: str,
+    target_options: tuple[tuple[str, str], ...],
+) -> int:
+    """Build a top-level part usage into a main reactor and write it."""
+    build_part: Callable[..., object] | None = getattr(
+        backend, "build_part", None
+    )
+    if build_part is None:
+        raise CliError(f"backend {backend.name!r} cannot build a part system")
+    if getattr(args, "python", None) is not None:
+        raise CliError("--python is not supported with part systems yet")
+    if getattr(args, "values", None) is not None:
+        raise CliError("--values is not supported with part systems yet")
+    artifact = build_part(model, usage_qn, target_options=target_options)
+    return _write_artifact(args, backend, usage_qn, artifact, None)
+
+
+def _write_artifact(
+    args: argparse.Namespace,
+    backend: Backend,
+    element_qn: str,
+    artifact: object,
+    python_path: Path | None,
+) -> int:
+    """Write the built artifact and report what was produced."""
     selected = getattr(args, "format", None)
     options = OutputOptions(
         output_dir=args.output,

@@ -88,6 +88,27 @@ def rig_definitions(model: syside.Model) -> Sequence[syside.PartDefinition]:
     ]
 
 
+def top_level_part_usages(
+    model: syside.Model,
+) -> Sequence[syside.PartUsage]:
+    """Top-level part *usages* that compose nested parts (-> main reactors).
+
+    A qualifying usage is owned by a ``Package`` (not nested inside another
+    part) and owns at least one nested ``PartUsage``; a leaf usage merely
+    typed by a part def (no children) does not qualify. Deterministically
+    sorted, so single-usage auto-selection and ``--element`` are stable.
+    """
+    return [
+        usage
+        for usage in iter_elements(model, syside.PartUsage)
+        if isinstance(usage.owner, syside.Package)
+        and any(
+            isinstance(feature, syside.PartUsage)
+            for feature in usage.owned_features.collect()
+        )
+    ]
+
+
 def exhibited_state_defs(
     model: syside.Model, rig: syside.PartDefinition
 ) -> list[tuple[str, syside.StateDefinition]]:

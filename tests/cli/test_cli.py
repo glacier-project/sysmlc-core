@@ -394,3 +394,43 @@ def test_build_with_python_copies_module_and_imports(tmp_path: Path) -> None:
     assert "from ext import step" in lf
     assert "self.x = step(self.x)" in lf
     assert (out / "ext.py").exists()  # copied next to the .lf
+
+
+def test_build_part_system_emits_main_reactor(tmp_path: Path) -> None:
+    out = tmp_path / "out"
+    rc = main(
+        [
+            "rosetta",
+            "build",
+            str(SM_EXAMPLES_DIR / "part01-two-parts"),
+            "-e",
+            "Part01::pingSystem",
+            "-o",
+            str(out),
+            "--timeout",
+            "5 sec",
+            "--fast",
+        ]
+    )
+    assert rc == 0
+    lf = (out / "pingSystem.lf").read_text()
+    assert "main reactor {" in lf
+    assert "fast: true" in lf
+    assert "timeout: 5 sec" in lf
+    assert "plant = new Plant()" in lf
+
+
+def test_single_part_system_auto_selected(tmp_path: Path) -> None:
+    # No --element: the model's single top-level part usage is selected.
+    out = tmp_path / "out"
+    rc = main(
+        [
+            "rosetta",
+            "build",
+            str(SM_EXAMPLES_DIR / "part01-two-parts"),
+            "-o",
+            str(out),
+        ]
+    )
+    assert rc == 0
+    assert (out / "pingSystem.lf").exists()
