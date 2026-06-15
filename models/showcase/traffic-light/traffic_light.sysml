@@ -14,7 +14,7 @@ package TrafficLight {
     // (yellow) phase; lets a paired testbench observe the pedestrian cycle.
     item def WalkOn;
 
-    state def TrafficLight {
+    state def TrafficLightBehavior {
         attribute color : LightColor := LightColor::red;
         attribute requested : Boolean := false;
 
@@ -44,7 +44,7 @@ package TrafficLight {
 
         transition first showRed accept after 4 [s] then showGreen;
         transition first showGreen
-            accept PedestrianRequest
+            accept PedestrianRequest via commPort
             do assign requested := true
             then walkRequest;
         // Completion: announces WalkOn then proceeds to showYellow.
@@ -78,13 +78,17 @@ package TrafficLight {
         }
 
         transition first waitGreen accept after 5.0 [s] then walkWait;
-        transition first walkWait accept WalkOn then done;
+        transition first walkWait accept WalkOn via commPort then done;
         transition first walkWait accept after 15.0 [s] then fail;
         transition first fail then done;
     }
 
-    part def TrafficLightRig {
-        exhibit state plant : TrafficLight;
-        exhibit state tb : TrafficLightTest;
+    part def TrafficLight       { port commPort; exhibit state : TrafficLightBehavior; }
+    part def TrafficLightTester { port commPort; exhibit state : TrafficLightTest; }
+
+    part trafficLightSystem {
+        part plant : TrafficLight;
+        part tb    : TrafficLightTester;
+        connect plant.commPort to tb.commPort;
     }
 }
