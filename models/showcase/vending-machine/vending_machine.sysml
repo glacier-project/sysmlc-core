@@ -18,7 +18,7 @@ package VendingMachine {
         attribute change : Integer;
     }
 
-    state def VendingMachine {
+    state def VendingMachineBehavior {
         port commPort;
 
         attribute credit : Integer := 0;
@@ -37,17 +37,17 @@ package VendingMachine {
         state paid;
 
         transition first idle
-            accept coin : Coin
+            accept coin : Coin via commPort
             if credit + coin.value < price
             do assign credit := credit + coin.value
             then idle;
         transition first idle
-            accept coin : Coin
+            accept coin : Coin via commPort
             if credit + coin.value >= price
             do assign credit := credit + coin.value
             then paid;
         transition first paid
-            accept sel : Selection
+            accept sel : Selection via commPort
             do action {
                 assign chosen := sel.product;
                 assign credit := credit - price;
@@ -105,13 +105,17 @@ package VendingMachine {
         transition first coin2Wait
             accept after 0.1 [s]
             then dispenseWait;
-        transition first dispenseWait accept Dispensed then done;
+        transition first dispenseWait accept Dispensed via commPort then done;
         transition first dispenseWait accept after 5.0 [s] then fail;
         transition first fail then done;
     }
 
-    part def VendingMachineRig {
-        exhibit state plant : VendingMachine;
-        exhibit state tb : VendingMachineTest;
+    part def VendingMachine       { port commPort; exhibit state : VendingMachineBehavior; }
+    part def VendingMachineTester { port commPort; exhibit state : VendingMachineTest; }
+
+    part vendingMachineSystem {
+        part plant : VendingMachine;
+        part tb    : VendingMachineTester;
+        connect plant.commPort to tb.commPort;
     }
 }
