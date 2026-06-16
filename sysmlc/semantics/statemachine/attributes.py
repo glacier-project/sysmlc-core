@@ -152,10 +152,19 @@ def bind_value(
             )
         fields.append((field.name, value))
     definition = next(
-        d
-        for d in attr.attribute_definitions.collect()
-        if isinstance(d, syside.AttributeDefinition)
-        and d.owned_attributes.collect()
+        (
+            d
+            for d in attr.attribute_definitions.collect()
+            if isinstance(d, syside.AttributeDefinition)
+            and d.owned_attributes.collect()
+        ),
+        None,
     )
+    if definition is None:
+        raise UnsupportedConstructError(
+            "composite attribute has fields but no structured definition "
+            "could be resolved",
+            node=attr,
+        )
     assert definition.name is not None
     return CompositeValue(tuple(fields), definition.name, definition)
