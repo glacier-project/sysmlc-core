@@ -57,36 +57,69 @@ def resolve_initial(
         ValueError: If no entry pseudostate is declared, or if no succession
             from the entry pseudostate to a ``StateUsage`` can be found.
     """
-    # Case 1: "entry; then <state>;"
-    if (entry := container.entry_action):
+
+    def resolve_target(target):
+        """Resolve Feature → StateUsage recursively."""
+        if isinstance(target, syside.StateUsage):
+            return target
+
+        if isinstance(target, syside.Feature):
+            feat_target = getattr(target, "feature_target", None)
+            return resolve_target(feat_target) if feat_target else None
+
+        return None
+
+    def direct_child(container, state):
+        """Return closest valid child of container."""
+        children = substates(container)
+        if not children:
+            return None
+
+        if state in children:
+            return state
+
+        curr = state
+        while curr is not None:
+            parent = getattr(curr, "eContainer", None)
+            if parent in children:
+                return parent
+            curr = parent
+
+        return children[0]
+
+    def iter_successions(container):
+        """Yield all SuccessionAsUsage in container."""
         for feat in container.owned_features.collect():
-            if not isinstance(feat, syside.SuccessionAsUsage):
-                continue
+            if isinstance(feat, syside.SuccessionAsUsage):
+                yield feat
+
+    # Case 1: "entry; then <state>;"
+    if entry := container.entry_action:
+        for feat in iter_successions(container):
             if feat.source is not entry:
                 continue
             for target in feat.targets.collect():
-                if isinstance(target, syside.StateUsage):
-                    return target
+                state_target = resolve_target(target)
+                if state_target:
+                    return direct_child(container, state_target)
 
     # Case 2: "first start then <state>;"
-    for feat in container.owned_features.collect():
-        if not isinstance(feat, syside.SuccessionAsUsage):
-            continue
-        
+    for feat in iter_successions(container):
         src = feat.source
-        src_name = str(src.qualified_name) if src else None
-        
-        if src_name == "States::StateAction::start":
-            for target in feat.targets.collect():
-                if isinstance(target, syside.StateUsage):
-                    return target
-                #if isinstance(target, syside.Feature) and hasattr(target, "owner"):
-                    #if isinstance(target.owner, syside.StateUsage):
-                    #    return target.owner
+        if not src:
+            continue
 
-    raise ValueError(
-        f"No entry succession found for state "
-        f"{container.qualified_name}; expected an "
-        f"`entry; then <state>;` declaration or a "
-        f"`first start then <state>;` declaration."
-    )
+        src_name = getattr(src, "name", None)
+        src_qname = str(getattr(src, "name", None))
+        if src_name == "start" or src_qname.endswith("::start"):
+            for target in feat.targets.collect():
+                state_target = resolve_target(target)
+                if state_target:
+                    return direct_child(container, state_target)
+
+    # Case 3: no initial state specified
+    valid_children = substates(container)
+    if valid_children:
+        return valid_children[0]
+
+    raise ValueError(f"No initial state for {container.qualified_name}")
