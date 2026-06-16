@@ -59,9 +59,16 @@ class Trigger:
 
 @dataclass(frozen=True)
 class CompositeValue:
-    """A structured attribute value: ordered ``(name, value)`` fields."""
+    """A structured attribute value: ordered ``(name, value)`` fields.
+
+    ``type_name`` is the structured attribute definition's simple name and
+    ``definition`` is that definition node, so the backend can render a
+    named dataclass (instead of an anonymous ``SimpleNamespace``).
+    """
 
     fields: tuple[tuple[str, AttributeValue], ...]
+    type_name: str
+    definition: syside.AttributeDefinition
 
 
 # A neutral attribute value: a scalar expression node, an SI number, a

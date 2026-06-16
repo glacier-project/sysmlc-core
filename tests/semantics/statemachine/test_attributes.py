@@ -44,6 +44,17 @@ def test_composite_binds_to_composite_value() -> None:
     assert [name for name, _ in value.fields] == ["x"]
 
 
+def test_composite_value_carries_type_name() -> None:
+    model = load_model(SM_DIR / "sm05-chained-references")
+    compiler = syside.Compiler()
+    stdlib = syside.Stdlib(model.index)
+    pt = _named_attr(model, "SM05::MachineChainGuard", "pt")
+    value = attributes.bind_value(pt, compiler, stdlib)
+    assert isinstance(value, CompositeValue)
+    assert value.type_name == "Point"
+    assert value.definition.name == "Point"
+
+
 def test_scalar_quantity_binds_to_si_float() -> None:
     model = load_model(SM_DIR / "sm13-time-trigger")
     compiler = syside.Compiler()

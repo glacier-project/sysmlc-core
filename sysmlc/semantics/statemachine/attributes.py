@@ -151,4 +151,11 @@ def bind_value(
                 node=attr,
             )
         fields.append((field.name, value))
-    return CompositeValue(tuple(fields))
+    definition = next(
+        d
+        for d in attr.attribute_definitions.collect()
+        if isinstance(d, syside.AttributeDefinition)
+        and d.owned_attributes.collect()
+    )
+    assert definition.name is not None
+    return CompositeValue(tuple(fields), definition.name, definition)
