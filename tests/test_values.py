@@ -154,7 +154,7 @@ def test_composite_override_redefines_per_usage(tmp_path: Path) -> None:
     # `pt : Point` declares nothing locally: the override must inject a
     # usage-local redefinition, never touch Point's own defaults.
     program = _configured(tmp_path, {"pt": {"x": 0.7}})
-    assert _state_var(program, "pt") == "SimpleNamespace(x=0.7, y=1.0)"
+    assert _state_var(program, "pt") == "Point(x=0.7, y=1.0)"
 
 
 def test_fixed_binding_cannot_be_overridden(tmp_path: Path) -> None:
