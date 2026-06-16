@@ -351,6 +351,9 @@ def _write_artifact(
     written = backend.write(artifact, options)
 
     if python_path is not None:
+        # Place the --python module beside the .lf so its `files:` entry (a
+        # bare filename, resolved by lfc relative to the .lf) reaches src-gen.
+        # The generated companion types module is written by backend.write.
         for path in written:
             if path.suffix == ".lf":
                 shutil.copy(python_path, path.parent / python_path.name)

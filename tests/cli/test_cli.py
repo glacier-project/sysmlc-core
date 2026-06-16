@@ -459,6 +459,7 @@ def test_build_part_system_with_python_copies_module_and_imports(
     assert rc == 0
     lf = (out / "counterSystem.lf").read_text()
     assert "from bump import bump" in lf
+    assert '"bump.py"' in lf  # listed in files: so lfc copies it to src-gen
     assert (out / "bump.py").exists()  # copied beside the .lf
 
 

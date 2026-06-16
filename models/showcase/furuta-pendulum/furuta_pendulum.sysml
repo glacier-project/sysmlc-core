@@ -8,7 +8,8 @@ package FurutaPendulum {
     // -----------------------------------------------------------------------
 
     // Internal state type: composite attribute (attribute def so the backend
-    // recognises it as a structured type and emits SimpleNamespace).
+    // recognises it as a structured type and emits a PendulumState dataclass
+    // into the generated furutaSystem_types companion module).
     // Default: pendulum hanging DOWN (theta = pi ≈ 3.14159, velocities zero).
     attribute def PendulumState {
         attribute theta   : Real = 3.14159;
