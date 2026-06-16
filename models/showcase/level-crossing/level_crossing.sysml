@@ -22,7 +22,7 @@ package LevelCrossing {
     // lowering deep-exits the sequence; any fault while closed is a
     // group interrupt. Safety flavor: the crossing never reopens on a
     // fault path without an explicit operator reset.
-    state def LevelCrossing {
+    state def LevelCrossingBehavior {
         in attribute maxFaults : Integer default 3;
         attribute trainsPassed : Integer := 0;
         attribute faults : Integer := 0;
@@ -72,7 +72,7 @@ package LevelCrossing {
                 entry;
                     then waiting;
                 state waiting;
-                transition first waiting accept TrainPassed then done;
+                transition first waiting accept TrainPassed via commPort then done;
             }
         }
 
@@ -92,7 +92,7 @@ package LevelCrossing {
             entry assign faults := faults + 1;
         }
 
-        transition first open accept TrainApproaching then securing;
+        transition first open accept TrainApproaching via commPort then securing;
         transition first securing then closed;
 
         // Join: bell cycle finished AND train passed.
@@ -154,13 +154,17 @@ package LevelCrossing {
             accept after 3.7 [s]
             do send new TrainPassed() via commPort
             then reopenWait;
-        transition first reopenWait accept Reopened then done;
+        transition first reopenWait accept Reopened via commPort then done;
         transition first reopenWait accept after 10.0 [s] then fail;
         transition first fail then done;
     }
 
-    part def LevelCrossingRig {
-        exhibit state plant : LevelCrossing;
-        exhibit state tb : LevelCrossingTest;
+    part def LevelCrossing       { port commPort; exhibit state : LevelCrossingBehavior; }
+    part def LevelCrossingTester { port commPort; exhibit state : LevelCrossingTest; }
+
+    part levelCrossingSystem {
+        part plant : LevelCrossing;
+        part tb    : LevelCrossingTester;
+        connect plant.commPort to tb.commPort;
     }
 }
