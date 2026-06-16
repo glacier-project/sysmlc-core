@@ -2,10 +2,10 @@
 # qualified names (package -> state def -> attribute). Build with:
 #
 #   sysmlc rosetta build models/showcase/milling-workcell \
-#     -e MillingWorkcell::MillingWorkcell \
+#     -e MillingWorkcell::MillingWorkcellBehavior \
 #     --values models/showcase/milling-workcell/values.yaml
 MillingWorkcell:
-  MillingWorkcell:
+  MillingWorkcellBehavior:
     batchSize: 2
     toolWearLimit: 30.0
     retryDelay: "1 [s]"

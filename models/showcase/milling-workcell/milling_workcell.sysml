@@ -36,8 +36,8 @@ package MillingWorkcell {
     // Authoring constraint (rosetta scope rule): substates inside
     // composite scopes never reference machine attributes — data logic
     // lives at root scope; composite internals are signal/timer-driven.
-    state def MillingWorkcell {
-        port reportPort;
+    state def MillingWorkcellBehavior {
+        port commPort;
 
         in attribute batchSize : Integer default 4;
         in attribute toolWearLimit : Real default 100.0;
@@ -142,7 +142,7 @@ package MillingWorkcell {
         state toolService;
         // Transient latch: entered when a batch completes (produced + 1 >=
         // batchSize). Its eventless completion transition fires one microstep
-        // later, sending BatchReport via reportPort after `ready` (and the
+        // later, sending BatchReport via commPort after `ready` (and the
         // testbench's `batchWait`) are already active. This breaks the LF
         // causality cycle that lfc 0.11 would otherwise flag: if the send
         // were in the same reaction as `reset(ready)`, lfc sees the path
@@ -157,18 +157,18 @@ package MillingWorkcell {
             entry assign status := CellStatus::failed;
         }
 
-        transition first cold accept PowerOn then homing;
+        transition first cold accept PowerOn via commPort then homing;
         transition first homing then ready;
 
         // A worn tool intercepts the next batch: same-signal guards form
         // a first-match dispatch.
         transition first ready
-            accept StartBatch
+            accept StartBatch via commPort
             if toolWear < toolWearLimit * 0.8
             do assign status := CellStatus::running
             then producing;
         transition first ready
-            accept StartBatch
+            accept StartBatch via commPort
             if toolWear >= toolWearLimit * 0.8
             then toolService;
         transition first ready accept Shutdown then done;
@@ -193,7 +193,7 @@ package MillingWorkcell {
         // Completion: send BatchReport one microstep after batch finishes,
         // then return to ready for the next batch or Shutdown.
         transition first announcing
-            do send new BatchReport(produced, toolWear) via reportPort
+            do send new BatchReport(produced, toolWear) via commPort
             then ready;
 
         // Group interrupts on the running batch (the piece in progress
@@ -269,13 +269,17 @@ package MillingWorkcell {
             accept after 1.1 [s]
             do send new StartBatch() via commPort
             then batchWait;
-        transition first batchWait accept BatchReport then done;
+        transition first batchWait accept BatchReport via commPort then done;
         transition first batchWait accept after 20.0 [s] then fail;
         transition first fail then done;
     }
 
-    part def MillingWorkcellRig {
-        exhibit state plant : MillingWorkcell;
-        exhibit state tb : MillingWorkcellTest;
+    part def MillingWorkcell       { port commPort; exhibit state : MillingWorkcellBehavior; }
+    part def MillingWorkcellTester { port commPort; exhibit state : MillingWorkcellTest; }
+
+    part millingWorkcellSystem {
+        part plant : MillingWorkcell;
+        part tb    : MillingWorkcellTester;
+        connect plant.commPort to tb.commPort;
     }
 }
