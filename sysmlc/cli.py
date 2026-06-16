@@ -37,6 +37,19 @@ class CliError(SysmlcError):
     """A user-facing error, reported as a message without a traceback."""
 
 
+def _parse_external(python_path: Path) -> tuple[str, frozenset[str]]:
+    """Parse a ``--python`` file into ``(module_stem, sync_function_names)``.
+
+    Only top-level synchronous ``def``s are eligible; an ``async def`` cannot
+    back a synchronous reaction call.
+    """
+    tree = ast.parse(python_path.read_text())
+    names = frozenset(
+        node.name for node in tree.body if isinstance(node, ast.FunctionDef)
+    )
+    return python_path.stem, names
+
+
 def _build_parser(backends: dict[str, Backend]) -> argparse.ArgumentParser:
     """Build the parser, exposing one subcommand per discovered backend.
 
@@ -274,14 +287,7 @@ def _cmd_build(args: argparse.Namespace) -> int:
             raise CliError(
                 f"backend {backend.name!r} does not support --python"
             )
-        tree = ast.parse(python_path.read_text())
-        # Only top-level sync functions are eligible: an async function
-        # cannot be a pure synchronous reaction call, so excluding it fails
-        # loud at build rather than emitting a broken coroutine call.
-        names = frozenset(
-            node.name for node in tree.body if isinstance(node, ast.FunctionDef)
-        )
-        external = (python_path.stem, names)
+        external = _parse_external(python_path)
 
     build_kwargs: dict[str, object] = (
         {"external": external} if external is not None else {}
@@ -317,11 +323,7 @@ def _build_part(
             raise CliError(
                 f"backend {backend.name!r} does not support --python"
             )
-        tree = ast.parse(python_path.read_text())
-        names = frozenset(
-            node.name for node in tree.body if isinstance(node, ast.FunctionDef)
-        )
-        external = (python_path.stem, names)
+        external = _parse_external(python_path)
 
     build_kwargs: dict[str, object] = (
         {"external": external} if external is not None else {}

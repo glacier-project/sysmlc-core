@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from sysmlc.backends import Backend
-from sysmlc.cli import main
+from sysmlc.cli import _parse_external, main
 
 if TYPE_CHECKING:
     from sysmlc.backends import OutputOptions
@@ -460,3 +460,11 @@ def test_build_part_system_with_python_copies_module_and_imports(
     lf = (out / "counterSystem.lf").read_text()
     assert "from bump import bump" in lf
     assert (out / "bump.py").exists()  # copied beside the .lf
+
+
+def test_parse_external_collects_sync_functions(tmp_path: Path) -> None:
+    py = tmp_path / "phys.py"
+    py.write_text("def step(): ...\nasync def nope(): ...\nx = 1\n")
+    module, names = _parse_external(py)
+    assert module == "phys"
+    assert names == frozenset({"step"})
