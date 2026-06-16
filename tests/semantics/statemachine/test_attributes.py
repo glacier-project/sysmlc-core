@@ -65,7 +65,7 @@ def test_iter_scope_attributes_yields_root_attribute() -> None:
 def test_attribute_direction_is_captured() -> None:
     builder = RecordingBuilder()
     model = load_model(SHOWCASE_DIR / "thermostat")
-    StateMachineDriver(model).run("Thermostat::Thermostat", builder)
+    StateMachineDriver(model).run("Thermostat::ThermostatBehavior", builder)
     directions = {b.name: b.direction for b in builder.attributes}
     assert directions["setpoint"] is AttributeDirection.IN
     assert directions["hysteresis"] is AttributeDirection.IN

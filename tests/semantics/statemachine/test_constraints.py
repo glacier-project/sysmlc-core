@@ -8,7 +8,7 @@ from tests.recording import RecordingBuilder
 def test_driver_pushes_asserted_constraints() -> None:
     model = load_model(SHOWCASE_DIR / "thermostat")
     builder = RecordingBuilder()
-    StateMachineDriver(model).run("Thermostat::Thermostat", builder)
+    StateMachineDriver(model).run("Thermostat::ThermostatBehavior", builder)
     assert [c.name for c in builder.constraints] == [
         "tempBand",
         "setpointPositive",
@@ -43,5 +43,7 @@ def test_constraint_hook_is_optional() -> None:
             return "ok"
 
     model = load_model(SHOWCASE_DIR / "thermostat")
-    result = StateMachineDriver(model).run("Thermostat::Thermostat", _NoHook())
+    result = StateMachineDriver(model).run(
+        "Thermostat::ThermostatBehavior", _NoHook()
+    )
     assert result == "ok"

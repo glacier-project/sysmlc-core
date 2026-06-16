@@ -3,7 +3,7 @@ package Thermostat {
     private import SI::*;
     private import ISQ::DurationValue;
 
-    state def Thermostat {
+    state def ThermostatBehavior {
         in attribute setpoint : Real default 21.0;
         in attribute hysteresis : Real default 0.5;
         inout attribute temperature : Real := 18.0;
@@ -44,5 +44,11 @@ package Thermostat {
         transition first idle
             if temperature <= setpoint - hysteresis
             then heating;
+    }
+
+    part def Thermostat { exhibit state : ThermostatBehavior; }
+
+    part thermostatSystem {
+        part plant : Thermostat;
     }
 }
