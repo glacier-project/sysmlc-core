@@ -15,9 +15,11 @@ State convention (matches the LF reference):
   phi     - horizontal arm angle
   d_phi   - arm angular velocity
 
-The state object is duck-typed: any object with float attributes
-`theta`, `d_theta`, `phi`, `d_phi` is accepted as input.  `step` always
-RETURNS a new `types.SimpleNamespace`; it never mutates the input.
+Inputs are the generated dataclasses from the companion module
+`furutaSystem_types` (shipped to the compiled LF program via `files:`):
+  `step` receives a `PendulumState` and returns a new `PendulumState`.
+  The torque functions receive an `AngleReading`.
+Neither function mutates its input.
 
 Port subtlety — x3_dot bug in the LF source
 --------------------------------------------
@@ -31,8 +33,13 @@ We correct it here: ``cos(x[0])`` = ``cos(theta)``.
 A comment marks exactly where the fix is applied.
 """
 
+from __future__ import annotations
+
 import math
-from types import SimpleNamespace
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from furutaSystem_types import AngleReading, PendulumState
 
 # ---------------------------------------------------------------------------
 # Physical / integration constants (from PendulumSimulation.lf)
@@ -127,11 +134,11 @@ def restrict_angle(theta: float) -> float:
     return (math.fmod(math.fabs(theta) + pi, 2 * pi) - pi) * _sign(theta)
 
 
-def step(x: object, u: float, dt: float) -> SimpleNamespace:
+def step(x: PendulumState, u: float, dt: float) -> PendulumState:
     """One forward-Euler integration step of the Furuta pendulum dynamics.
 
     Integrates the equations of motion under arm torque *u* for a time
-    interval *dt* seconds.  Returns a **new** ``SimpleNamespace`` with
+    interval *dt* seconds.  Returns a **new** ``PendulumState`` with
     attributes ``theta``, ``d_theta``, ``phi``, ``d_phi``.  The input
     object *x* is never mutated.
 
@@ -164,14 +171,15 @@ def step(x: object, u: float, dt: float) -> SimpleNamespace:
         )
 
     Args:
-        x:  State object with float attributes ``theta``, ``d_theta``,
+        x:  ``PendulumState`` with float attributes ``theta``, ``d_theta``,
             ``phi``, ``d_phi``.
         u:  Arm torque input [N·m].
         dt: Integration step size [s].
 
     Returns:
-        New ``SimpleNamespace(theta, d_theta, phi, d_phi)``.
+        New ``PendulumState(theta, d_theta, phi, d_phi)``.
     """
+    from furutaSystem_types import PendulumState  # generated; on path via files:
     x0 = x.theta
     x1 = x.d_theta
     x3 = x.d_phi
@@ -206,7 +214,7 @@ def step(x: object, u: float, dt: float) -> SimpleNamespace:
         + ALPHA * G * u
     )
 
-    return SimpleNamespace(
+    return PendulumState(
         theta=x.theta + x0_dot * dt,
         d_theta=x.d_theta + x1_dot * dt,
         phi=x.phi + x2_dot * dt,
@@ -214,7 +222,7 @@ def step(x: object, u: float, dt: float) -> SimpleNamespace:
     )
 
 
-def swingup_torque(x: object) -> float:
+def swingup_torque(r: AngleReading) -> float:
     """Energy-pumping swing-up control torque.
 
     Ported from ``PendulumController.lf`` SwingUp mode::
@@ -225,18 +233,18 @@ def swingup_torque(x: object) -> float:
         out = sign(E) * MIN(|k*E|, n) * c
 
     Args:
-        x: State object with ``theta`` and ``d_theta`` attributes.
+        r: ``AngleReading`` with ``theta`` and ``d_theta`` attributes.
 
     Returns:
         Swing-up control torque [N·m].
     """
-    th = restrict_angle(x.theta)
-    e = _energy(th, x.d_theta)
-    c = _sign(x.d_theta * math.cos(th))
+    th = restrict_angle(r.theta)
+    e = _energy(th, r.d_theta)
+    c = _sign(r.d_theta * math.cos(th))
     return _sign(e) * min(math.fabs(K * e), N) * c
 
 
-def catch_torque(x: object, phi2: float = PHI2) -> float:
+def catch_torque(r: AngleReading, phi2: float = PHI2) -> float:
     """Linear-feedback catch control torque.
 
     Ported from ``PendulumController.lf`` Catch mode::
@@ -245,19 +253,19 @@ def catch_torque(x: object, phi2: float = PHI2) -> float:
         out = -(th*ci1 + d_theta*ci2 + (phi - phi2)*ci3 + d_phi*ci4)
 
     Args:
-        x:    State object with ``theta``, ``d_theta``, ``phi``, ``d_phi``.
+        r:    ``AngleReading`` with ``theta``, ``d_theta``, ``phi``, ``d_phi``.
         phi2: Arm angle reference for Catch mode (default: PHI2 = -7.0124562).
 
     Returns:
         Catch control torque [N·m].
     """
-    th = restrict_angle(x.theta)
+    th = restrict_angle(r.theta)
     return -1.0 * (
-        th * CI1 + x.d_theta * CI2 + (x.phi - phi2) * CI3 + x.d_phi * CI4
+        th * CI1 + r.d_theta * CI2 + (r.phi - phi2) * CI3 + r.d_phi * CI4
     )
 
 
-def stabilize_torque(x: object, phi0: float = PHI0) -> float:
+def stabilize_torque(r: AngleReading, phi0: float = PHI0) -> float:
     """Inverted-balance control torque.
 
     Ported from ``PendulumController.lf`` Stabilize mode::
@@ -266,14 +274,14 @@ def stabilize_torque(x: object, phi0: float = PHI0) -> float:
         out = -(th*si1 + d_theta*si2 + (phi - phi0)*si3 + d_phi*si4)
 
     Args:
-        x:    State object with ``theta``, ``d_theta``, ``phi``, ``d_phi``.
+        r:    ``AngleReading`` with ``theta``, ``d_theta``, ``phi``, ``d_phi``.
         phi0: Arm angle reference captured at Stabilize entry
               (default: PHI0 = 0.0, the LF state initialiser).
 
     Returns:
         Stabilize control torque [N·m].
     """
-    th = restrict_angle(x.theta)
+    th = restrict_angle(r.theta)
     return -1.0 * (
-        th * SI1 + x.d_theta * SI2 + (x.phi - phi0) * SI3 + x.d_phi * SI4
+        th * SI1 + r.d_theta * SI2 + (r.phi - phi0) * SI3 + r.d_phi * SI4
     )

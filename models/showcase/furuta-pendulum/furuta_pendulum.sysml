@@ -34,13 +34,11 @@ package FurutaPendulum {
     // -----------------------------------------------------------------------
     // External pure functions (backed by furuta_physics.py at run time).
     // Matched by simple name against furuta_physics module functions.
-    // Untyped parameters so both PendulumState and AngleReading (duck-typed)
-    // are accepted by the SysML type checker.
     // -----------------------------------------------------------------------
-    calc def step             { in x; in u : Real; in dt : Real; return : PendulumState; }
-    calc def swingup_torque   { in x; return : Real; }
-    calc def catch_torque     { in x; return : Real; }
-    calc def stabilize_torque { in x; return : Real; }
+    calc def step             { in x : PendulumState; in u : Real; in dt : Real; return : PendulumState; }
+    calc def swingup_torque   { in r : AngleReading; return : Real; }
+    calc def catch_torque     { in r : AngleReading; return : Real; }
+    calc def stabilize_torque { in r : AngleReading; return : Real; }
     calc def restrict_angle   { in theta : Real; return : Real; }
 
     // -----------------------------------------------------------------------
