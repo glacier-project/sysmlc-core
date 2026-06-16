@@ -307,12 +307,29 @@ def _build_part(
     )
     if build_part is None:
         raise CliError(f"backend {backend.name!r} cannot build a part system")
-    if getattr(args, "python", None) is not None:
-        raise CliError("--python is not supported with part systems yet")
     if getattr(args, "values", None) is not None:
         raise CliError("--values is not supported with part systems yet")
-    artifact = build_part(model, usage_qn, target_options=target_options)
-    return _write_artifact(args, backend, usage_qn, artifact, None)
+
+    external: tuple[str, frozenset[str]] | None = None
+    python_path: Path | None = getattr(args, "python", None)
+    if python_path is not None:
+        if backend.name != "rosetta":
+            raise CliError(
+                f"backend {backend.name!r} does not support --python"
+            )
+        tree = ast.parse(python_path.read_text())
+        names = frozenset(
+            node.name for node in tree.body if isinstance(node, ast.FunctionDef)
+        )
+        external = (python_path.stem, names)
+
+    build_kwargs: dict[str, object] = (
+        {"external": external} if external is not None else {}
+    )
+    artifact = build_part(
+        model, usage_qn, target_options=target_options, **build_kwargs
+    )
+    return _write_artifact(args, backend, usage_qn, artifact, python_path)
 
 
 def _write_artifact(

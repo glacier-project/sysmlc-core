@@ -434,3 +434,29 @@ def test_single_part_system_auto_selected(tmp_path: Path) -> None:
     )
     assert rc == 0
     assert (out / "pingSystem.lf").exists()
+
+
+def test_build_part_system_with_python_copies_module_and_imports(
+    tmp_path: Path,
+) -> None:
+    # --python must work for part usages: the generated .lf includes the
+    # external import and the bump.py module is copied beside the .lf.
+    part_ext = SM_EXAMPLES_DIR / "part-external"
+    out = tmp_path / "out"
+    rc = main(
+        [
+            "rosetta",
+            "build",
+            str(part_ext),
+            "-e",
+            "PartExt::counterSystem",
+            "-o",
+            str(out),
+            "--python",
+            str(part_ext / "bump.py"),
+        ]
+    )
+    assert rc == 0
+    lf = (out / "counterSystem.lf").read_text()
+    assert "from bump import bump" in lf
+    assert (out / "bump.py").exists()  # copied beside the .lf
