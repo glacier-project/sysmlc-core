@@ -176,3 +176,5 @@ output/
 
 # Agent implementation/plan docs — kept on disk, intentionally untracked
 docs/*-plan.md
+docs/*-design.md
+docs/superpowers/
