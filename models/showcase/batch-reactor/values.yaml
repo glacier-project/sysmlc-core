@@ -11,4 +11,4 @@ BatchReactor:
     heatRate: 65.0
     coolRate: 60.0
     drainRate: 60.0
-    sampleTime: "0.5 [s]"
+    sampleTime: 0.5 [s]

@@ -2,7 +2,7 @@ import syside
 
 from sysmlc.sysml.loading import load_model
 from sysmlc.sysml.queries import iter_elements
-from tests.backends.sm_examples import (  # noqa: F401  (re-exported)
+from tests.backends.test_sm_examples import (  # noqa: F401  (re-exported)
     SM_EXAMPLES,
     SM_EXAMPLES_BY_DIR,
     SM_EXAMPLES_DIR,

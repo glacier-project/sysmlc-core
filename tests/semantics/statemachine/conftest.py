@@ -1,6 +1,6 @@
 import pytest
 
-from tests.recording import RecordingBuilder
+from tests.test_recording import RecordingBuilder
 
 
 @pytest.fixture

@@ -8,4 +8,4 @@ MillingWorkcell:
   MillingWorkcellBehavior:
     batchSize: 2
     toolWearLimit: 30.0
-    retryDelay: "1 [s]"
+    retryDelay: 1 [s]

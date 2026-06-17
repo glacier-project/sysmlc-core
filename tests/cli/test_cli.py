@@ -257,7 +257,7 @@ def test_build_rejects_unknown_value_override(
 ) -> None:
     model_dir = _write_configurable(tmp_path)
     values = tmp_path / "values.yaml"
-    values.write_text("Cfg:\n  Machine:\n    speeed: 2.5\n")
+    values.write_text("Cfg:\n  Machine:\n    _speed: 2.5\n")
     exit_code = main(
         [
             "fake",

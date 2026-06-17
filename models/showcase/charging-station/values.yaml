@@ -8,4 +8,4 @@ ChargingStation:
   ChargingStationBehavior:
     tempLimit: 45.0
     coolThreshold: 40.0
-    authTimeout: "1.5 [s]"
+    authTimeout: 1.5 [s]

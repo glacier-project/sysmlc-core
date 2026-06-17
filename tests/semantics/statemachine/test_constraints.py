@@ -1,8 +1,8 @@
 from sysmlc.semantics.statemachine.driver import StateMachineDriver
 from sysmlc.sysml.loading import load_model
 from tests.backends.rosetta.conftest import FIXTURES_DIR
-from tests.backends.showcase import SHOWCASE_DIR
-from tests.recording import RecordingBuilder
+from tests.backends.test_showcase import SHOWCASE_DIR
+from tests.test_recording import RecordingBuilder
 
 
 def test_driver_pushes_asserted_constraints() -> None:
