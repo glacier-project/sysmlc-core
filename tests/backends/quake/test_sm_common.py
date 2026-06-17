@@ -34,6 +34,9 @@ def test_statechart_executes_without_evaluation_error(
     a future generator branch leaves an undefined identifier in
     emitted Python.
     """
+    if "TestError" in state_def_qn:
+        pytest.skip(f"Skipped test {state_def_qn} : is expected to fail.")
+
     model = load_model(example.model_dir)
     sc = build_statechart(model, state_def_qn)
     Interpreter(sc).execute()

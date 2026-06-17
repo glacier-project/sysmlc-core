@@ -51,75 +51,89 @@ def is_done_target(feature_target: syside.Feature) -> bool:
 def resolve_initial(
     container: syside.StateDefinition | syside.StateUsage,
 ) -> syside.StateUsage:
-    """Resolve the initial substate selected by a container's entry.
+    """Resolve the initial substate selected by a container.
 
     Raises:
-        ValueError: If no entry pseudostate is declared, or if no succession
-            from the entry pseudostate to a ``StateUsage`` can be found.
+        ValueError: If no initial state is declared.
     """
 
-    def resolve_target(target):
-        """Resolve Feature → StateUsage recursively."""
-        if isinstance(target, syside.StateUsage):
-            return target
+    # UTILITY FUNCTIONS
+    def unwrap_to_stateusage(x):
+        """Unwrap a Feature to a StateUsage, if possible."""
+        visited = set()
+        while x is not None and id(x) not in visited:
+            visited.add(id(x))
+            if isinstance(x, syside.StateUsage):
+                return x
+            if isinstance(x, syside.Feature):
+                nxt = getattr(x, "feature_target", None)
+                if nxt is None or nxt is x:
+                    break
+                x = nxt
+                continue
+            return None
+        return None
 
-        if isinstance(target, syside.Feature):
-            feat_target = getattr(target, "feature_target", None)
-            return resolve_target(feat_target) if feat_target else None
+    def get_target(container: syside.StateDefinition | syside.StateUsage):
+        """Return the initial target of a container."""
+        # Coverage of case:
+        # - Case 0: "entry; then <state>;"
+        # - Case 1: "first start then <state>;"
+        valid_types = (syside.StateDefinition, syside.StateUsage)
+        if not isinstance(container, valid_types):
+            return None
+
+        entry = getattr(container, "entry_action", None)
+        for feat in container.owned_features.collect():
+            if not isinstance(feat, syside.SuccessionAsUsage):
+                continue
+
+            is_entry = entry and getattr(
+                feat.source, "qualified_name", None
+            ) == getattr(entry, "qualified_name", None)
+            is_start = feat.source and (
+                getattr(feat.source, "name", None) == "start"
+                or str(getattr(feat.source, "qualified_name", None)).endswith(
+                    "::start"
+                )
+            )
+
+            if not is_entry and not is_start:
+                continue
+
+            for target in feat.targets.collect():
+                if tgt := unwrap_to_stateusage(target):
+                    return tgt
 
         return None
 
-    def direct_child(container, state):
-        """Return closest valid child of container."""
-        children = substates(container)
-        if not children:
-            return None
+    # ----
+    # Searching for initial target declared by the container itself
+    # ----
+    initial_target = get_target(container)
 
-        if state in children:
-            return state
+    # ----
+    # Searching for initial target declared by upper nodes
+    # (already set as initial target of the parent container)
+    # ----
+    if not initial_target:
+        parent = getattr(container, "owner", None)
+        p_target = get_target(parent)
+        if p_target and str(p_target.qualified_name).startswith(
+            f"{container.qualified_name}::"
+        ):
+            initial_target = p_target
 
-        curr = state
-        while curr is not None:
-            parent = getattr(curr, "eContainer", None)
-            if parent in children:
-                return parent
-            curr = parent
-
-        return children[0]
-
-    def iter_successions(container):
-        """Yield all SuccessionAsUsage in container."""
-        for feat in container.owned_features.collect():
-            if isinstance(feat, syside.SuccessionAsUsage):
-                yield feat
-
-    # Case 1: "entry; then <state>;"
-    if entry := container.entry_action:
-        for feat in iter_successions(container):
-            if feat.source is not entry:
-                continue
-            for target in feat.targets.collect():
-                state_target = resolve_target(target)
-                if state_target:
-                    return direct_child(container, state_target)
-
-    # Case 2: "first start then <state>;"
-    for feat in iter_successions(container):
-        src = feat.source
-        if not src:
-            continue
-
-        src_name = getattr(src, "name", None)
-        src_qname = str(getattr(src, "name", None))
-        if src_name == "start" or src_qname.endswith("::start"):
-            for target in feat.targets.collect():
-                state_target = resolve_target(target)
-                if state_target:
-                    return direct_child(container, state_target)
-
-    # Case 3: no initial state specified
-    valid_children = substates(container)
-    if valid_children:
-        return valid_children[0]
+    # ----
+    # Resolving the initial target, if found,
+    # with the direct child states of the container to return
+    # ----
+    if initial_target:
+        curr = initial_target
+        while curr:
+            p = getattr(curr, "owner", None)
+            if p == container:
+                return curr
+            curr = p
 
     raise ValueError(f"No initial state for {container.qualified_name}")
