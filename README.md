@@ -1,4 +1,6 @@
-# SysMLC
+<p align="center">
+  <img src="docs/assets/sysmlc-lockup-dark.svg" alt="SysMLC" width="400">
+</p>
 
 A compiler from SysML v2 models to executable simulations of industrial plants.
 
