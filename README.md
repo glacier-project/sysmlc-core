@@ -110,13 +110,17 @@ uv run ruff check
 
 The default test loop is fast and excludes the Lingua Franca compile tests:
 
-    .venv/bin/python -m pytest -m "not lf"   # or: tox
+```
+.venv/bin/python -m pytest -m "not lf"   # or: tox
+```
 
 The `lf`-marked tests compile and run generated LF programs with `lfc`
 (seconds per test). They live in `tests/backends/rosetta/lf/` (plus a few
 inline-marked cases) and need `lfc` + Java on PATH:
 
-    .venv/bin/python -m pytest -m lf         # or: tox -e lf
+```
+.venv/bin/python -m pytest -m lf         # or: tox -e lf
+```
 
 When `lfc` is not on PATH, the `lf` tests are skipped automatically. CI runs
 them in a dedicated `lf-test` job.
