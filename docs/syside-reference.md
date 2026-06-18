@@ -21,15 +21,15 @@ line and not re-run against 0.8.6 (CST byte spans,
 
 **Upstream docs**
 
-| Page | Covers |
-|---|---|
-| [Model Structure](https://docs.sensmetry.com/python/latest/structure.html) | element model, accessors, modification constraints |
-| [Low-Level API](https://docs.sensmetry.com/python/latest/low-level.html) | documents, build state, sema reset, pipeline |
-| [Expression Evaluation](https://docs.sensmetry.com/python/latest/evaluation.html) | `Compiler.evaluate`, supported stdlib functions |
-| [`syside` module reference](https://docs.sensmetry.com/python/latest/syside/index.html) | class/function index |
-| [Automator: Advanced](https://docs.sensmetry.com/automator/advanced.html) | threading, formatting, JSON, evaluation caveats |
+| Page                                                                                    | Covers                                             |
+| --------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| [Model Structure](https://docs.sensmetry.com/python/latest/structure.html)              | element model, accessors, modification constraints |
+| [Low-Level API](https://docs.sensmetry.com/python/latest/low-level.html)                | documents, build state, sema reset, pipeline       |
+| [Expression Evaluation](https://docs.sensmetry.com/python/latest/evaluation.html)       | `Compiler.evaluate`, supported stdlib functions    |
+| [`syside` module reference](https://docs.sensmetry.com/python/latest/syside/index.html) | class/function index                               |
+| [Automator: Advanced](https://docs.sensmetry.com/automator/advanced.html)               | threading, formatting, JSON, evaluation caveats    |
 
----
+______________________________________________________________________
 
 ## 1. Conventions you must internalize
 
@@ -67,7 +67,7 @@ syside confusion.
   accessors (`owned_relationships`, `owned_members`) instead. This is the
   single most expensive gotcha in the codebase.
 
----
+______________________________________________________________________
 
 ## 2. The object model
 
@@ -97,7 +97,7 @@ Model ──┬── index            # symbol/static index (feed Stdlib, pipel
 `AstNode` convenience accessors worth knowing: `parent`, `document`,
 `owned_elements`, `cast`/`try_cast`.
 
----
+______________________________________________________________________
 
 ## 3. Loading & diagnostics
 
@@ -121,7 +121,7 @@ if diagnostics.contains_errors():
   full SysML parsing — unit aliases, scientific notation — without
   reimplementing the grammar. Reuse it for any "parse this snippet" need.
 
----
+______________________________________________________________________
 
 ## 4. Reading & querying
 
@@ -163,13 +163,13 @@ re-writing the dispatch ladder.
 
 ### Accessors — semantic vs CST
 
-| Want | Use | Notes |
-|---|---|---|
-| Owned relationships | `element.owned_relationships.collect()` | authoritative; sees created nodes |
-| Owned members | `element.owned_members.collect()` | authoritative; sees created nodes |
-| Sema-derived / inherited features | `element.owned_features.collect()` | CST-backed; **blind to created nodes** |
-| Applied metadata | `element.metadata.collect()` | see `sysml/metadata.py` |
-| Supertypes of a typing | `typing.types.collect()` | |
+| Want                              | Use                                     | Notes                                  |
+| --------------------------------- | --------------------------------------- | -------------------------------------- |
+| Owned relationships               | `element.owned_relationships.collect()` | authoritative; sees created nodes      |
+| Owned members                     | `element.owned_members.collect()`       | authoritative; sees created nodes      |
+| Sema-derived / inherited features | `element.owned_features.collect()`      | CST-backed; **blind to created nodes** |
+| Applied metadata                  | `element.metadata.collect()`            | see `sysml/metadata.py`                |
+| Supertypes of a typing            | `typing.types.collect()`                |                                        |
 
 The `owned_features` vs `owned_members` split is deliberate and correct:
 read-only sema views that want inherited/implied features use `owned_features`
@@ -216,7 +216,7 @@ Documented for syside 0.8.6 (not re-verified on this build):
 `node.cst_node.text(document_text)` needs the document text passed in; and
 `document.url` is a `file:<path>` URI.
 
----
+______________________________________________________________________
 
 ## 5. Editing existing nodes
 
@@ -242,7 +242,7 @@ if isinstance(existing, syside.LiteralRational):
 - **`Membership.member_element` has no setter** — you cannot retarget a
   membership (e.g. re-point a unit reference).
 
----
+______________________________________________________________________
 
 ## 6. Adding & removing nodes
 
@@ -293,9 +293,9 @@ created nodes should be verified before relying on it.
 A modification raises if it would violate:
 
 1. **Single ownership** → `ValueError`.
-2. **Cross-document move** (an element changing documents) → `ValueError`.
-3. **Type constraints** (wrong element type for the relationship) → `TypeError`.
-4. **Parent must stay in the model** → `RuntimeError`.
+1. **Cross-document move** (an element changing documents) → `ValueError`.
+1. **Type constraints** (wrong element type for the relationship) → `TypeError`.
+1. **Parent must stay in the model** → `RuntimeError`.
 
 ### Evaluation is read-only
 
@@ -304,7 +304,7 @@ elements**. The unit-scale trick in `editing.py:234` works because it
 *temporarily mutates an existing literal* and restores it — it never creates a
 node during evaluation.
 
----
+______________________________________________________________________
 
 ## 7. Revalidating after edits
 
@@ -346,53 +346,53 @@ Caveats:
   is caught; `3 [m]` in a `DurationValue` loads clean. That's why the project
   keeps its own unit-kind probe (`quantities.py`).
 
----
+______________________________________________________________________
 
 ## 8. Audit: current usage vs recommended API
 
 Every row checked against syside 0.8.6. Priority reflects correctness risk
 *for this codebase today*, not abstract tidiness.
 
-| # | Area | Current pattern (file:line) | Recommended | Priority | Notes |
-|---|---|---|---|---|---|
-| 1 | `isinstance` completeness | `actions.py:31`, `visitor.py:128` use `isinstance(x, syside.ActionUsage)` | `…, syside.ActionUsage.STD` **or** a comment that excluding `FlowUsage` is intentional | **Med** | `ActionUsage.STD == (ActionUsage, FlowUsage)`; current check silently skips flow usages. Decide if that's wanted. |
-| 2 | `isinstance` completeness | `visitor.py:124` `isinstance(x, syside.PartUsage)` | `…PartUsage.STD` or documented exclusion | Low | `PartUsage.STD` adds `ConnectionUsage`; relevant once connections appear. |
-| 3 | `isinstance` completeness | `constraints.py:24` `isinstance(m, syside.AssertConstraintUsage)` | `…AssertConstraintUsage.STD` or documented exclusion | Low | `.STD` adds `SatisfyRequirementUsage`. Harmless today (no requirements), latent later. |
-| 4 | `isinstance` (all other sites) | `AttributeUsage`, `StateDefinition`, `OperatorExpression`, literals, `MetadataUsage`, … | **no change** | — | Their `.STD` is single-element; plain `isinstance` already matches the spec. Listed so nobody churns them. |
-| 5 | Type narrowing | `assert isinstance(...)` on syside nodes at `editing.py:85,205,239`, `quantities.py:107` | `node.cast(*types)` / `try_cast` | Low | `cast` raises a typed error and returns the narrowed node; `assert` is stripped under `python -O`. (`interface.py:83` asserts a *project* type — not applicable.) |
-| 6 | Node naming | `editing.py:179-182` `append(OwningMembership, AttributeUsage)` then `local.declared_name = field_name` | **keep** | — | `append`'s `name=` takes a `NameID` **enum**, not a string, and only on the instance overload; setting `declared_name` is the correct way to name a created node. Verified: `append(…, name="str")` raises `TypeError`. |
-| 7 | Reading created values | `queries.py:155` falls back to `feature_value_expression` | **keep** (read owned `FeatureValue` first) | — (upstream) | CST accessor is blind to created nodes; the relationship-first read is the correct workaround. **Candidate upstream issue** — track for a syside fix. |
-| 8 | `owned_features` vs `owned_members` | split across `actions.py:27`/`states.py:66` (features) and `attributes.py:55`/editing (members) | **keep**; documented in [§4](#4-reading--querying) | — | Correct as-is: features = sema-derived/CST (blind to edits), members = authoritative. Don't "unify" them. |
-| 9 | Operator compare | `quantities.py:124` `operator is not syside.Operator.Quantity` | **keep** | — | Confirmed correct: `operator` is an enum; `is` is right, `==`/string compare is wrong. |
-| 10 | Removal API | none (project never removes nodes) | when needed, prefer `NamespaceBody.extract*/remove_*`; verify parsed-vs-created behavior first | Info | `remove_relationship` returns `False` for parsed rels. Pre-work for parts/ports support. |
+| #   | Area                                | Current pattern (file:line)                                                                             | Recommended                                                                                    | Priority     | Notes                                                                                                                                                                                                                   |
+| --- | ----------------------------------- | ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `isinstance` completeness           | `actions.py:31`, `visitor.py:128` use `isinstance(x, syside.ActionUsage)`                               | `…, syside.ActionUsage.STD` **or** a comment that excluding `FlowUsage` is intentional         | **Med**      | `ActionUsage.STD == (ActionUsage, FlowUsage)`; current check silently skips flow usages. Decide if that's wanted.                                                                                                       |
+| 2   | `isinstance` completeness           | `visitor.py:124` `isinstance(x, syside.PartUsage)`                                                      | `…PartUsage.STD` or documented exclusion                                                       | Low          | `PartUsage.STD` adds `ConnectionUsage`; relevant once connections appear.                                                                                                                                               |
+| 3   | `isinstance` completeness           | `constraints.py:24` `isinstance(m, syside.AssertConstraintUsage)`                                       | `…AssertConstraintUsage.STD` or documented exclusion                                           | Low          | `.STD` adds `SatisfyRequirementUsage`. Harmless today (no requirements), latent later.                                                                                                                                  |
+| 4   | `isinstance` (all other sites)      | `AttributeUsage`, `StateDefinition`, `OperatorExpression`, literals, `MetadataUsage`, …                 | **no change**                                                                                  | —            | Their `.STD` is single-element; plain `isinstance` already matches the spec. Listed so nobody churns them.                                                                                                              |
+| 5   | Type narrowing                      | `assert isinstance(...)` on syside nodes at `editing.py:85,205,239`, `quantities.py:107`                | `node.cast(*types)` / `try_cast`                                                               | Low          | `cast` raises a typed error and returns the narrowed node; `assert` is stripped under `python -O`. (`interface.py:83` asserts a *project* type — not applicable.)                                                       |
+| 6   | Node naming                         | `editing.py:179-182` `append(OwningMembership, AttributeUsage)` then `local.declared_name = field_name` | **keep**                                                                                       | —            | `append`'s `name=` takes a `NameID` **enum**, not a string, and only on the instance overload; setting `declared_name` is the correct way to name a created node. Verified: `append(…, name="str")` raises `TypeError`. |
+| 7   | Reading created values              | `queries.py:155` falls back to `feature_value_expression`                                               | **keep** (read owned `FeatureValue` first)                                                     | — (upstream) | CST accessor is blind to created nodes; the relationship-first read is the correct workaround. **Candidate upstream issue** — track for a syside fix.                                                                   |
+| 8   | `owned_features` vs `owned_members` | split across `actions.py:27`/`states.py:66` (features) and `attributes.py:55`/editing (members)         | **keep**; documented in [§4](#4-reading--querying)                                             | —            | Correct as-is: features = sema-derived/CST (blind to edits), members = authoritative. Don't "unify" them.                                                                                                               |
+| 9   | Operator compare                    | `quantities.py:124` `operator is not syside.Operator.Quantity`                                          | **keep**                                                                                       | —            | Confirmed correct: `operator` is an enum; `is` is right, `==`/string compare is wrong.                                                                                                                                  |
+| 10  | Removal API                         | none (project never removes nodes)                                                                      | when needed, prefer `NamespaceBody.extract*/remove_*`; verify parsed-vs-created behavior first | Info         | `remove_relationship` returns `False` for parsed rels. Pre-work for parts/ports support.                                                                                                                                |
 
 **Net:** the editing core is sound. The one finding with real bite is **#1**
 (`ActionUsage` excluding `FlowUsage`) — decide whether that exclusion is
 intentional and either adopt `.STD` or pin the decision with a comment.
 Everything else is low-risk tidy-up or "keep, it's correct" confirmations.
 
----
+______________________________________________________________________
 
 ## 9. Gotchas — hard-won facts (status vs 0.8.6)
 
-| Fact | Status |
-|---|---|
-| `expr.operator` is an enum (`syside.Operator.Quantity`); compare with `is` | verified |
-| Literal nodes have `.value` setters; `feature_value_expression` does not, and elements have **no constructors** | verified |
-| `children.append(Rel, Node)` creates AST sema processes; visible via `owned_relationships`/`owned_members`, **invisible** to `feature_value_expression`/`owned_features` | verified |
-| `NamespaceBody.append` `name=` is a `NameID` **enum** (not a string); set `declared_name` to name a created node | verified |
-| `children.remove_relationship` returns `False` for parsed relationships | unverified |
-| `Membership.member_element` has no setter | unverified |
-| syside validates value types but **not** unit kinds | verified |
-| `node.cst_node.start_byte/end_byte` are file byte spans; `.text()` needs the doc text; `document.url` is `file:<path>` | unverified |
-| `AssertConstraintUsage ⊂ ConstraintUsage`; body via `.result_expression` | unverified |
-| A generated `<Name>.lf` cannot be lfc-compiled standalone (main-reactor name clash) | unverified (LF, not syside) |
+| Fact                                                                                                                                                                     | Status                      |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------- |
+| `expr.operator` is an enum (`syside.Operator.Quantity`); compare with `is`                                                                                               | verified                    |
+| Literal nodes have `.value` setters; `feature_value_expression` does not, and elements have **no constructors**                                                          | verified                    |
+| `children.append(Rel, Node)` creates AST sema processes; visible via `owned_relationships`/`owned_members`, **invisible** to `feature_value_expression`/`owned_features` | verified                    |
+| `NamespaceBody.append` `name=` is a `NameID` **enum** (not a string); set `declared_name` to name a created node                                                         | verified                    |
+| `children.remove_relationship` returns `False` for parsed relationships                                                                                                  | unverified                  |
+| `Membership.member_element` has no setter                                                                                                                                | unverified                  |
+| syside validates value types but **not** unit kinds                                                                                                                      | verified                    |
+| `node.cst_node.start_byte/end_byte` are file byte spans; `.text()` needs the doc text; `document.url` is `file:<path>`                                                   | unverified                  |
+| `AssertConstraintUsage ⊂ ConstraintUsage`; body via `.result_expression`                                                                                                 | unverified                  |
+| A generated `<Name>.lf` cannot be lfc-compiled standalone (main-reactor name clash)                                                                                      | unverified (LF, not syside) |
 
 "verified" = re-checked against the `.venv` install on 0.8.6;
 "unverified" = recorded on an earlier syside build on this line, not re-run
 against 0.8.6.
 
----
+______________________________________________________________________
 
 ## 10. Element-kind catalog (state machines + parts)
 
@@ -414,79 +414,79 @@ first; most of what any kind can do is inherited from there.
 
 ### 10.1 Foundation accessors (inherited by nearly everything)
 
-| Base | Key accessors |
-|---|---|
-| **`Element`** | identity: `name`, `qualified_name`, `short_name`, `declared_name`, `path`, `element_id`; navigation: `owner`, `owning_namespace`, `owning_membership`, `owned_relationships`; annotations: `metadata`, `comments`, `documentation`; `matches_qualified_name()`, `is_library_element` |
-| **`Namespace`** | `children` (the editable `NamespaceBody` — §6), `owned_members`, `owned_memberships`, `members`, `memberships`, `get_member()`, `get_membership()`, `owned_imports` |
-| **`Type`** | `heritage` (specializations), `type_relationships`, `specializes()`, `conforms()`, `features`, `owned_features`, `inherited_features`, `feature_memberships`, `is_abstract`, `multiplicity`, `inputs`, `outputs`, `end_features` |
-| **`Feature`** | `direction`, `feature_value`, `feature_value_expression` (CST-blind — §1), `types`, `owned_typings`, `owned_subsettings`, `owned_redefinitions`, `chaining_features`, `is_composite`, `is_read_only`, `is_derived` |
-| **`Definition`** | the `owned_<kind>` family: `owned_attributes`, `owned_parts`, `owned_ports`, `owned_actions`, `owned_states`, `owned_transitions`, `owned_connections`, `owned_constraints`, `owned_usages`, …; `is_variation`, `variants` |
-| **`Usage`** | `definitions`; the `nested_<kind>` family: `nested_attributes`, `nested_parts`, `nested_ports`, `nested_states`, `nested_actions`, …; `is_reference`, `is_variation`, `owning_definition` |
+| Base             | Key accessors                                                                                                                                                                                                                                                                        |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **`Element`**    | identity: `name`, `qualified_name`, `short_name`, `declared_name`, `path`, `element_id`; navigation: `owner`, `owning_namespace`, `owning_membership`, `owned_relationships`; annotations: `metadata`, `comments`, `documentation`; `matches_qualified_name()`, `is_library_element` |
+| **`Namespace`**  | `children` (the editable `NamespaceBody` — §6), `owned_members`, `owned_memberships`, `members`, `memberships`, `get_member()`, `get_membership()`, `owned_imports`                                                                                                                  |
+| **`Type`**       | `heritage` (specializations), `type_relationships`, `specializes()`, `conforms()`, `features`, `owned_features`, `inherited_features`, `feature_memberships`, `is_abstract`, `multiplicity`, `inputs`, `outputs`, `end_features`                                                     |
+| **`Feature`**    | `direction`, `feature_value`, `feature_value_expression` (CST-blind — §1), `types`, `owned_typings`, `owned_subsettings`, `owned_redefinitions`, `chaining_features`, `is_composite`, `is_read_only`, `is_derived`                                                                   |
+| **`Definition`** | the `owned_<kind>` family: `owned_attributes`, `owned_parts`, `owned_ports`, `owned_actions`, `owned_states`, `owned_transitions`, `owned_connections`, `owned_constraints`, `owned_usages`, …; `is_variation`, `variants`                                                           |
+| **`Usage`**      | `definitions`; the `nested_<kind>` family: `nested_attributes`, `nested_parts`, `nested_ports`, `nested_states`, `nested_actions`, …; `is_reference`, `is_variation`, `owning_definition`                                                                                            |
 
 `Definition` exposes its members as `owned_<kind>`; the matching `Usage`
 exposes them as `nested_<kind>` — the split `scope_attributes` relies on.
 
 ### 10.2 Relationships
 
-| Kind | Base | Distinctive accessors |
-|---|---|---|
-| `Membership` | `Relationship` | `member_element`, `member_name`, `membership_owning_namespace` (no `member_element` setter) |
-| `OwningMembership` | `Membership` | `owned_member_element`, `owned_member_name` |
-| `FeatureMembership` | `OwningMembership` | `owned_member_feature`, `owning_type` |
-| `FeatureValue` | `OwningMembership` | `value`, `is_default`, `is_initial`, `feature_with_value` |
-| `FeatureTyping` | `Specialization` | `type`, `typed_feature` |
-| `Specialization` | `Relationship` | `general`, `specific`, `owning_type` |
-| `Subsetting` | `Specialization` | `subsetted_feature`, `subsetting_feature` |
-| `Redefinition` | `Subsetting` | `redefined_feature`, `redefining_feature` |
-| `ReferenceSubsetting` | `Subsetting` | `referenced_feature`, `referencing_feature` |
-| `FeatureChaining` | `Relationship` | `chaining_feature`, `feature_chained` |
-| `Import` / `MembershipImport` / `NamespaceImport` | `Relationship` / `Import` | `imported_element`, `is_recursive`; `imported_membership`; `imported_namespace` |
+| Kind                                              | Base                      | Distinctive accessors                                                                       |
+| ------------------------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------- |
+| `Membership`                                      | `Relationship`            | `member_element`, `member_name`, `membership_owning_namespace` (no `member_element` setter) |
+| `OwningMembership`                                | `Membership`              | `owned_member_element`, `owned_member_name`                                                 |
+| `FeatureMembership`                               | `OwningMembership`        | `owned_member_feature`, `owning_type`                                                       |
+| `FeatureValue`                                    | `OwningMembership`        | `value`, `is_default`, `is_initial`, `feature_with_value`                                   |
+| `FeatureTyping`                                   | `Specialization`          | `type`, `typed_feature`                                                                     |
+| `Specialization`                                  | `Relationship`            | `general`, `specific`, `owning_type`                                                        |
+| `Subsetting`                                      | `Specialization`          | `subsetted_feature`, `subsetting_feature`                                                   |
+| `Redefinition`                                    | `Subsetting`              | `redefined_feature`, `redefining_feature`                                                   |
+| `ReferenceSubsetting`                             | `Subsetting`              | `referenced_feature`, `referencing_feature`                                                 |
+| `FeatureChaining`                                 | `Relationship`            | `chaining_feature`, `feature_chained`                                                       |
+| `Import` / `MembershipImport` / `NamespaceImport` | `Relationship` / `Import` | `imported_element`, `is_recursive`; `imported_membership`; `imported_namespace`             |
 
 ### 10.3 State machine
 
-| Kind | Base | Distinctive accessors |
-|---|---|---|
-| `StateDefinition` | `ActionDefinition` | `entry_action`, `do_action`, `exit_action`, `is_parallel`, `states` |
-| `StateUsage` | `ActionUsage` | `entry_action`, `do_action`, `exit_action`, `is_parallel`, `state_definitions` |
-| `ExhibitStateUsage` | `StateUsage` | `exhibited_state`, `event_occurrence`, `performed_action` |
-| `TransitionUsage` | `ActionUsage` | `source`, `target`, `guard_expressions`, `trigger_actions`, `effect_actions`, `payload`, `succession` (each also has a `…_member` form) |
-| `SuccessionAsUsage` | `ConnectorAsUsage` | `guard_expression`, `trigger_steps`, `effect_steps`, `transition_step` |
-| `StateSubactionMembership` | `FeatureMembership` | `action`, `kind` (entry/do/exit) |
-| `TransitionFeatureMembership` | `FeatureMembership` | `transition_feature`, `kind` (trigger/guard/effect) |
+| Kind                          | Base                | Distinctive accessors                                                                                                                   |
+| ----------------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `StateDefinition`             | `ActionDefinition`  | `entry_action`, `do_action`, `exit_action`, `is_parallel`, `states`                                                                     |
+| `StateUsage`                  | `ActionUsage`       | `entry_action`, `do_action`, `exit_action`, `is_parallel`, `state_definitions`                                                          |
+| `ExhibitStateUsage`           | `StateUsage`        | `exhibited_state`, `event_occurrence`, `performed_action`                                                                               |
+| `TransitionUsage`             | `ActionUsage`       | `source`, `target`, `guard_expressions`, `trigger_actions`, `effect_actions`, `payload`, `succession` (each also has a `…_member` form) |
+| `SuccessionAsUsage`           | `ConnectorAsUsage`  | `guard_expression`, `trigger_steps`, `effect_steps`, `transition_step`                                                                  |
+| `StateSubactionMembership`    | `FeatureMembership` | `action`, `kind` (entry/do/exit)                                                                                                        |
+| `TransitionFeatureMembership` | `FeatureMembership` | `transition_feature`, `kind` (trigger/guard/effect)                                                                                     |
 
 ### 10.4 Actions
 
-| Kind | Base | Distinctive accessors |
-|---|---|---|
-| `ActionDefinition` | `OccurrenceDefinition` | `actions`, `parameters`, `steps` |
-| `ActionUsage` ⚠️`.STD` | `OccurrenceUsage` | `action_definitions`, `parameters`, `owned_parameters` — `.STD`=(`ActionUsage`,`FlowUsage`) |
-| `AcceptActionUsage` | `ActionUsage` | `payload_argument`, `payload_parameter`, `receiver_argument`, `receiver_parameter` |
-| `SendActionUsage` | `ActionUsage` | `payload_argument`, `receiver_argument`, `sender_argument` (+ `…_parameter`) |
-| `AssignmentActionUsage` | `ActionUsage` | `referent`, `target_argument`, `value_expression` |
-| `PerformActionUsage` ⚠️`.STD` | `ActionUsage` | `performed_action`, `event_occurrence` — `.STD`=(`PerformActionUsage`,`ExhibitStateUsage`,`IncludeUseCaseUsage`) |
-| `TerminateActionUsage` | `ActionUsage` | `terminated_occurrence_argument` |
-| `IfActionUsage` | `ActionUsage` | `if_argument`, `then_action`, `else_action` |
-| `LoopActionUsage` / `ForLoopActionUsage` / `WhileLoopActionUsage` | `ActionUsage` / `LoopActionUsage` | `body_action`; `loop_variable`, `seq_argument`; `while_argument`, `until_argument` |
-| `FlowUsage` | `ConnectorAsUsage` | `flow_ends`, `payload_feature`, `payload_types`, `source_output_feature`, `target_input_feature` |
-| `TriggerInvocationExpression` | `InvocationExpression` | `kind` (`syside.TriggerKind.After/At/When`) |
+| Kind                                                              | Base                              | Distinctive accessors                                                                                            |
+| ----------------------------------------------------------------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `ActionDefinition`                                                | `OccurrenceDefinition`            | `actions`, `parameters`, `steps`                                                                                 |
+| `ActionUsage` ⚠️`.STD`                                            | `OccurrenceUsage`                 | `action_definitions`, `parameters`, `owned_parameters` — `.STD`=(`ActionUsage`,`FlowUsage`)                      |
+| `AcceptActionUsage`                                               | `ActionUsage`                     | `payload_argument`, `payload_parameter`, `receiver_argument`, `receiver_parameter`                               |
+| `SendActionUsage`                                                 | `ActionUsage`                     | `payload_argument`, `receiver_argument`, `sender_argument` (+ `…_parameter`)                                     |
+| `AssignmentActionUsage`                                           | `ActionUsage`                     | `referent`, `target_argument`, `value_expression`                                                                |
+| `PerformActionUsage` ⚠️`.STD`                                     | `ActionUsage`                     | `performed_action`, `event_occurrence` — `.STD`=(`PerformActionUsage`,`ExhibitStateUsage`,`IncludeUseCaseUsage`) |
+| `TerminateActionUsage`                                            | `ActionUsage`                     | `terminated_occurrence_argument`                                                                                 |
+| `IfActionUsage`                                                   | `ActionUsage`                     | `if_argument`, `then_action`, `else_action`                                                                      |
+| `LoopActionUsage` / `ForLoopActionUsage` / `WhileLoopActionUsage` | `ActionUsage` / `LoopActionUsage` | `body_action`; `loop_variable`, `seq_argument`; `while_argument`, `until_argument`                               |
+| `FlowUsage`                                                       | `ConnectorAsUsage`                | `flow_ends`, `payload_feature`, `payload_types`, `source_output_feature`, `target_input_feature`                 |
+| `TriggerInvocationExpression`                                     | `InvocationExpression`            | `kind` (`syside.TriggerKind.After/At/When`)                                                                      |
 
 ### 10.5 Parts / ports / connections
 
-| Kind | Base | Distinctive accessors |
-|---|---|---|
-| `PartDefinition` | `ItemDefinition` | (foundation only — use `owned_parts`/`owned_ports`/`owned_connections`) |
-| `PartUsage` ⚠️`.STD` | `ItemUsage` | `part_definitions` — `.STD`=(`PartUsage`,`ConnectionUsage`) |
-| `PortDefinition` | `OccurrenceDefinition` | `conjugated_port_definition` |
-| `PortUsage` | `OccurrenceUsage` | `port_definitions` |
-| `ConjugatedPortDefinition` | `PortDefinition` | `original_port_definition`, `owned_port_conjugator` |
-| `ConnectionDefinition` | `PartDefinition` | `connection_ends`, `source`, `targets`, `related_elements` |
-| `ConnectionUsage` | `ConnectorAsUsage` | `connection_definitions`, `part_definitions`, `item_definitions` |
-| `ConnectorAsUsage` | `Usage` | `connector_ends`, **`declared_ends`** (has `try_append`/`try_insert`), `source`, `targets`, `related_features` |
-| `Connector` ⚠️`.STD` | `Feature` | same connector surface — `.STD`=(`Connector`,`ConnectorAsUsage`) |
-| `BindingConnector(AsUsage)` ⚠️`.STD` | `Connector`/`ConnectorAsUsage` | binds two features equal — `.STD`=(`BindingConnector`,`BindingConnectorAsUsage`) |
-| `InterfaceDefinition` / `InterfaceUsage` | `ConnectionDefinition` / `ConnectionUsage` | `interface_ends`; `interface_definitions` |
-| `ItemUsage` ⚠️`.STD` | `OccurrenceUsage` | `item_definitions` — `.STD`=(`ItemUsage`,`ConnectionUsage`) |
-| `ReferenceUsage` | `Usage` | (foundation only) |
+| Kind                                     | Base                                       | Distinctive accessors                                                                                          |
+| ---------------------------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| `PartDefinition`                         | `ItemDefinition`                           | (foundation only — use `owned_parts`/`owned_ports`/`owned_connections`)                                        |
+| `PartUsage` ⚠️`.STD`                     | `ItemUsage`                                | `part_definitions` — `.STD`=(`PartUsage`,`ConnectionUsage`)                                                    |
+| `PortDefinition`                         | `OccurrenceDefinition`                     | `conjugated_port_definition`                                                                                   |
+| `PortUsage`                              | `OccurrenceUsage`                          | `port_definitions`                                                                                             |
+| `ConjugatedPortDefinition`               | `PortDefinition`                           | `original_port_definition`, `owned_port_conjugator`                                                            |
+| `ConnectionDefinition`                   | `PartDefinition`                           | `connection_ends`, `source`, `targets`, `related_elements`                                                     |
+| `ConnectionUsage`                        | `ConnectorAsUsage`                         | `connection_definitions`, `part_definitions`, `item_definitions`                                               |
+| `ConnectorAsUsage`                       | `Usage`                                    | `connector_ends`, **`declared_ends`** (has `try_append`/`try_insert`), `source`, `targets`, `related_features` |
+| `Connector` ⚠️`.STD`                     | `Feature`                                  | same connector surface — `.STD`=(`Connector`,`ConnectorAsUsage`)                                               |
+| `BindingConnector(AsUsage)` ⚠️`.STD`     | `Connector`/`ConnectorAsUsage`             | binds two features equal — `.STD`=(`BindingConnector`,`BindingConnectorAsUsage`)                               |
+| `InterfaceDefinition` / `InterfaceUsage` | `ConnectionDefinition` / `ConnectionUsage` | `interface_ends`; `interface_definitions`                                                                      |
+| `ItemUsage` ⚠️`.STD`                     | `OccurrenceUsage`                          | `item_definitions` — `.STD`=(`ItemUsage`,`ConnectionUsage`)                                                    |
+| `ReferenceUsage`                         | `Usage`                                    | (foundation only)                                                                                              |
 
 > **`declared_ends` is the connection-building entry point** — the Model
 > Structure docs single it out as supporting `try_append()` / `try_insert()`,
@@ -495,41 +495,41 @@ exposes them as `nested_<kind>` — the split `scope_attributes` relies on.
 
 ### 10.6 Attributes / values / expressions
 
-| Kind | Base | Distinctive accessors |
-|---|---|---|
-| `AttributeDefinition` | `Definition` | (foundation; `owned_attributes` for fields) |
-| `AttributeUsage` | `Usage` | `attribute_definitions` |
-| `DataType` ⚠️`.STD` | `Classifier` | `.STD`=(`DataType`,`AttributeDefinition`) |
-| `EnumerationDefinition` / `EnumerationUsage` | `AttributeDefinition` / `AttributeUsage` | `enumerated_values`; `enumeration_definition` |
-| `LiteralBoolean/Integer/Rational/String` | `LiteralExpression` | `value` (read **and** write) |
-| `LiteralInfinity`, `NullExpression` | `LiteralExpression` / `Expression` | (no `value`) |
-| `Expression` ⚠️`.STD` | `Step` | `result`, `result_expression`, `function`, `is_model_level_evaluable` — `.STD`=(`Expression`,`CalculationUsage`,`ConstraintUsage`) |
-| `OperatorExpression` | `InvocationExpression` | `operator` (enum — compare with `is`), `operands` (via base) |
-| `InvocationExpression` | `InstantiationExpression` | `operands` |
-| `InstantiationExpression` | `Expression` | `arguments`, `instantiated_type` |
-| `FeatureReferenceExpression` | `Expression` | `referent` |
-| `FeatureChainExpression` | `OperatorExpression` | `target_feature` |
-| `Index/Select/Collect/Constructor Expression` | `OperatorExpression`/`InstantiationExpression` | (operator/argument surface only) |
+| Kind                                          | Base                                           | Distinctive accessors                                                                                                              |
+| --------------------------------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `AttributeDefinition`                         | `Definition`                                   | (foundation; `owned_attributes` for fields)                                                                                        |
+| `AttributeUsage`                              | `Usage`                                        | `attribute_definitions`                                                                                                            |
+| `DataType` ⚠️`.STD`                           | `Classifier`                                   | `.STD`=(`DataType`,`AttributeDefinition`)                                                                                          |
+| `EnumerationDefinition` / `EnumerationUsage`  | `AttributeDefinition` / `AttributeUsage`       | `enumerated_values`; `enumeration_definition`                                                                                      |
+| `LiteralBoolean/Integer/Rational/String`      | `LiteralExpression`                            | `value` (read **and** write)                                                                                                       |
+| `LiteralInfinity`, `NullExpression`           | `LiteralExpression` / `Expression`             | (no `value`)                                                                                                                       |
+| `Expression` ⚠️`.STD`                         | `Step`                                         | `result`, `result_expression`, `function`, `is_model_level_evaluable` — `.STD`=(`Expression`,`CalculationUsage`,`ConstraintUsage`) |
+| `OperatorExpression`                          | `InvocationExpression`                         | `operator` (enum — compare with `is`), `operands` (via base)                                                                       |
+| `InvocationExpression`                        | `InstantiationExpression`                      | `operands`                                                                                                                         |
+| `InstantiationExpression`                     | `Expression`                                   | `arguments`, `instantiated_type`                                                                                                   |
+| `FeatureReferenceExpression`                  | `Expression`                                   | `referent`                                                                                                                         |
+| `FeatureChainExpression`                      | `OperatorExpression`                           | `target_feature`                                                                                                                   |
+| `Index/Select/Collect/Constructor Expression` | `OperatorExpression`/`InstantiationExpression` | (operator/argument surface only)                                                                                                   |
 
 ### 10.7 Constraints / requirements
 
-| Kind | Base | Distinctive accessors |
-|---|---|---|
-| `ConstraintDefinition` | `OccurrenceDefinition` | `expressions`, `result`, `result_expression`, `is_model_level_evaluable` |
-| `ConstraintUsage` | `OccurrenceUsage` | `constraint_definition`, `predicate`, `result_expression` |
-| `AssertConstraintUsage` ⚠️`.STD` | `ConstraintUsage` | `asserted_constraint`, `is_negated` — `.STD`=(`AssertConstraintUsage`,`SatisfyRequirementUsage`) |
-| `RequirementDefinition` / `RequirementUsage` | `ConstraintDefinition` / `ConstraintUsage` | `req_id`, `texts`, `required_constraints`, `assumed_constraints`, `subject_parameter` |
-| `SatisfyRequirementUsage` | `RequirementUsage` | `satisfied_requirement`, `satisfaction_subject`, `is_negated` |
+| Kind                                         | Base                                       | Distinctive accessors                                                                            |
+| -------------------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| `ConstraintDefinition`                       | `OccurrenceDefinition`                     | `expressions`, `result`, `result_expression`, `is_model_level_evaluable`                         |
+| `ConstraintUsage`                            | `OccurrenceUsage`                          | `constraint_definition`, `predicate`, `result_expression`                                        |
+| `AssertConstraintUsage` ⚠️`.STD`             | `ConstraintUsage`                          | `asserted_constraint`, `is_negated` — `.STD`=(`AssertConstraintUsage`,`SatisfyRequirementUsage`) |
+| `RequirementDefinition` / `RequirementUsage` | `ConstraintDefinition` / `ConstraintUsage` | `req_id`, `texts`, `required_constraints`, `assumed_constraints`, `subject_parameter`            |
+| `SatisfyRequirementUsage`                    | `RequirementUsage`                         | `satisfied_requirement`, `satisfaction_subject`, `is_negated`                                    |
 
 ### 10.8 Metadata / comments
 
-| Kind | Base | Distinctive accessors |
-|---|---|---|
-| `MetadataDefinition` | `ItemDefinition` | (foundation) |
-| `MetadataUsage` | `ItemUsage` | `metadata_definition`, `metaclass`, `about`, `annotated_elements`, `annotations` |
-| `MetadataFeature` ⚠️`.STD` | `Feature` | `metaclass`, `annotated_elements` — `.STD`=(`MetadataFeature`,`MetadataUsage`) |
-| `Comment` | `AnnotatingElement` | `body`, `locale` |
-| `Documentation` | `Comment` | `documented_element` |
+| Kind                       | Base                | Distinctive accessors                                                            |
+| -------------------------- | ------------------- | -------------------------------------------------------------------------------- |
+| `MetadataDefinition`       | `ItemDefinition`    | (foundation)                                                                     |
+| `MetadataUsage`            | `ItemUsage`         | `metadata_definition`, `metaclass`, `about`, `annotated_elements`, `annotations` |
+| `MetadataFeature` ⚠️`.STD` | `Feature`           | `metaclass`, `annotated_elements` — `.STD`=(`MetadataFeature`,`MetadataUsage`)   |
+| `Comment`                  | `AnnotatingElement` | `body`, `locale`                                                                 |
+| `Documentation`            | `Comment`           | `documented_element`                                                             |
 
 ### 10.9 Every multi-type `.STD` in this catalog
 
