@@ -27,7 +27,6 @@ class SmExample:
 
 SM_EXAMPLES: list[SmExample] = [
     SmExample("sm01-helloworld"),
-    SmExample("sm011-initial_state"),
     SmExample("sm02-event-trigger"),
     SmExample("sm03-guard"),
     SmExample("sm04-assignment"),

@@ -31,6 +31,17 @@ package Two {
 }
 """
 
+ONE_DEF_MODEL = """\
+package One {
+    state def Machine {
+        entry; then idle;
+        state idle;
+        state running;
+        transition first idle then running;
+    }
+}
+"""
+
 
 class _FakeBackend(Backend):
     """A minimal in-memory backend that records how the CLI drives it."""
@@ -77,9 +88,13 @@ def test_backends_lists_discovered_backends(
 
 
 def test_build_uses_sole_state_def(fake: _FakeBackend, tmp_path: Path) -> None:
-    exit_code = main(["fake", "build", str(SM01_DIR), "-o", str(tmp_path)])
+    model_dir = tmp_path / "model"
+    model_dir.mkdir()
+    (model_dir / "one.sysml").write_text(ONE_DEF_MODEL)
+
+    exit_code = main(["fake", "build", str(model_dir), "-o", str(tmp_path)])
     assert exit_code == 0
-    assert fake.build_calls == ["SM01::Machine"]
+    assert fake.build_calls == ["One::Machine"]
 
 
 def test_build_passes_output_options_to_backend(
@@ -90,6 +105,8 @@ def test_build_passes_output_options_to_backend(
             "fake",
             "build",
             str(SM01_DIR),
+            "-e",
+            "SM01::Machine",
             "-o",
             str(tmp_path),
             "-f",
@@ -106,7 +123,17 @@ def test_build_passes_output_options_to_backend(
 def test_build_defaults_to_all_formats(
     fake: _FakeBackend, tmp_path: Path
 ) -> None:
-    main(["fake", "build", str(SM01_DIR), "-o", str(tmp_path)])
+    main(
+        [
+            "fake",
+            "build",
+            str(SM01_DIR),
+            "-e",
+            "SM01::Machine",
+            "-o",
+            str(tmp_path),
+        ]
+    )
     assert fake.write_calls[0].formats == ()
 
 

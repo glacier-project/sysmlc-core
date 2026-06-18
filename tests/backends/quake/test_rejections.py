@@ -39,3 +39,9 @@ def test_negative_after_duration_is_rejected(model: syside.Model) -> None:
     """An `accept after` duration must be finite and non-negative."""
     with pytest.raises(ValueError, match=r"finite, non-negative"):
         build_statechart(model, "Rejections::MachineNegDuration")
+
+
+def test_missing_initial_state_is_rejected(model: syside.Model) -> None:
+    """A state definition without an initial substate fails loudly."""
+    with pytest.raises(ValueError, match="No initial state for"):
+        build_statechart(model, "Rejections::MachineNoInitial")

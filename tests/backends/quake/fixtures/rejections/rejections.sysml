@@ -30,4 +30,13 @@ package Rejections {
         state running;
         transition first idle accept after -5 [s] then running;
     }
+
+    // A state definition without an initial substate cannot be emitted as a
+    // sismic compound state.
+    state def MachineNoInitial {
+        state idle;
+        state running;
+
+        transition first idle then running;
+    }
 }
