@@ -50,3 +50,35 @@ jobs:
       run: uv run tox run --skip-pkg-install -e docs
       env:
         TOX_GH_MAJOR_MINOR: ${{ matrix.python-version }}
+  # Lingua Franca end-to-end tests: compile + run generated LF programs.
+  # Needs lfc + Java, which the main `test` job does not install (so the
+  # lf-marked tests are skipped there). Runs on PRs to main/dev like the rest.
+  lf-test:
+    needs: qa
+    runs-on: ubuntu-latest
+    env:
+      SYSIDE_LICENSE_KEY: ${{ secrets.SYSIDE_LICENSE_KEY }}
+    steps:
+    - uses: actions/checkout@v5
+    - name: Set up Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '17'
+    - name: Install Lingua Franca Compiler
+      run: |
+        curl -Ls https://install.lf-lang.org | bash -s cli
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+    - name: Verify lfc installation
+      run: |
+        which lfc
+        lfc --version
+    - name: Install uv and Python
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+        python-version: '3.12'
+    - name: Install project dependencies
+      run: uv sync --locked --all-extras
+    - name: Run LF tests
+      run: uv run tox run --skip-pkg-install -e lf
