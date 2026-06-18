@@ -58,23 +58,26 @@ def resolve_initial(
     """
 
     # UTILITY FUNCTIONS
-    def unwrap_to_stateusage(x):
+    def unwrap_to_stateusage(
+        x: syside.Feature | syside.StateUsage | None,
+    ) -> syside.StateUsage | None:
         """Unwrap a Feature to a StateUsage, if possible."""
         visited = set()
         while x is not None and id(x) not in visited:
             visited.add(id(x))
+
             if isinstance(x, syside.StateUsage):
                 return x
-            if isinstance(x, syside.Feature):
-                nxt = getattr(x, "feature_target", None)
-                if nxt is None or nxt is x:
-                    break
-                x = nxt
-                continue
-            return None
+
+            nxt = getattr(x, "feature_target", None)
+            if nxt is None or nxt is x:
+                return None
+            x = nxt
         return None
 
-    def get_target(container: syside.StateDefinition | syside.StateUsage):
+    def get_target(
+        container: syside.StateDefinition | syside.StateUsage | None,
+    ) -> syside.StateUsage | None:
         """Return the initial target of a container."""
         # Coverage of case:
         # - Case 0: "entry; then <state>;"
@@ -129,7 +132,7 @@ def resolve_initial(
     # with the direct child states of the container to return
     # ----
     if initial_target:
-        curr = initial_target
+        curr: syside.StateUsage | None = initial_target
         while curr:
             p = getattr(curr, "owner", None)
             if p == container:
