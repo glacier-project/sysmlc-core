@@ -39,4 +39,35 @@ package Rejections {
 
         transition first idle then running;
     }
+
+    // Initial targets must be direct substates. Deep targets would require
+    // decomposing initial choices across multiple sismic compound states.
+    state def MachineDeepInitialQualifiedName {
+        entry; then container::idle;
+
+        state container {
+            state idle;
+            state running;
+        }
+    }
+
+    state def MachineDeepInitialFeatureChain {
+        entry; then container.idle;
+
+        state container {
+            state idle;
+            state running;
+        }
+    }
+
+    state def MachineDeepInitialConflict {
+        entry; then running.hot;
+
+        state running {
+            entry; then warming;
+
+            state warming;
+            state hot;
+        }
+    }
 }

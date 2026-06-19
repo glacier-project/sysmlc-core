@@ -23,10 +23,9 @@ def model() -> syside.Model:
 @pytest.mark.parametrize(
     "machine_qn,expected_state",
     [
+        ("SM01::Machine", "idle"),
         ("SM01::MachineInitial1_ByTransition", "idle"),
-        ("SM01::MachineInitial2_ByEntry", "idle"),
-        ("SM01::MachineInitial3_ByQualifiedName", "container::idle"),
-        ("SM01::MachineInitial4_ByFeatureChain", "container::idle"),
+        ("SM01::MachineInitial3_ByQualifiedName", "idle"),
     ],
 )
 def test_supported_initial_state_spellings_activate_idle(

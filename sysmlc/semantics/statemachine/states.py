@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import syside
 
+from sysmlc.errors import UnsupportedConstructError
 from sysmlc.semantics.statemachine.facts import StateKind
 
 
@@ -115,28 +116,14 @@ def resolve_initial(
     # ----
     initial_target = get_target(container)
 
-    # ----
-    # Searching for initial target declared by upper nodes
-    # (already set as initial target of the parent container)
-    # ----
-    if not initial_target:
-        parent = getattr(container, "owner", None)
-        p_target = get_target(parent)
-        if p_target and str(p_target.qualified_name).startswith(
-            f"{container.qualified_name}::"
-        ):
-            initial_target = p_target
-
-    # ----
-    # Resolving the initial target, if found,
-    # with the direct child states of the container to return
-    # ----
     if initial_target:
-        curr: syside.StateUsage | None = initial_target
-        while curr:
-            p = getattr(curr, "owner", None)
-            if p == container:
-                return curr
-            curr = p
+        if getattr(initial_target, "owner", None) != container:
+            raise UnsupportedConstructError(
+                "Initial target "
+                f"{initial_target.qualified_name} is not a direct substate "
+                f"of {container.qualified_name}. Only direct initial "
+                "substates are supported."
+            )
+        return initial_target
 
     raise ValueError(f"No initial state for {container.qualified_name}")
