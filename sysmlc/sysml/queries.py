@@ -77,15 +77,26 @@ def state_definitions(model: syside.Model) -> Sequence[syside.StateDefinition]:
 
 
 def rig_definitions(model: syside.Model) -> Sequence[syside.PartDefinition]:
-    """Part definitions that exhibit state usages (testbench rigs)."""
-    return [
-        part_def
-        for part_def in iter_elements(model, syside.PartDefinition)
-        if any(
-            isinstance(member, syside.ExhibitStateUsage)
+    """Part definitions that exhibit two named state usages (testbench rigs)."""
+    rigs: list[syside.PartDefinition] = []
+    for part_def in iter_elements(model, syside.PartDefinition):
+        members = [
+            member
             for member in part_def.owned_members.collect()
-        )
-    ]
+            if not isinstance(member, syside.Documentation | syside.Comment)
+        ]
+        exhibits = [
+            member
+            for member in members
+            if isinstance(member, syside.ExhibitStateUsage)
+        ]
+        if (
+            len(exhibits) == 2
+            and len(members) == 2
+            and all(exhibit.name for exhibit in exhibits)
+        ):
+            rigs.append(part_def)
+    return rigs
 
 
 def top_level_part_usages(
