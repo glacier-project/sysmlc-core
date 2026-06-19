@@ -1,0 +1,81 @@
+from pathlib import Path
+
+import pytest
+
+from sysmlc.backends.rosetta.parts import build_part_program
+from sysmlc.backends.rosetta.program import LfProgram, MainReactor
+from sysmlc.backends.rosetta.serialize import to_lf
+from sysmlc.errors import UnsupportedConstructError
+from sysmlc.sysml.loading import load_model
+
+FIX = Path("models/sm-examples/part01-two-parts")
+MUX = Path("models/sm-examples/part-mux")
+UNDECLARED_VIA = Path("models/sm-examples/part-undeclared-via")
+PART_EXT = Path("models/sm-examples/part-external")
+
+
+def test_build_part_program_composes_two_parts() -> None:
+    prog = build_part_program(load_model(FIX), "Part01::pingSystem")
+    assert isinstance(prog, LfProgram)
+    assert isinstance(prog.main, MainReactor)
+    names = {r.name for r in prog.reactors}
+    assert {"Plant", "Tester"} <= names  # one reactor per part def
+    insts = {(i.name, i.reactor) for i in prog.main.instantiations}
+    assert insts == {("plant", "Plant"), ("tb", "Tester")}
+    text = to_lf(prog)
+    # Ping flows tester->plant, Pong flows plant->tester (port-based routing).
+    assert "tb.Ping -> plant.Ping" in text
+    assert "plant.Pong -> tb.Pong" in text
+
+
+def test_routing_is_port_based_not_name_based() -> None:
+    # Hub sends M via port `a` only. Both sinks accept M; same-name routing
+    # would fan M out to BOTH. Port-based routing wires only the sink on the
+    # sending port.
+    prog = build_part_program(load_model(MUX), "PartMux::mux")
+    text = to_lf(prog)
+    assert "hub.M -> s1.M" in text  # connected via the sending port `a`
+    assert "hub.M -> s2.M" not in text  # NOT sent via `b`
+
+
+def test_undeclared_via_port_is_rejected() -> None:
+    model = load_model(UNDECLARED_VIA)
+    with pytest.raises(UnsupportedConstructError, match="does not declare"):
+        build_part_program(model, "PartUV::sys")
+
+
+def test_observation_logs_entry_and_exit() -> None:
+    prog = build_part_program(load_model(FIX), "Part01::pingSystem")
+    text = to_lf(prog)
+    assert "import logging" in text
+    assert 'logging.debug("entered Plant.idle")' in text
+    assert 'logging.debug("exited Plant.idle")' in text
+
+
+MULTI = Path("models/sm-examples/part-multi-exhibit")
+
+
+def test_multi_exhibit_part_builds_composite_reactor() -> None:
+    prog = build_part_program(
+        load_model(MULTI),
+        "PartMulti::sys",
+    )
+    names = {r.name for r in prog.reactors}
+    assert {"PlantBehavior", "TesterBehavior", "Rig"} <= names
+    assert prog.main is not None
+    insts = {(i.name, i.reactor) for i in prog.main.instantiations}
+    assert ("rig", "Rig") in insts
+
+
+def test_build_part_program_with_external_emits_import_and_call() -> None:
+    # build_part_program must accept external= and thread it into the preamble.
+    # Preamble must contain ``from bump import bump``; reaction body must call
+    # ``bump(self.x)`` (assignment-from-calc in CounterBehavior).
+    prog = build_part_program(
+        load_model(PART_EXT),
+        "PartExt::counterSystem",
+        external=("bump", frozenset({"bump"})),
+    )
+    text = to_lf(prog)
+    assert "from bump import bump" in text
+    assert "bump(self.x)" in text

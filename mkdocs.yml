@@ -33,6 +33,13 @@ nav:
 - Home: index.md
 - API Reference: api.md
 
+# Some docs link to repo source files outside docs/ (e.g.
+# ../models/**/*.sysml). Those are not documentation pages, so mkdocs cannot
+# resolve them as internal links; keep --strict from aborting on them.
+validation:
+  links:
+    not_found: ignore
+
 markdown_extensions:
 - admonition
 - attr_list

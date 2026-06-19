@@ -5,6 +5,13 @@ import syside
 
 logger = logging.getLogger(__name__)
 
+_LIB_DIR = Path(__file__).resolve().parent / "lib"
+
+
+def _bundled_library_files() -> list[Path]:
+    """Absolute paths of the .sysml libraries shipped with sysmlc."""
+    return sorted(_LIB_DIR.glob("*.sysml"))
+
 
 def load_model(model_dir: Path | str) -> syside.Model:
     """Load a SysML model directory with syside.
@@ -20,6 +27,7 @@ def load_model(model_dir: Path | str) -> syside.Model:
     """
     logger.info("Loading SysML model from %s", model_dir)
     sysml_files = syside.collect_files_recursively(str(model_dir))
+    sysml_files = _bundled_library_files() + list(sysml_files)
     logger.debug("Collected %d SysML files", len(sysml_files))
     model, diagnostics = syside.try_load_model(paths=sysml_files)
 

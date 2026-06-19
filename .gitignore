@@ -14,9 +14,9 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
-parts/
+/lib/
+/lib64/
+/parts/
 sdist/
 var/
 wheels/
@@ -173,3 +173,8 @@ scratch/
 # Generated artifacts
 output/
 .envrc
+
+# Agent implementation/plan docs — kept on disk, intentionally untracked
+docs/*-plan.md
+docs/*-design.md
+docs/superpowers/

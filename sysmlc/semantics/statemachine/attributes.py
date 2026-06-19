@@ -1,15 +1,34 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 import syside
 
 from sysmlc.errors import UnsupportedConstructError
 from sysmlc.semantics.statemachine import states, triggers
-from sysmlc.semantics.statemachine.facts import AttributeValue, CompositeValue
+from sysmlc.semantics.statemachine.facts import (
+    AttributeDirection,
+    AttributeValue,
+    CompositeValue,
+)
+from sysmlc.sysml.queries import feature_value as feature_value
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+
+
+_DIRECTIONS: Final[dict[syside.FeatureDirectionKind, AttributeDirection]] = {
+    syside.FeatureDirectionKind.In: AttributeDirection.IN,
+    syside.FeatureDirectionKind.Out: AttributeDirection.OUT,
+    syside.FeatureDirectionKind.Inout: AttributeDirection.INOUT,
+}
+
+
+def direction_of(attr: syside.AttributeUsage) -> AttributeDirection:
+    """Classify the attribute's declared direction (NONE if undirected)."""
+    if attr.direction is None:
+        return AttributeDirection.NONE
+    return _DIRECTIONS[attr.direction]
 
 
 def nested_attributes(
@@ -20,12 +39,28 @@ def nested_attributes(
     An attribute is structured when its type resolves to an
     ``AttributeDefinition`` that owns attributes; it is scalar when its type
     resolves to a primitive ``DataType``.
+
+    A usage-local attribute of the same name (a ``:>>`` redefinition giving
+    THIS usage its own value) replaces the definition's field, so per-usage
+    redefinitions win over the type's defaults.
     """
     nested: list[syside.AttributeUsage] = []
     for definition in attr.attribute_definitions.collect():
         if isinstance(definition, syside.AttributeDefinition):
             nested.extend(definition.owned_attributes.collect())
-    return nested
+    if not nested:
+        return nested
+    # owned_members (not owned_features): the latter is sema-derived and
+    # blind to members created through the low-level editing API.
+    local = {
+        member.name: member
+        for member in attr.owned_members.collect()
+        if isinstance(member, syside.AttributeUsage) and member.name
+    }
+    return [
+        local.get(field.name, field) if field.name else field
+        for field in nested
+    ]
 
 
 def is_scalar_quantity(attr: syside.AttributeUsage) -> bool:
@@ -93,9 +128,9 @@ def bind_value(
     """
     nested = nested_attributes(attr)
     if not nested:
-        return attr.feature_value_expression
+        return feature_value(attr)
     if is_scalar_quantity(attr):
-        expr = attr.feature_value_expression
+        expr = feature_value(attr)
         if expr is None:
             return None
         number = triggers.evaluate_to_number(expr, compiler, stdlib)
@@ -116,4 +151,20 @@ def bind_value(
                 node=attr,
             )
         fields.append((field.name, value))
-    return CompositeValue(tuple(fields))
+    definition = next(
+        (
+            d
+            for d in attr.attribute_definitions.collect()
+            if isinstance(d, syside.AttributeDefinition)
+            and d.owned_attributes.collect()
+        ),
+        None,
+    )
+    if definition is None:
+        raise UnsupportedConstructError(
+            "composite attribute has fields but no structured definition "
+            "could be resolved",
+            node=attr,
+        )
+    assert definition.name is not None
+    return CompositeValue(tuple(fields), definition.name, definition)

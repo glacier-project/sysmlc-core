@@ -3,9 +3,15 @@ from pathlib import Path
 import syside
 
 from sysmlc.semantics.statemachine import attributes
-from sysmlc.semantics.statemachine.facts import CompositeValue
+from sysmlc.semantics.statemachine.driver import StateMachineDriver
+from sysmlc.semantics.statemachine.facts import (
+    AttributeDirection,
+    CompositeValue,
+)
 from sysmlc.sysml.loading import load_model
 from sysmlc.sysml.queries import resolve
+from tests.backends.test_showcase import SHOWCASE_DIR
+from tests.test_recording import RecordingBuilder
 
 SM_DIR = Path(__file__).resolve().parents[3] / "models" / "sm-examples"
 
@@ -38,6 +44,17 @@ def test_composite_binds_to_composite_value() -> None:
     assert [name for name, _ in value.fields] == ["x"]
 
 
+def test_composite_value_carries_type_name() -> None:
+    model = load_model(SM_DIR / "sm05-chained-references")
+    compiler = syside.Compiler()
+    stdlib = syside.Stdlib(model.index)
+    pt = _named_attr(model, "SM05::MachineChainGuard", "pt")
+    value = attributes.bind_value(pt, compiler, stdlib)
+    assert isinstance(value, CompositeValue)
+    assert value.type_name == "Point"
+    assert value.definition.name == "Point"
+
+
 def test_scalar_quantity_binds_to_si_float() -> None:
     model = load_model(SM_DIR / "sm13-time-trigger")
     compiler = syside.Compiler()
@@ -54,3 +71,13 @@ def test_iter_scope_attributes_yields_root_attribute() -> None:
     )
     names = [attr.name for _, attr in attributes.iter_scope_attributes(machine)]
     assert names == ["counter"]
+
+
+def test_attribute_direction_is_captured() -> None:
+    builder = RecordingBuilder()
+    model = load_model(SHOWCASE_DIR / "thermostat")
+    StateMachineDriver(model).run("Thermostat::ThermostatBehavior", builder)
+    directions = {b.name: b.direction for b in builder.attributes}
+    assert directions["setpoint"] is AttributeDirection.IN
+    assert directions["hysteresis"] is AttributeDirection.IN
+    assert directions["temperature"] is AttributeDirection.INOUT

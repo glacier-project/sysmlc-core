@@ -1,0 +1,8 @@
+# Example configuration for the level crossing. Build with:
+#
+#   sysmlc rosetta build models/showcase/level-crossing \
+#     -e LevelCrossing::LevelCrossingBehavior \
+#     --values models/showcase/level-crossing/values.yaml
+LevelCrossing:
+  LevelCrossingBehavior:
+    maxFaults: 5

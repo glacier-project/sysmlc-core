@@ -1,0 +1,11 @@
+# Example configuration for the thermostat showcase model. Nesting mirrors
+# qualified names (package -> state def -> attribute). Build with:
+#
+#   sysmlc rosetta build models/showcase/thermostat \
+#     -e Thermostat::ThermostatBehavior \
+#     --values models/showcase/thermostat/values.yaml
+Thermostat:
+  ThermostatBehavior:
+    setpoint: 23.0
+    hysteresis: 1.0
+    temperature: 25.5

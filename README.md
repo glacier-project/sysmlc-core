@@ -1,4 +1,6 @@
-# SysMLC
+<p align="center">
+  <img src="docs/assets/sysmlc-lockup-dark.svg" alt="SysMLC" width="400">
+</p>
 
 A compiler from SysML v2 models to executable simulations of industrial plants.
 
@@ -15,7 +17,7 @@ One shared front-end feeds a family of product-named back-ends, one per target:
 | Back-end     | Target                                                              | Status          |
 | ------------ | ------------------------------------------------------------------- | --------------- |
 | `quake`      | sismic statecharts                                                  | **in progress** |
-| `rosetta`    | [Lingua Franca](https://www.lf-lang.org/) reactors                  | planned         |
+| `rosetta`    | [Lingua Franca](https://www.lf-lang.org/) reactors                  | **in progress** |
 | `frostifier` | [Frost](https://github.com/glacier-project/frost) plant simulations | planned         |
 
 ## Prerequisites
@@ -61,6 +63,43 @@ A unified `sysmlc` CLI is planned to build for any back-end:
 sysmlc build models/sm-examples/sm01-helloworld --backend quake
 ```
 
+Translate a state machine to a Lingua Franca modal-reactor program with the
+**rosetta** backend. The showcase corpus under `models/showcase/` exercises
+the supported construct set (enums, parameters, payloads, function calls,
+hierarchy, parallel regions, and asserted constraints — the full
+construct-by-construct mapping is documented in `docs/rosetta-mapping.md`,
+and `docs/showcase-corpus.md` describes the corpus, including the two
+flagship case studies, milling-workcell and batch-reactor):
+
+```bash
+sysmlc rosetta build models/showcase/milling-workcell \
+  -e MillingWorkcell::millingWorkcellSystem -o out/
+```
+
+When a model has exactly one top-level part usage, `--element` can be omitted
+and the CLI auto-selects the system target:
+
+```bash
+sysmlc rosetta build models/showcase/milling-workcell -o out/
+```
+
+To build only a bare state machine, select the state definition directly:
+
+```bash
+sysmlc rosetta build models/showcase/milling-workcell \
+  -e MillingWorkcell::MillingWorkcellBehavior -o out/
+```
+
+Attribute initial values can be overridden at build time from a hierarchical
+YAML file when building a state definition (nesting mirrors qualified names;
+works with any backend):
+
+```bash
+sysmlc rosetta build models/showcase/thermostat \
+  -e Thermostat::ThermostatBehavior \
+  --values models/showcase/thermostat/values.yaml -o out/
+```
+
 To explore a plant model's structure and OPC-UA metadata (the `ice-lab` model):
 
 ```bash
@@ -81,3 +120,22 @@ uv run pytest
 uv run mypy sysmlc
 uv run ruff check
 ```
+
+## Testing
+
+The default test loop is fast and excludes the Lingua Franca compile tests:
+
+```
+.venv/bin/python -m pytest -m "not lf"   # or: tox
+```
+
+The `lf`-marked tests compile and run generated LF programs with `lfc`
+(seconds per test). They live in `tests/backends/rosetta/lf/` (plus a few
+inline-marked cases) and need `lfc` + Java on PATH:
+
+```
+.venv/bin/python -m pytest -m lf         # or: tox -e lf
+```
+
+When `lfc` is not on PATH, the `lf` tests are skipped automatically. CI runs
+them in a dedicated `lf-test` job.

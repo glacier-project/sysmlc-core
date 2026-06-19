@@ -6,12 +6,14 @@ import syside
 
 from sysmlc.semantics.statemachine import (
     attributes,
+    constraints,
     states,
     transitions,
     triggers,
 )
 from sysmlc.semantics.statemachine.facts import (
     AttributeBinding,
+    ConstraintFact,
     StateFact,
     StateKind,
     TransitionFact,
@@ -54,6 +56,7 @@ class StateMachineDriver:
         """
         state_def = resolve(self._model, syside.StateDefinition, state_def_qn)
         self._bind_attributes(state_def, builder)
+        self._bind_constraints(state_def, builder)
         assert state_def.name is not None
         self._walk_states(state_def, state_def, state_def.name, None, builder)
         self._walk_transitions(state_def, state_def, builder)
@@ -76,6 +79,35 @@ class StateMachineDriver:
                     value=attributes.bind_value(
                         attr, self._compiler, self._stdlib
                     ),
+                    direction=attributes.direction_of(attr),
+                )
+            )
+
+    def _bind_constraints(
+        self, state_def: syside.StateDefinition, builder: TargetBuilder
+    ) -> None:
+        """Push asserted constraints through the OPTIONAL builder hook.
+
+        ``bind_constraint`` is not part of the ``TargetBuilder`` protocol:
+        builders that do not declare it simply never receive constraints.
+        """
+        hook = getattr(builder, "bind_constraint", None)
+        if hook is None:
+            return
+        for scope, constraint in constraints.iter_scope_constraints(state_def):
+            expression = constraint.result_expression
+            if expression is None:
+                continue  # a bodiless constraint checks nothing
+            scope_path = (
+                ""
+                if isinstance(scope, syside.StateDefinition)
+                else states.state_path(state_def, scope)
+            )
+            hook(
+                ConstraintFact(
+                    scope=scope_path,
+                    name=constraint.name,
+                    expression=expression,
                 )
             )
 
