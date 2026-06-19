@@ -49,6 +49,45 @@ def is_done_target(feature_target: syside.Feature) -> bool:
     return str(feature_target.qualified_name) == "States::StateAction::done"
 
 
+def _is_initial_source(
+    container: syside.StateDefinition | syside.StateUsage,
+    source: syside.Feature | None,
+) -> bool:
+    """Whether ``source`` is a supported initial-selection source."""
+    entry = container.entry_action
+    if entry is not None and source == entry:
+        return True
+    if source is None:
+        return False
+    return str(source.qualified_name) == "States::StateAction::start"
+
+
+def _target_state(
+    succession: syside.SuccessionAsUsage,
+) -> syside.StateUsage | None:
+    """Return the first StateUsage target of a succession, if any."""
+    for target_feature in succession.target_features.collect():
+        target = target_feature.feature_target
+        if isinstance(target, syside.StateUsage):
+            return target
+    return None
+
+
+def _declared_initial_target(
+    container: syside.StateDefinition | syside.StateUsage,
+) -> syside.StateUsage | None:
+    """Return the initial target declared directly by ``container``."""
+    for feature in container.owned_features.collect():
+        if not isinstance(feature, syside.SuccessionAsUsage):
+            continue
+        if not _is_initial_source(container, feature.source_feature):
+            continue
+        target = _target_state(feature)
+        if target is not None:
+            return target
+    return None
+
+
 def resolve_initial(
     container: syside.StateDefinition | syside.StateUsage,
 ) -> syside.StateUsage:
@@ -57,64 +96,7 @@ def resolve_initial(
     Raises:
         ValueError: If no initial state is declared.
     """
-
-    # UTILITY FUNCTIONS
-    def unwrap_to_stateusage(
-        x: syside.Feature | syside.StateUsage | None,
-    ) -> syside.StateUsage | None:
-        """Unwrap a Feature to a StateUsage, if possible."""
-        visited = set()
-        while x is not None and id(x) not in visited:
-            visited.add(id(x))
-
-            if isinstance(x, syside.StateUsage):
-                return x
-
-            nxt = getattr(x, "feature_target", None)
-            if nxt is None or nxt is x:
-                return None
-            x = nxt
-        return None
-
-    def get_target(
-        container: syside.StateDefinition | syside.StateUsage | None,
-    ) -> syside.StateUsage | None:
-        """Return the initial target of a container."""
-        # Coverage of case:
-        # - Case 0: "entry; then <state>;"
-        # - Case 1: "first start then <state>;"
-        valid_types = (syside.StateDefinition, syside.StateUsage)
-        if not isinstance(container, valid_types):
-            return None
-
-        entry = getattr(container, "entry_action", None)
-        for feat in container.owned_features.collect():
-            if not isinstance(feat, syside.SuccessionAsUsage):
-                continue
-
-            is_entry = entry and getattr(
-                feat.source, "qualified_name", None
-            ) == getattr(entry, "qualified_name", None)
-            is_start = feat.source and (
-                getattr(feat.source, "name", None) == "start"
-                or str(getattr(feat.source, "qualified_name", None)).endswith(
-                    "::start"
-                )
-            )
-
-            if not is_entry and not is_start:
-                continue
-
-            for target in feat.targets.collect():
-                if tgt := unwrap_to_stateusage(target):
-                    return tgt
-
-        return None
-
-    # ----
-    # Searching for initial target declared by the container itself
-    # ----
-    initial_target = get_target(container)
+    initial_target = _declared_initial_target(container)
 
     if initial_target:
         if getattr(initial_target, "owner", None) != container:
