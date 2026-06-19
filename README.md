@@ -71,19 +71,34 @@ construct-by-construct mapping is documented in `docs/rosetta-mapping.md`,
 and `docs/showcase-corpus.md` describes the corpus, including the two
 flagship case studies, milling-workcell and batch-reactor):
 
-```bash
-sysmlc rosetta build models/showcase/milling-workcell \
-  -e MillingWorkcell::MillingWorkcell -o out/
-```
+ ```bash
+ sysmlc rosetta build models/showcase/milling-workcell \
+   -e MillingWorkcell::millingWorkcellSystem -o out/
+ ```
 
-Attribute initial values can be overridden at build time from a
-hierarchical YAML file (nesting mirrors qualified names; works with any
-backend):
+ When a model has exactly one top-level part usage, `--element` can be omitted
+ and the CLI auto-selects the system target:
 
-```bash
-sysmlc rosetta build models/showcase/thermostat -e Thermostat::Thermostat \
-  --values models/showcase/thermostat/values.yaml -o out/
-```
+ ```bash
+ sysmlc rosetta build models/showcase/milling-workcell -o out/
+ ```
+
+ To build only a bare state machine, select the state definition directly:
+
+ ```bash
+ sysmlc rosetta build models/showcase/milling-workcell \
+   -e MillingWorkcell::MillingWorkcellBehavior -o out/
+ ```
+
+ Attribute initial values can be overridden at build time from a hierarchical
+ YAML file when building a state definition (nesting mirrors qualified names;
+ works with any backend):
+
+ ```bash
+ sysmlc rosetta build models/showcase/thermostat \
+   -e Thermostat::ThermostatBehavior \
+   --values models/showcase/thermostat/values.yaml -o out/
+ ```
 
 To explore a plant model's structure and OPC-UA metadata (the `ice-lab` model):
 
