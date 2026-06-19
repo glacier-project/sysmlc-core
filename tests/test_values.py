@@ -99,7 +99,9 @@ def test_load_values_rejects_bad_yaml(tmp_path: Path) -> None:
 
 
 def test_select_values_walks_qualified_name() -> None:
-    tree = {"Pkg": {"Machine": {"setpoint": 23.0, "pt": {"x": 0.7}}}}
+    tree: dict[str, object] = {
+        "Pkg": {"Machine": {"setpoint": 23.0, "pt": {"x": 0.7}}}
+    }
     assert select_values(tree, "Pkg::Machine") == {
         "setpoint": 23.0,
         "pt": {"x": 0.7},
@@ -107,19 +109,19 @@ def test_select_values_walks_qualified_name() -> None:
 
 
 def test_select_values_missing_element_is_empty() -> None:
-    tree = {"Pkg": {"Machine": {"setpoint": 23.0}}}
+    tree: dict[str, object] = {"Pkg": {"Machine": {"setpoint": 23.0}}}
     assert select_values(tree, "Pkg::Other") == {}
     assert select_values(tree, "Other::Machine") == {}
 
 
 def test_select_values_rejects_scalar_entry() -> None:
-    tree = {"Pkg": {"Machine": 5}}
+    tree: dict[str, object] = {"Pkg": {"Machine": 5}}
     with pytest.raises(ValuesError, match="map attribute names"):
         select_values(tree, "Pkg::Machine")
 
 
 def test_select_values_rejects_non_scalar_leaf() -> None:
-    tree = {"Pkg": {"Machine": {"setpoint": [1, 2]}}}
+    tree: dict[str, object] = {"Pkg": {"Machine": {"setpoint": [1, 2]}}}
     with pytest.raises(ValuesError, match="scalar"):
         select_values(tree, "Pkg::Machine")
 

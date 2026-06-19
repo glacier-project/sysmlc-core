@@ -247,7 +247,9 @@ def test_build_applies_values_overrides(
         for m in machine.owned_members.collect()
         if isinstance(m, syside.AttributeUsage)
     ]
-    assert speed.feature_value_expression.value == 2.5
+    fve = speed.feature_value_expression
+    assert isinstance(fve, syside.LiteralRational)
+    assert fve.value == 2.5
 
 
 def test_build_rejects_unknown_value_override(
