@@ -20,15 +20,6 @@ def model() -> syside.Model:
     return load_model(FIXTURES_DIR)
 
 
-def test_after_combined_with_guard_is_rejected(model: syside.Model) -> None:
-    """`accept after` plus an `if` guard is rejected (sismic `after` is
-    monotonic, so the combination would be unsound)."""
-    with pytest.raises(
-        UnsupportedConstructError, match=r"combined with an `if` guard"
-    ):
-        build_statechart(model, "Rejections::MachineAfterGuard")
-
-
 def test_eventless_self_loop_is_rejected(model: syside.Model) -> None:
     """An eventless self-loop transition would never stabilize."""
     with pytest.raises(UnsupportedConstructError, match=r"never stabilize"):

@@ -3,7 +3,11 @@ from __future__ import annotations
 import syside
 
 from sysmlc.semantics.statemachine import states
-from sysmlc.semantics.statemachine.facts import CompletionTarget, TransitionFact
+from sysmlc.semantics.statemachine.facts import (
+    CompletionTarget,
+    TransitionFact,
+    WhenTrigger,
+)
 
 
 def container_transitions(
@@ -70,12 +74,18 @@ def target(
 def self_loop_is_unstable(transition: TransitionFact) -> bool:
     """Whether a self-loop transition has nothing to gate it.
 
-    A sismic-oriented opt-in check: a transition whose source equals its target
-    with no event, no timer/guard, and no effect would never stabilize.
+    A sismic-oriented opt-in check: a transition whose source equals its
+    target never stabilizes when nothing breaks the loop. A signal or time
+    trigger breaks it; a change trigger does not.
     """
-    return (
+    if not (
         isinstance(transition.target, str)
         and transition.source == transition.target
-        and transition.trigger is None
-        and (transition.guard is None or transition.effect is None)
-    )
+    ):
+        return False
+    trigger = transition.trigger
+    if trigger is None:
+        return transition.guard is None or transition.effect is None
+    if isinstance(trigger, WhenTrigger):
+        return transition.effect is None
+    return False

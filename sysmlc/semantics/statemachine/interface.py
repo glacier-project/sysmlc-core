@@ -19,9 +19,9 @@ from sysmlc.semantics.statemachine import actions
 from sysmlc.semantics.statemachine.driver import StateMachineDriver
 from sysmlc.semantics.statemachine.facts import (
     AttributeBinding,
+    SignalTrigger,
     StateFact,
     TransitionFact,
-    TriggerKind,
 )
 
 
@@ -68,8 +68,7 @@ class SignalInterfaceCollector:
     def add_transition(self, transition: TransitionFact) -> None:
         """Record a signal trigger; scan the effect for sends."""
         trigger = transition.trigger
-        if trigger is not None and trigger.kind is TriggerKind.SIGNAL:
-            assert trigger.signal_name is not None
+        if isinstance(trigger, SignalTrigger):
             self._accepted.add(trigger.signal_name)
             self._accepted_via[trigger.via_port].add(trigger.signal_name)
         self._scan(transition.effect)

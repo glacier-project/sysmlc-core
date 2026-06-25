@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import ast
 import logging
 import sys
 import time
@@ -272,51 +271,23 @@ def main() -> int:
     return 0
 
 
-def _guard_calls_after(guard: str) -> bool:
-    """Whether ``guard`` calls sismic's bare ``after()`` time helper.
-
-    Parses the guard as a Python expression and looks for a call to a
-    bare ``after`` function -- the form the sismic backend emits for a
-    relative time trigger (``accept after <duration>``).
-    A guard that does not parse as a Python
-    expression falls back to the substring test.
-
-    Args:
-        guard: A transition guard's emitted Python source.
-
-    Returns:
-        ``True`` if the guard calls a bare ``after(...)`` function.
-    """
-    try:
-        tree = ast.parse(guard, mode="eval")
-    except SyntaxError:
-        return "after(" in guard
-    return any(
-        isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name)
-        and node.func.id == "after"
-        for node in ast.walk(tree)
-    )
-
-
 def _has_timer(statechart: Statechart) -> bool:
-    """Whether any transition guard uses sismic's ``after()`` time helper.
+    """Whether any transition is driven by a generated time-trigger event.
 
-    The sismic backend emits a relative time trigger (``accept after
-    <duration>``) as an ``after(...)`` guard. Its presence is what tells
-    the runner to drive the clock in real time rather than evaluate the
-    machine once at t=0.
+    The sismic backend emits a time trigger as a one-shot delayed internal
+    event named with the reserved ``_tick_`` prefix. Its presence is what
+    tells the runner to drive the clock in real time rather than evaluate
+    the machine once at t=0.
 
     Args:
         statechart: A built ``sismic.model.Statechart``.
 
     Returns:
-        ``True`` if at least one transition guard calls ``after(...)``.
+        ``True`` if at least one transition triggers on a ``_tick_*`` event.
     """
     return any(
-        _guard_calls_after(transition.guard)
+        transition.event is not None and transition.event.startswith("_tick_")
         for transition in statechart.transitions
-        if transition.guard
     )
 
 
@@ -326,7 +297,7 @@ def _run_realtime(
     """Drive ``interpreter`` in real time and return its trace.
 
     The interpreter's clock auto-advances (it must already be started),
-    so ``after(...)`` guards come due on their own. The loop processes a
+    so delayed ``_tick_*`` events come due on their own. The loop processes a
     macro step whenever one is ready and sleeps briefly otherwise. It
     ends when the machine reaches a final configuration or
     ``max_wall_seconds`` of wall-clock time elapse, whichever comes
@@ -387,9 +358,9 @@ def run_one(
 ) -> None:
     """Build, execute, and persist the statechart for ``state_def_qn``.
 
-    A statechart with a time trigger (an ``after(...)`` guard) is run in
-    real time so the timer fires on its own; any other statechart is
-    evaluated once at t=0. Writes the statechart YAML and the PlantUML
+    A statechart with a time trigger (a delayed ``_tick_*`` event) is run
+    in real time so the deadline comes due on its own; any other statechart
+    is evaluated once at t=0. Writes the statechart YAML and the PlantUML
     diagram to ``output/sismic/<folder_name>/``.
 
     Args:

@@ -34,6 +34,7 @@ SM_EXAMPLES: list[SmExample] = [
     SmExample("sm11-send-effect"),
     SmExample("sm12-do-action"),
     SmExample("sm13-time-trigger"),
+    SmExample("sm16-change-trigger"),
 ]
 
 SM_EXAMPLES_BY_DIR: dict[str, SmExample] = {e.dir_name: e for e in SM_EXAMPLES}

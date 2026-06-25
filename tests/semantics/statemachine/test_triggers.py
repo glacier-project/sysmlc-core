@@ -4,7 +4,7 @@ import syside
 
 from sysmlc.semantics.statemachine import transitions, triggers
 from sysmlc.semantics.statemachine.driver import StateMachineDriver
-from sysmlc.semantics.statemachine.facts import Trigger, TriggerKind
+from sysmlc.semantics.statemachine.facts import AfterTrigger, SignalTrigger
 from sysmlc.sysml.loading import load_model
 from sysmlc.sysml.queries import resolve
 from tests.test_recording import RecordingBuilder
@@ -28,9 +28,8 @@ def test_after_literal_seconds() -> None:
     stdlib = syside.Stdlib(model.index)
     _, trans = _from_idle(model, "SM13::MachineAfterSeconds")
     trigger = triggers.classify(trans, compiler, stdlib)
-    assert trigger is not None
-    assert trigger.kind is TriggerKind.AFTER
-    assert trigger.after == 5.0
+    assert isinstance(trigger, AfterTrigger)
+    assert trigger.duration == 5.0
 
 
 def test_after_minutes_normalized_to_si() -> None:
@@ -39,8 +38,8 @@ def test_after_minutes_normalized_to_si() -> None:
     stdlib = syside.Stdlib(model.index)
     _, trans = _from_idle(model, "SM13::MachineAfterMinutes")
     trigger = triggers.classify(trans, compiler, stdlib)
-    assert trigger is not None
-    assert trigger.after == 120.0
+    assert isinstance(trigger, AfterTrigger)
+    assert trigger.duration == 120.0
 
 
 def test_after_attribute_reference_keeps_node() -> None:
@@ -49,9 +48,8 @@ def test_after_attribute_reference_keeps_node() -> None:
     stdlib = syside.Stdlib(model.index)
     _, trans = _from_idle(model, "SM13::MachineAfterAttribute")
     trigger = triggers.classify(trans, compiler, stdlib)
-    assert trigger is not None
-    assert trigger.kind is TriggerKind.AFTER
-    assert isinstance(trigger.after, syside.Expression)
+    assert isinstance(trigger, AfterTrigger)
+    assert isinstance(trigger.duration, syside.Expression)
 
 
 def test_signal_trigger_uses_payload_name() -> None:
@@ -60,8 +58,7 @@ def test_signal_trigger_uses_payload_name() -> None:
     stdlib = syside.Stdlib(model.index)
     _, trans = _from_idle(model, "SM02::Machine")
     trigger = triggers.classify(trans, compiler, stdlib)
-    assert trigger is not None
-    assert trigger.kind is TriggerKind.SIGNAL
+    assert isinstance(trigger, SignalTrigger)
     assert trigger.signal_name == "Tick"
 
 
@@ -82,13 +79,13 @@ def _signal_triggers(
     model_dir: str,
     qn: str,
     recording_builder: RecordingBuilder,
-) -> list[Trigger]:
+) -> list[SignalTrigger]:
     model = load_model(SM_DIR / model_dir)
     StateMachineDriver(model).run(qn, recording_builder)
     return [
         t.trigger
         for t in recording_builder.transitions
-        if t.trigger is not None and t.trigger.kind is TriggerKind.SIGNAL
+        if isinstance(t.trigger, SignalTrigger)
     ]
 
 
