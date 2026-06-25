@@ -30,4 +30,44 @@ package Rejections {
         state running;
         transition first idle accept after -5 [s] then running;
     }
+
+    // A state definition without an initial substate cannot be emitted as a
+    // sismic compound state.
+    state def MachineNoInitial {
+        state idle;
+        state running;
+
+        transition first idle then running;
+    }
+
+    // Initial targets must be direct substates. Deep targets would require
+    // decomposing initial choices across multiple sismic compound states.
+    state def MachineDeepInitialQualifiedName {
+        entry; then container::idle;
+
+        state container {
+            state idle;
+            state running;
+        }
+    }
+
+    state def MachineDeepInitialFeatureChain {
+        entry; then container.idle;
+
+        state container {
+            state idle;
+            state running;
+        }
+    }
+
+    state def MachineDeepInitialConflict {
+        entry; then running.hot;
+
+        state running {
+            entry; then warming;
+
+            state warming;
+            state hot;
+        }
+    }
 }

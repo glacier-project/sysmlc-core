@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import syside
 
+from sysmlc.errors import UnsupportedConstructError
 from sysmlc.semantics.statemachine.facts import StateKind
 
 
@@ -48,31 +49,63 @@ def is_done_target(feature_target: syside.Feature) -> bool:
     return str(feature_target.qualified_name) == "States::StateAction::done"
 
 
+def _is_initial_source(
+    container: syside.StateDefinition | syside.StateUsage,
+    source: syside.Feature | None,
+) -> bool:
+    """Whether ``source`` is a supported initial-selection source."""
+    entry = container.entry_action
+    if entry is not None and source == entry:
+        return True
+    if source is None:
+        return False
+    return str(source.qualified_name) == "States::StateAction::start"
+
+
+def _target_state(
+    succession: syside.SuccessionAsUsage,
+) -> syside.StateUsage | None:
+    """Return the first StateUsage target of a succession, if any."""
+    for target_feature in succession.target_features.collect():
+        target = target_feature.feature_target
+        if isinstance(target, syside.StateUsage):
+            return target
+    return None
+
+
+def _declared_initial_target(
+    container: syside.StateDefinition | syside.StateUsage,
+) -> syside.StateUsage | None:
+    """Return the initial target declared directly by ``container``."""
+    for feature in container.owned_features.collect():
+        if not isinstance(feature, syside.SuccessionAsUsage):
+            continue
+        if not _is_initial_source(container, feature.source_feature):
+            continue
+        target = _target_state(feature)
+        if target is not None:
+            return target
+    return None
+
+
 def resolve_initial(
     container: syside.StateDefinition | syside.StateUsage,
 ) -> syside.StateUsage:
-    """Resolve the initial substate selected by a container's entry.
+    """Resolve the initial substate selected by a container.
 
     Raises:
-        ValueError: If no entry pseudostate is declared, or if no succession
-            from the entry pseudostate to a ``StateUsage`` can be found.
+        ValueError: If no initial state is declared.
     """
-    entry = container.entry_action
-    if entry is None:
-        raise ValueError(
-            f"State {container.qualified_name} has no entry "
-            "pseudostate; expected an `entry; then <state>;` declaration."
-        )
-    for feat in container.owned_features.collect():
-        if not isinstance(feat, syside.SuccessionAsUsage):
-            continue
-        if feat.source is not entry:
-            continue
-        for target in feat.targets.collect():
-            if isinstance(target, syside.StateUsage):
-                return target
-    raise ValueError(
-        f"No entry succession found for state "
-        f"{container.qualified_name}; expected an "
-        f"`entry; then <state>;` declaration."
-    )
+    initial_target = _declared_initial_target(container)
+
+    if initial_target:
+        if getattr(initial_target, "owner", None) != container:
+            raise UnsupportedConstructError(
+                "Initial target "
+                f"{initial_target.qualified_name} is not a direct substate "
+                f"of {container.qualified_name}. Only direct initial "
+                "substates are supported."
+            )
+        return initial_target
+
+    raise ValueError(f"No initial state for {container.qualified_name}")

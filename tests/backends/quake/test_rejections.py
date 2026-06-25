@@ -39,3 +39,26 @@ def test_negative_after_duration_is_rejected(model: syside.Model) -> None:
     """An `accept after` duration must be finite and non-negative."""
     with pytest.raises(ValueError, match=r"finite, non-negative"):
         build_statechart(model, "Rejections::MachineNegDuration")
+
+
+def test_missing_initial_state_is_rejected(model: syside.Model) -> None:
+    """A state definition without an initial substate fails loudly."""
+    with pytest.raises(ValueError, match="No initial state for"):
+        build_statechart(model, "Rejections::MachineNoInitial")
+
+
+@pytest.mark.parametrize(
+    "machine_qn",
+    [
+        "Rejections::MachineDeepInitialQualifiedName",
+        "Rejections::MachineDeepInitialFeatureChain",
+        "Rejections::MachineDeepInitialConflict",
+    ],
+)
+def test_deep_initial_targets_are_rejected(
+    model: syside.Model,
+    machine_qn: str,
+) -> None:
+    """Initial targets must resolve to direct substates."""
+    with pytest.raises(UnsupportedConstructError, match="direct substate"):
+        build_statechart(model, machine_qn)

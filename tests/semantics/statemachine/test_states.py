@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytest
 import syside
 
 from sysmlc.semantics.statemachine import states
@@ -40,3 +41,25 @@ def test_resolve_initial_returns_state_usage() -> None:
     initial = states.resolve_initial(machine)
     assert isinstance(initial, syside.StateUsage)
     assert initial.name == "idle"
+
+
+def test_resolve_initial_does_not_treat_user_state_start_as_initial(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "model.sysml").write_text(
+        """
+        package Test {
+            state def Machine {
+                state start;
+                state idle;
+
+                first start then idle;
+            }
+        }
+        """
+    )
+    model = load_model(tmp_path)
+    machine = resolve(model, syside.StateDefinition, "Test::Machine")
+
+    with pytest.raises(ValueError, match="No initial state for"):
+        states.resolve_initial(machine)

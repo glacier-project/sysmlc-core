@@ -10,37 +10,38 @@ Status of every construct, implemented and planned. **Done**: implemented.
 Limitation callout. **Being replaced**: implemented, but the current emission
 was found unfaithful. **Not yet**: not implemented.
 
-| Construct                                                            | Status          | Notes                                                                                                                |
-| -------------------------------------------------------------------- | --------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `state def` → statechart                                             | Done            |                                                                                                                      |
-| `entry; then X` → `initial`                                          | Done, to refine | the `first start then X` spelling is rejected (coverage gap)                                                         |
-| leaf `state` → basic state                                           | Done            |                                                                                                                      |
-| composite `state` → nested state                                     | Done            |                                                                                                                      |
-| `parallel` → orthogonal state                                        | Done            |                                                                                                                      |
-| `then done` → final state                                            | Done            |                                                                                                                      |
-| attribute value → `preamble`                                         | Done, to refine | `=`/`constant` guarantees not enforced; bound expressions snapshotted                                                |
-| composite attribute → namespace                                      | Done, to refine | usage-site redefinitions and bindings ignored                                                                        |
-| bare `transition first A then B`                                     | Done            |                                                                                                                      |
-| transition into a nested state (`then running.hot`)                  | Done            | enters the composite bypassing its default entry; documented pair still missing in this file                         |
-| transition spellings (`then X;`, `accept E then X;` in a state body) | Done, to refine | the standalone `first A then B;` succession (no `transition` keyword) is silently dropped                            |
-| `accept E` (signal) → `event`                                        | Done, to refine | `via` port dropped; payload binding not readable                                                                     |
-| `if` guard → `guard`                                                 | Done            |                                                                                                                      |
-| `accept after` (time)                                                | Being replaced  | emitted as an `after()` guard today, unfaithful with `if` guards and self-loops; one-shot event replacement designed |
-| `accept at` (time)                                                   | Not yet         | rejected today; replacement designed                                                                                 |
-| `accept when` (change)                                               | Not yet         | rejected today; replacement designed                                                                                 |
-| `entry`/`exit` actions                                               | Done, to refine | referencing form (`entry helper;`) silently dropped                                                                  |
-| `do` action (terminating body)                                       | Done            | ongoing bodies (`accept`, loops) rejected for now                                                                    |
-| transition effect → `action`                                         | Done, to refine | referencing form silently dropped                                                                                    |
-| `send` → `send(...)`                                                 | Done, to refine | `via` port dropped                                                                                                   |
-| enum literals → Python `Enum`                                        | Not yet         |                                                                                                                      |
-| referenced / performed actions                                       | Not yet         | `entry helper;`, `do A;`, perform in any action slot: fixes the silent drops of the entry/exit and effect rows       |
-| readable accept payload                                              | Not yet         | payload references emitted as `event.<field>`: fixes the `accept E` row's gap                                        |
-| `assert constraint` in a state                                       | Not yet         | asserted constraint usages become sismic `invariants`, checked while the state is active                             |
-| `assert constraint` on a transition                                  | Not yet         | asserted constraint usages become sismic preconditions/postconditions, checked around the firing                     |
-| exhibit / entry point                                                | Not yet         | build the statechart from an exhibited state usage, not only a `state def`                                           |
-| submachine reuse (`state s1 : Sub;`)                                 | Not yet         | a state usage typed by a `state def`; today it is **silently flattened** to a leaf, losing the def's whole content   |
-| ongoing `do` activities                                              | Not yet         | event-gated and time-gated do-loops, mixed control loops                                                             |
-| multi-machine simulation                                             | Not yet         | addressing, dispatch-once and scheduling over sismic's `bind()`                                                      |
+| Construct                                                            | Status          | Notes                                                                                                                      |
+| -------------------------------------------------------------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `state def` → statechart                                             | Done            |                                                                                                                            |
+| `entry; then X` → `initial`                                          | Done, to refine | only simple state targets are currently supported. Qualified-name targets (nested-state paths) are rejected (coverage gap) |
+| `first start then X` → `initial`                                     | Done, to refine | only simple state targets are currently supported. Qualified-name targets (nested-state paths) are rejected (coverage gap) |
+| leaf `state` → basic state                                           | Done            |                                                                                                                            |
+| composite `state` → nested state                                     | Done            |                                                                                                                            |
+| `parallel` → orthogonal state                                        | Done            |                                                                                                                            |
+| `then done` → final state                                            | Done            |                                                                                                                            |
+| attribute value → `preamble`                                         | Done, to refine | `=`/`constant` guarantees not enforced; bound expressions snapshotted                                                      |
+| composite attribute → namespace                                      | Done, to refine | usage-site redefinitions and bindings ignored                                                                              |
+| bare `transition first A then B`                                     | Done            |                                                                                                                            |
+| transition into a nested state (`then running.hot`)                  | Done            | enters the composite bypassing its default entry; documented pair still missing in this file                               |
+| transition spellings (`then X;`, `accept E then X;` in a state body) | Done, to refine | the standalone `first A then B;` succession (no `transition` keyword) is silently dropped                                  |
+| `accept E` (signal) → `event`                                        | Done, to refine | `via` port dropped; payload binding not readable                                                                           |
+| `if` guard → `guard`                                                 | Done            |                                                                                                                            |
+| `accept after` (time)                                                | Being replaced  | emitted as an `after()` guard today, unfaithful with `if` guards and self-loops; one-shot event replacement designed       |
+| `accept at` (time)                                                   | Not yet         | rejected today; replacement designed                                                                                       |
+| `accept when` (change)                                               | Not yet         | rejected today; replacement designed                                                                                       |
+| `entry`/`exit` actions                                               | Done, to refine | referencing form (`entry helper;`) silently dropped                                                                        |
+| `do` action (terminating body)                                       | Done            | ongoing bodies (`accept`, loops) rejected for now                                                                          |
+| transition effect → `action`                                         | Done, to refine | referencing form silently dropped                                                                                          |
+| `send` → `send(...)`                                                 | Done, to refine | `via` port dropped                                                                                                         |
+| enum literals → Python `Enum`                                        | Not yet         |                                                                                                                            |
+| referenced / performed actions                                       | Not yet         | `entry helper;`, `do A;`, perform in any action slot: fixes the silent drops of the entry/exit and effect rows             |
+| readable accept payload                                              | Not yet         | payload references emitted as `event.<field>`: fixes the `accept E` row's gap                                              |
+| `assert constraint` in a state                                       | Not yet         | asserted constraint usages become sismic `invariants`, checked while the state is active                                   |
+| `assert constraint` on a transition                                  | Not yet         | asserted constraint usages become sismic preconditions/postconditions, checked around the firing                           |
+| exhibit / entry point                                                | Not yet         | build the statechart from an exhibited state usage, not only a `state def`                                                 |
+| submachine reuse (`state s1 : Sub;`)                                 | Not yet         | a state usage typed by a `state def`; today it is **silently flattened** to a leaf, losing the def's whole content         |
+| ongoing `do` activities                                              | Not yet         | event-gated and time-gated do-loops, mixed control loops                                                                   |
+| multi-machine simulation                                             | Not yet         | addressing, dispatch-once and scheduling over sismic's `bind()`                                                            |
 
 ## How to read this
 
@@ -214,10 +215,46 @@ it is simply empty, so `entry; then X;` only selects the initial substate. Given
 a body, the same slot runs code on entry (`entry action` / `entry assign`,
 Section 4), and it can carry a body and a `then` together.
 
-> ⚠️ **Boundary:** the default entry must be written `entry; then X`. The other
-> SysML spelling, `first start then X`, is **rejected** fail-loud. This is a coverage gap.
+> ⚠️ **Boundary:** the initial target must currently be a simple state name.
+> Qualified-name targets that reference nested states are rejected.
+> This is a coverage gap.
 
-### 1.3 leaf `state` → basic state
+### 1.3 `first start then X;` → the root's `initial`
+
+*Corpus: [`sm01-helloworld`](../models/sm-examples/sm01-helloworld/sm01.sysml)*
+
+*Spec: SysML 7.18.1, 7.18.2 (entry action and target succession); KerML 9.2.11.1
+(state performances)*
+
+SysML provides an alternative spelling for selecting the first active substate:
+`first start then idle;`. The `start` performance represents the activation of
+the enclosing state, and the succession to `idle` makes that substate become
+active first. This carries the same meaning as `entry; then idle;` and maps to
+the composite state's `initial`.
+
+```sysml
+state def Machine {
+    first start then idle;
+    state idle;
+    ...
+}
+```
+
+```yaml
+root state:
+  initial: idle
+  name: Machine
+  # ...
+```
+
+*Why:* every SysML state has an implicit `start` performance.
+`first start then X;` expresses the transition from this default initial point to the actual first substate `X`.
+
+> ⚠️ **Boundary:** the initial target must currently be a simple state name.
+> Qualified-name targets that reference nested states are rejected.
+> This is a coverage gap.
+
+### 1.4 leaf `state` → basic state
 
 *Corpus: [`sm01-helloworld`](../models/sm-examples/sm01-helloworld/sm01.sysml)*
 
@@ -236,7 +273,7 @@ state running;
 - {name: running}
 ```
 
-### 1.4 composite `state X { ... }` → nested composite state
+### 1.5 composite `state X { ... }` → nested composite state
 
 *Corpus: [`sm08-nested-composite`](../models/sm-examples/sm08-nested-composite/sm08.sysml)*
 
@@ -280,7 +317,7 @@ own identifier: `warming` inside `running` is named `running::warming` (and
 `running::warming::low` one level deeper). That keeps state names unique when two
 composites reuse the same identifiers, like `groupA::active` vs `groupB::active`.
 
-### 1.5 `parallel` → orthogonal state
+### 1.6 `parallel` → orthogonal state
 
 *Corpus: [`sm09-parallel`](../models/sm-examples/sm09-parallel/sm09.sysml)*
 
@@ -341,7 +378,7 @@ active at once), so there is no single substate for the orthogonal state to begi
 in. A plain composite state, by contrast, has one active substate at a time, so
 it does need a single `initial`.
 
-### 1.6 `then done` → final state
+### 1.7 `then done` → final state
 
 *Corpus: [`sm10-done`](../models/sm-examples/sm10-done/sm10.sysml)*
 
