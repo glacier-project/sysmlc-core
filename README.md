@@ -56,11 +56,11 @@ model = load_syside_model("models/sm-examples/sm01-helloworld")
 statechart = build_statechart(model, "SM01::Machine")
 ```
 
-A unified `sysmlc` CLI is planned to build for any back-end:
+The `sysmlc` CLI exposes one build command per backend:
 
 ```bash
-# planned
-sysmlc build models/sm-examples/sm01-helloworld --backend quake
+sysmlc quake build models/sm-examples/sm01-helloworld \
+  -e SM01::Machine -o out/
 ```
 
 Translate a state machine to a Lingua Franca modal-reactor program with the
@@ -68,8 +68,7 @@ Translate a state machine to a Lingua Franca modal-reactor program with the
 the supported construct set (enums, parameters, payloads, function calls,
 hierarchy, parallel regions, and asserted constraints — the full
 construct-by-construct mapping is documented in `docs/rosetta-mapping.md`,
-and `docs/showcase-corpus.md` describes the corpus, including the two
-flagship case studies, milling-workcell and batch-reactor):
+including the showcase case studies):
 
 ```bash
 sysmlc rosetta build models/showcase/milling-workcell \
