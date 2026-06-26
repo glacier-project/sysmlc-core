@@ -43,6 +43,16 @@ _COMPARISON_OPERATORS: Final[frozenset[syside.Operator]] = frozenset(
     }
 )
 
+# Maps a fully-qualified SysML function name to the Python call target.
+_LIBRARY_FUNCTIONS: Final[dict[str, str]] = {
+    "NumericalFunctions::abs": "abs",
+    "NumericalFunctions::max": "max",
+    "NumericalFunctions::min": "min",
+    "TrigFunctions::sin": "math.sin",
+    "TrigFunctions::cos": "math.cos",
+    "TrigFunctions::tan": "math.tan",
+}
+
 
 def join_statements(actions: list[str]) -> str:
     """Join emitted action sources in declaration order."""
@@ -278,10 +288,79 @@ class PythonCodeGen:
             return self._emit_feature_chain(expr)
         if isinstance(expr, syside.OperatorExpression):
             return self._emit_operator(expr, parent_precedence)
+        if isinstance(expr, syside.InvocationExpression):
+            return self._emit_invocation(expr)
         if isinstance(expr, syside.FeatureReferenceExpression):
             return self._emit_feature_reference(expr)
 
         raise ValueError(f"unsupported expression node: {type(expr).__name__}")
+
+    def _emit_invocation(self, expr: syside.InvocationExpression) -> str:
+        """Emit a supported library function call; reject anything else."""
+        library_call = self._emit_library_invocation(expr)
+        if library_call is not None:
+            return library_call[0]
+        func = expr.function
+        qn = None if func is None else func.qualified_name
+        raise PythonCodeGenError(
+            f"function {qn or '<unresolved>'!s} is not in Python codegen's "
+            "supported set.",
+            node=expr,
+        )
+
+    def _emit_library_invocation(
+        self, expr: syside.InvocationExpression
+    ) -> tuple[str, bool] | None:
+        """Emit a supported shared library function call.
+
+        Non-operator invocations are atoms, so no precedence wrapping is
+        needed.
+
+        Args:
+            expr: The invocation expression to translate.
+
+        Returns:
+            ``(source, needs_math)`` for supported shared library calls, or
+            ``None`` when the invocation is not in the shared supported set.
+        """
+        func = expr.function
+        qn = None if func is None else func.qualified_name
+        target = None if qn is None else _LIBRARY_FUNCTIONS.get(str(qn))
+        if target is None:
+            return None
+        args = ", ".join(
+            self._emit(argument, 0) for argument in expr.arguments.collect()
+        )
+        return f"{target}({args})", target.startswith("math.")
+
+    def _emit_external_calculation_invocation(
+        self,
+        expr: syside.InvocationExpression,
+        *,
+        external_module: str | None,
+        external_names: frozenset[str],
+        used_external: set[str],
+    ) -> str | None:
+        """Emit a simple-name-backed external calc-def call, if applicable."""
+        func = expr.function
+        if not (
+            isinstance(func, syside.CalculationDefinition)
+            and func.name is not None
+        ):
+            return None
+        if func.name in external_names:
+            used_external.add(func.name)
+            args = ", ".join(
+                self._emit(argument, 0) for argument in expr.arguments.collect()
+            )
+            return f"{func.name}({args})"
+        if external_module is not None:
+            raise UnsupportedConstructError(
+                f"calc def {func.name!r} has no backing function in "
+                f"--python module {external_module!r}.",
+                node=expr,
+            )
+        return None
 
     def _emit_literal_boolean(self, expr: syside.LiteralBoolean) -> str:
         """Emit a boolean literal as ``"True"`` or ``"False"``.
