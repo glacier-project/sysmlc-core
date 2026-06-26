@@ -88,6 +88,10 @@ class SismicBuilder:
       guarded by the flag and the condition, and, with an ``if`` guard, a
       negative-priority internal consumer transition that disarms the flag
       when the occurrence is rejected;
+    - the named-payload aliasing: a signal accepter that binds its payload
+      (``accept reading : Measurement``) renders references to that binding
+      against sismic's runtime ``event``, so ``reading.value`` becomes
+      ``event.value``;
     - the capability rejections: non-inline ``do`` bodies, unstable
       self-loops, and model names starting with ``_``.
 

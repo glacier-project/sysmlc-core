@@ -23,8 +23,9 @@ Limitation callout. **Not yet**: not implemented.
 | bare `transition first A then B`                                     | **Done**        |                                                                                                                     |
 | transition into a nested state (`then running.hot`)                  | **Done**        | enters the composite bypassing its default entry; documented pair still missing in this file                        |
 | transition spellings (`then X;`, `accept E then X;` in a state body) | Done, to refine | the standalone `first A then B;` succession (no `transition` keyword) is silently dropped                           |
-| `accept E` (signal) → `event`                                        | Done, to refine | `via` port dropped; payload binding not readable                                                                    |
+| `accept E` (signal) → `event`                                        | Done, to refine | `via` port dropped                                                                                                  |
 | `if` guard → `guard`                                                 | **Done**        |                                                                                                                     |
+| `accept reading : E` payload → `event.<field>`                       | Done, to refine | field references aliased to sismic's `event`; a bare payload reference (the whole occurrence) is not                |
 | `accept after` (time)                                                | **Done**        | one-shot delayed `_tick_*` event armed on entry; composes with `if` guards and self-loops                           |
 | `accept at` (time)                                                   | **Done**        | one-shot delayed `_tick_*` event using `_d_* = instant - time`; past instants do not fire                           |
 | `accept when` (change)                                               | Done, to refine | armed flag plus consumer transition; the condition is sampled once per macro step, so an inter-step pulse is missed |
@@ -34,7 +35,6 @@ Limitation callout. **Not yet**: not implemented.
 | `send` → `send(...)`                                                 | Done, to refine | `via` port dropped                                                                                                  |
 | enum literals → Python `Enum`                                        | Not yet         |                                                                                                                     |
 | referenced / performed actions                                       | Not yet         | `entry helper;`, `do A;`, perform in any action slot: fixes the silent drops of the entry/exit and effect rows      |
-| readable accept payload                                              | Not yet         | payload references emitted as `event.<field>`: fixes the `accept E` row's gap                                       |
 | `assert constraint` in a state                                       | Not yet         | asserted constraint usages become sismic `invariants`, checked while the state is active                            |
 | `assert constraint` on a transition                                  | Not yet         | asserted constraint usages become sismic preconditions/postconditions, checked around the firing                    |
 | exhibit / entry point                                                | Not yet         | build the statechart from an exhibited state usage, not only a `state def`                                          |
@@ -722,11 +722,9 @@ transition.
 > machines are simulated together, the port addresses *which* machine receives
 > the transfer. A single statechart has nothing to route between.
 
-> ⚠️ **Limitation:** referencing the payload binding (`accept reading : Reading`
-> then `if reading.value > 0.5`) is **not supported yet**: the reference is
-> emitted as-is and fails at simulation (`name 'reading' is not defined`).
-> Planned support: emit payload references as sismic's `event.<field>`
-> (here `event.value > 0.5`).
+Reading that payload binding in a guard or effect (`accept reading : Reading`
+then `if reading.value > 0.5`) **is** supported: the reference emits as
+`event.value`. See Section 3.7.
 
 ### 3.3 `if <expr>` → `{guard: <python>}`
 
@@ -1154,6 +1152,79 @@ statechart at a glance").
 > ⚠️ **Boundary:** `when` self-loops are currently rejected as a conservative
 > guardrail against non-quiescing `execute()` runs.
 
+### 3.7 `accept reading : E` payload → `event.<field>`
+
+*Corpus: `sm11-send-effect`*
+
+*Spec: SysML 7.17.8 (accept action usages: the payload parameter)*
+
+In SysML, an accepter can **bind its payload**: `accept reading : Measurement`
+names the accepted occurrence `reading`, so the transition's guard and effect can
+read the event's data (`if reading.value > 0.5`, or
+`do assign captured := reading.value`). The reference can chain past a single
+field (`reading.sample.value`).
+
+The accepted occurrence is sismic's runtime `event` object, so the builder
+**aliases the payload binding to `event`**: every reference rooted at the payload
+emits against `event`, so `reading.value` becomes `event.value` and
+`reading.sample.value` becomes `event.sample.value`. The alias is keyed on the
+payload feature's **object identity**, not its name, so a same-named feature in
+another scope never aliases by accident.
+
+```sysml
+state def MachineReadablePayloadGuard {
+    attribute current : Real := 0.9;
+    port commPort;
+    entry;
+        then idle;
+    state idle;
+    state armed;
+    state fired;
+    transition first idle
+        do send new Measurement(current) via commPort
+        then armed;
+    transition first armed
+        accept reading : Measurement via commPort
+        if reading.value > 0.5
+        then fired;
+}
+```
+
+```yaml
+statechart:
+  name: MachineReadablePayloadGuard
+  preamble: current = 0.9
+  root state:
+    initial: idle
+    name: MachineReadablePayloadGuard
+    states:
+    - name: idle
+      transitions:
+      - {action: 'send("Measurement", value=current)', target: armed}
+    - name: armed
+      transitions:
+      - {event: Measurement, guard: event.value > 0.5, target: fired}
+    - {name: fired}
+```
+
+The same aliasing applies in a transition **effect**
+(`do assign captured := reading.value` emits `captured = event.value`) and
+through a **chained** field (`if reading.sample.value > 0.5` emits
+`event.sample.value > 0.5`).
+
+*Why:* sismic delivers the accepted event to the guard/effect namespace under the
+fixed name `event`, so the payload binding has no separate runtime identity.
+Aliasing the SysML binding onto `event` is what lets `reading.value` resolve at
+simulation instead of failing with `name 'reading' is not defined`.
+
+> ⚠️ **Boundary (deferred, not refused):** today only **chained** payload
+> references (`reading.value`, `reading.sample.value`) are aliased; a **bare**
+> reference to the whole occurrence (`reading` alone) is not rewritten yet and
+> would fail at simulation. Field access is the slice supported now. The
+> whole-occurrence case is bundled with the cross-machine / via-port routing
+> still to come (Section 3.2): its canonical use is forwarding the received
+> message onward (`send reading via port`), which needs that routing anyway.
+
 ______________________________________________________________________
 
 ## 4. Actions & effects
@@ -1405,10 +1476,10 @@ statechart:
 
 *Why:* a positional payload argument binds to the item's attribute name as a
 keyword (`Reading { attribute value }` gives `value=current`); a payload-less
-send is just `send("Ping")`. The keyword genuinely travels with the event
-(sismic itself would expose it to guards as `event.value`), but no construct we
-translate can read it yet: the `accept` side's payload binding is not supported
-(limitation in 3.2).
+send is just `send("Ping")`. The keyword travels with the event, and an accepter
+that binds the payload can read it: `accept reading : Reading` then `reading.value`
+emits `event.value` (Section 3.7). This machine's `accept Reading` binds no name,
+so it matches by type and ignores the payload.
 
 > ⚠️ **Limitation:** the `via commPort` receiver is **dropped**, as on the
 > `accept` side (3.2): a port only matters for cross-machine routing, when
