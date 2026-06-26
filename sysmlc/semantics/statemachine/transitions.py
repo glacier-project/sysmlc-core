@@ -76,16 +76,21 @@ def self_loop_is_unstable(transition: TransitionFact) -> bool:
 
     A sismic-oriented opt-in check: a transition whose source equals its
     target never stabilizes when nothing breaks the loop. A signal or time
-    trigger breaks it; a change trigger does not.
+    trigger breaks it. For eventless and change-triggered loops, both a gate
+    and an effect are needed to make quiescence possible; a change trigger's
+    condition counts as a gate.
     """
     if not (
         isinstance(transition.target, str)
         and transition.source == transition.target
     ):
         return False
-    trigger = transition.trigger
-    if trigger is None:
-        return transition.guard is None or transition.effect is None
-    if isinstance(trigger, WhenTrigger):
-        return transition.effect is None
-    return False
+
+    if transition.trigger is not None and not isinstance(
+        transition.trigger, WhenTrigger
+    ):
+        return False
+
+    return transition.effect is None or (
+        transition.trigger is None and transition.guard is None
+    )

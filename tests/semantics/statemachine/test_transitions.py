@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import cast
 
 import syside
 
@@ -7,6 +8,7 @@ from sysmlc.semantics.statemachine.facts import (
     CompletionTarget,
     SignalTrigger,
     TransitionFact,
+    WhenTrigger,
 )
 from sysmlc.sysml.loading import load_model
 from sysmlc.sysml.queries import resolve
@@ -79,3 +81,40 @@ def test_self_loop_detection() -> None:
         effect=None,
     )
     assert transitions.self_loop_is_unstable(to_completion) is False
+
+
+def test_eventless_self_loop_needs_guard_and_effect() -> None:
+    guard = cast("syside.Expression", object())
+    effect = cast("syside.ActionUsage", object())
+
+    with_guard_and_effect = TransitionFact(
+        source="a",
+        target="a",
+        trigger=None,
+        guard=guard,
+        effect=effect,
+    )
+    assert transitions.self_loop_is_unstable(with_guard_and_effect) is False
+
+
+def test_when_self_loop_needs_effect() -> None:
+    effect = cast("syside.ActionUsage", object())
+    trigger = WhenTrigger(condition=cast("syside.Expression", object()))
+
+    without_effect = TransitionFact(
+        source="a",
+        target="a",
+        trigger=trigger,
+        guard=None,
+        effect=None,
+    )
+    assert transitions.self_loop_is_unstable(without_effect) is True
+
+    with_effect = TransitionFact(
+        source="a",
+        target="a",
+        trigger=trigger,
+        guard=None,
+        effect=effect,
+    )
+    assert transitions.self_loop_is_unstable(with_effect) is False
