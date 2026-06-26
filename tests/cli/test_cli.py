@@ -425,6 +425,34 @@ def test_build_with_python_copies_module_and_imports(tmp_path: Path) -> None:
     assert (out / "ext.py").exists()  # copied next to the .lf
 
 
+def test_quake_build_with_python_imports_without_copying(
+    tmp_path: Path,
+) -> None:
+    model = SM_EXAMPLES_DIR / "sm15-external"
+    out = tmp_path / "out"
+    rc = main(
+        [
+            "quake",
+            "build",
+            str(model),
+            "-e",
+            "SM15::Ramp",
+            "-o",
+            str(out),
+            "-f",
+            "yaml",
+            "--python",
+            str(model / "ramp.py"),
+        ]
+    )
+
+    assert rc == 0
+    yaml = (out / "Ramp.yaml").read_text()
+    assert "from ramp import step" in yaml
+    assert "x = step(x, 0.1)" in yaml
+    assert not (out / "ramp.py").exists()
+
+
 def test_build_part_system_emits_main_reactor(tmp_path: Path) -> None:
     out = tmp_path / "out"
     rc = main(
