@@ -12,7 +12,7 @@ from sismic.model import (
     Transition,
 )
 
-from sysmlc.backends.quake.codegen import SismicCodeGen
+from sysmlc.backends.quake.codegen import QuakeRenderNeeds, SismicCodeGen
 from sysmlc.codegen.python import join_statements
 from sysmlc.errors import UnsupportedConstructError
 from sysmlc.semantics.statemachine import actions, transitions
@@ -99,14 +99,24 @@ class SismicBuilder:
     are buffered and the whole statechart is built in :meth:`result`.
     """
 
-    def __init__(self, name: str) -> None:
+    def __init__(
+        self,
+        name: str,
+        *,
+        external: tuple[str, frozenset[str]] | None = None,
+    ) -> None:
         """Initialize the builder.
 
         Args:
             name: The sismic statechart name (the state definition's name).
+            external: Optional ``(module_stem, function_names)`` pair for
+                external calc-def backing.
         """
         self._name = name
-        self._codegen = SismicCodeGen()
+        self._needs = QuakeRenderNeeds()
+        if external is not None:
+            self._needs.register_external(module=external[0], names=external[1])
+        self._codegen = SismicCodeGen(needs=self._needs)
         self._preamble: list[str] = []
         self._needs_namespace = False
         self._seen_attrs: dict[str, str] = {}
@@ -155,8 +165,10 @@ class SismicBuilder:
     def result(self) -> Statechart:
         """Build, validate, and return the assembled sismic statechart."""
         self._plan_triggers()
-        if self._needs_namespace:
-            self._preamble.insert(0, "from types import SimpleNamespace")
+        self._collect_render_needs()
+        imports = self._preamble_import_lines()
+        if imports:
+            self._preamble[0:0] = imports
         statechart = Statechart(
             name=self._name, preamble="\n".join(self._preamble)
         )
@@ -168,6 +180,32 @@ class SismicBuilder:
             )
         statechart.validate()
         return statechart
+
+    def _collect_render_needs(self) -> None:
+        """Render snippets once up front so preamble imports are known."""
+        for state in self._state_facts:
+            self._on_entry(state)
+            self._statements(state.exit_action)
+        for index, transition in enumerate(self._transition_facts):
+            plan = self._planned_triggers.get(index)
+            codegen = self._transition_codegen(transition)
+            if isinstance(plan, _ChangeTriggerPlan):
+                if transition.guard is not None:
+                    codegen.render_expression(transition.guard)
+                self._statements(transition.effect, codegen)
+                continue
+            self._guard(transition, plan, codegen)
+            self._statements(transition.effect, codegen)
+
+    def _preamble_import_lines(self) -> list[str]:
+        """Return import lines needed before seeded context variables."""
+        lines: list[str] = []
+        if self._needs.uses_math:
+            lines.append("import math")
+        if self._needs_namespace:
+            lines.append("from types import SimpleNamespace")
+        lines.extend(self._needs.external_import_lines())
+        return lines
 
     def _plan_triggers(self) -> None:
         """Plan the emitted machinery for time and change triggers.
@@ -460,7 +498,8 @@ class SismicBuilder:
         ):
             return self._codegen
         return SismicCodeGen(
-            feature_aliases=((trigger.payload_feature, "event"),)
+            needs=self._needs,
+            feature_aliases=((trigger.payload_feature, "event"),),
         )
 
     def _final_state(self, statechart: Statechart, scope: str) -> str:
@@ -472,7 +511,12 @@ class SismicBuilder:
         return final_name
 
 
-def build_statechart(model: syside.Model, state_def_qn: str) -> Statechart:
+def build_statechart(
+    model: syside.Model,
+    state_def_qn: str,
+    *,
+    external: tuple[str, frozenset[str]] | None = None,
+) -> Statechart:
     """Build a sismic Statechart from a SysML state definition.
 
     Wires the generic :class:`StateMachineDriver` to a :class:`SismicBuilder`.
@@ -480,9 +524,13 @@ def build_statechart(model: syside.Model, state_def_qn: str) -> Statechart:
     Args:
         model: Loaded syside model containing the SysML state def.
         state_def_qn: Qualified name of the SysML ``state def`` to translate.
+        external: Optional ``(module_stem, function_names)`` pair for
+            external calc-def backing.
 
     Returns:
         A sismic ``Statechart`` ready to feed into ``Interpreter``.
     """
     name = state_def_qn.split("::")[-1]
-    return StateMachineDriver(model).run(state_def_qn, SismicBuilder(name))
+    return StateMachineDriver(model).run(
+        state_def_qn, SismicBuilder(name, external=external)
+    )
