@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, override
+from typing import TYPE_CHECKING, Final, override
 
 import syside
 
@@ -13,6 +13,12 @@ from sysmlc.errors import UnsupportedConstructError
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+
+_QUAKE_LIBRARY_FUNCTIONS: Final[dict[str, str]] = {
+    "TrigFunctions::sin": "sin",
+    "TrigFunctions::cos": "cos",
+    "TrigFunctions::tan": "tan",
+}
 
 
 class QuakeRenderNeeds:
@@ -146,6 +152,21 @@ class SismicCodeGen(PythonCodeGen):
             "supported set.",
             node=expr,
         )
+
+    @override
+    def _emit_library_invocation(
+        self, expr: syside.InvocationExpression
+    ) -> tuple[str, bool] | None:
+        """Emit Quake's directly imported shared library calls."""
+        func = expr.function
+        qn = None if func is None else func.qualified_name
+        target = None if qn is None else _QUAKE_LIBRARY_FUNCTIONS.get(str(qn))
+        if target is None:
+            return super()._emit_library_invocation(expr)
+        args = ", ".join(
+            self._emit(argument, 0) for argument in expr.arguments.collect()
+        )
+        return f"{target}({args})", False
 
     def _feature_alias(self, feature: syside.Feature) -> str | None:
         """Return the runtime alias for ``feature``, if one is configured."""

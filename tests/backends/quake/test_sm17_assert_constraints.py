@@ -61,19 +61,18 @@ def test_constraint_serializes_as_yaml_contract(model: syside.Model) -> None:
     assert "always: level <= 2.0" in text
 
 
-def test_constraint_preamble_uses_copy_safe_math_namespace(
+def test_constraint_preamble_uses_direct_math_import(
     model: syside.Model,
 ) -> None:
     sc = build_statechart(model, "SM17::MachineFunctionViolation")
 
     lines = sc.preamble.splitlines()
-    assert lines[:3] == [
+    assert lines[:2] == [
         "from math import cos, sin, tan",
         "from types import SimpleNamespace",
-        "math = SimpleNamespace(cos=cos, sin=sin, tan=tan)",
     ]
     assert sc.state_for("MachineFunctionViolation").invariants == [
-        "math.cos(x) <= 0.0"
+        "cos(x) <= 0.0"
     ]
 
 
@@ -82,7 +81,7 @@ def test_function_constraint_violation_is_enforced_by_sismic(
 ) -> None:
     sc = build_statechart(model, "SM17::MachineFunctionViolation")
     assert sc.state_for("MachineFunctionViolation").invariants == [
-        "math.cos(x) <= 0.0"
+        "cos(x) <= 0.0"
     ]
 
     interpreter = Interpreter(sc)

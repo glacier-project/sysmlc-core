@@ -38,7 +38,7 @@ def test_builtin_call_effect_renders_and_runs() -> None:
     assert interpreter.context["x"] == 0.0
 
 
-def test_trig_call_renders_math_target_and_imports_math(
+def test_trig_call_renders_direct_math_import(
     tmp_path: Path,
 ) -> None:
     model = _load_inline_model(
@@ -62,6 +62,6 @@ def test_trig_call_renders_math_target_and_imports_math(
 
     sc = build_statechart(model, "TrigCall::Machine")
 
-    assert sc.preamble.splitlines()[0] == "import math"
+    assert sc.preamble.splitlines()[0] == "from math import cos, sin, tan"
     assert sc.preamble.splitlines()[1] == "from types import SimpleNamespace"
-    assert _transition_from(sc, "idle").guard == "math.cos(x) <= 1.0"
+    assert _transition_from(sc, "idle").guard == "cos(x) <= 1.0"

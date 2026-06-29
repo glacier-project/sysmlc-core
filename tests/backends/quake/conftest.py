@@ -9,7 +9,10 @@ from tests.backends.test_sm_examples import (  # noqa: F401  (re-exported)
     SmExample,
 )
 
-QUAKE_PREAMBLE_IMPORTS = ("import math", "from types import SimpleNamespace")
+QUAKE_PREAMBLE_IMPORTS = (
+    "from math import cos, sin, tan",
+    "from types import SimpleNamespace",
+)
 
 
 def quake_preamble(*lines: str) -> str:

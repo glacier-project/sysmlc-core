@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
+from sismic.io import import_from_yaml
 
 from sysmlc.backends import Backend
 from sysmlc.cli import _parse_external, main
@@ -454,11 +455,15 @@ def test_quake_build_with_python_imports_without_copying(
     )
 
     assert rc == 0
-    yaml = (out / "Ramp.yaml").read_text()
-    assert "import math" in yaml
-    assert "from types import SimpleNamespace" in yaml
-    assert "from ext import step" in yaml
-    assert "from ext import unused" in yaml
+    yaml_path = out / "Ramp.yaml"
+    yaml = yaml_path.read_text()
+    sc = import_from_yaml(filepath=str(yaml_path))
+    assert sc.preamble.splitlines()[:4] == [
+        "from math import cos, sin, tan",
+        "from types import SimpleNamespace",
+        "from ext import step",
+        "from ext import unused",
+    ]
     assert "x = step(x, 0.1)" in yaml
     assert not (out / "ext.py").exists()
 
