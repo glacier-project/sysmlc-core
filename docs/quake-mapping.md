@@ -33,6 +33,8 @@ Limitation callout. **Not yet**: not implemented.
 | `do` action (terminating body)                                       | **Done**        | ongoing bodies (`accept`, loops) rejected for now                                                                   |
 | transition effect → `action`                                         | Done, to refine | referencing form silently dropped                                                                                   |
 | `send` → `send(...)`                                                 | Done, to refine | `via` port dropped                                                                                                  |
+| library function calls                                               | **Done**        | `NumericalFunctions::{abs,max,min}` and `TrigFunctions::{sin,cos,tan}` in expression positions                      |
+| external `calc def` calls via `--python`                             | **Done**        | state-definition builds only; imports are serialized in the sismic preamble, the Python module is not copied        |
 | enum literals → Python `Enum`                                        | Not yet         |                                                                                                                     |
 | referenced / performed actions                                       | Not yet         | `entry helper;`, `do A;`, perform in any action slot: fixes the silent drops of the entry/exit and effect rows      |
 | `assert constraint` in a state                                       | Not yet         | asserted constraint usages become sismic `invariants`, checked while the state is active                            |
@@ -1485,3 +1487,92 @@ so it matches by type and ignores the payload.
 > `accept` side (3.2): a port only matters for cross-machine routing, when
 > several state machines are simulated together and the transfer must reach a
 > specific one. A single statechart has nothing to route between.
+
+### 4.6 function calls in expressions
+
+*Corpus: `sm14-call-effect`, `sm15-external`*
+
+Function calls are supported only in expression positions: guards and
+assignment right-hand sides. They are not standalone actions; a `calc def` call
+must appear inside an expression such as `assign x := f(x)`.
+
+The shared Python expression renderer whitelists these standard-library calls:
+
+| SysML qualified name      | Python rendering                     |
+| ------------------------- | ------------------------------------ |
+| `NumericalFunctions::abs` | `abs(...)`                           |
+| `NumericalFunctions::max` | `max(...)`                           |
+| `NumericalFunctions::min` | `min(...)`                           |
+| `TrigFunctions::sin`      | `math.sin(...)` (adds `import math`) |
+| `TrigFunctions::cos`      | `math.cos(...)`                      |
+| `TrigFunctions::tan`      | `math.tan(...)`                      |
+
+```sysml
+state def MachineAssignCall {
+    attribute x : Real := 0.0;
+    entry; then a;
+    state a;
+    state b;
+    transition first a
+        accept after 0.1 [s]
+        do assign x := NumericalFunctions::max(x, 0.0)
+        then b;
+}
+```
+
+```yaml
+statechart:
+  name: MachineAssignCall
+  preamble: "x = 0.0\n_n_a = 0"
+  root state:
+    initial: a
+    name: MachineAssignCall
+    states:
+    - name: a
+      on entry: "_n_a = _n_a + 1\nsend('_tick_a_t1', n=_n_a, delay=0.1)"
+      transitions:
+      - action: x = max(x, 0.0)
+        event: _tick_a_t1
+        guard: event.n == _n_a
+        target: b
+    - {name: b}
+```
+
+External `calc def` calls can be backed with `--python` on quake
+state-definition builds. The CLI parses the Python file for top-level
+synchronous `def` names and matches a SysML `calc def` by simple name.
+
+```sysml
+package P { calc def step { in x : Real; in dt : Real; return : Real; } }
+
+state def Ramp {
+    attribute x : Real := 0.0;
+    entry; then run;
+    state run;
+    transition first run
+        accept after 0.1 [s]
+        do assign x := P::step(x, 0.1)
+        then run;
+}
+```
+
+With `--python ramp.py`, where `ramp.py` declares `def step(x, dt): ...`, the
+statechart preamble imports and uses that function:
+
+```yaml
+preamble: |
+  from ramp import step
+  x = 0.0
+  _n_run = 0
+...
+action: x = step(x, 0.1)
+```
+
+Quake does **not** copy the Python module beside the YAML. The generated
+statechart is not a self-contained Python program; whichever harness executes
+it must make the module importable, for example by running from the model
+directory or by adding the `--python` file's parent directory to `sys.path`.
+
+> ⚠️ **Boundary:** a `calc def` whose simple name is absent from the supplied
+> `--python` module fails loud, naming both the function and the module. Without
+> `--python`, unsupported functions fail as unsupported function calls.

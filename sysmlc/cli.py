@@ -130,8 +130,9 @@ def _add_build_arguments(
     build.add_argument(
         "--python",
         type=Path,
-        help="(rosetta only) a Python file whose top-level functions back "
-        "external calc-def calls; matched to SysML functions by simple name",
+        help="(rosetta/quake state definitions) a Python file whose "
+        "top-level functions back external calc-def calls; matched to SysML "
+        "functions by simple name",
     )
     build.add_argument(
         "--timeout",
@@ -283,7 +284,7 @@ def _cmd_build(args: argparse.Namespace) -> int:
     external: tuple[str, frozenset[str]] | None = None
     python_path = getattr(args, "python", None)
     if python_path is not None:
-        if backend.name != "rosetta":
+        if backend.name not in {"rosetta", "quake"}:
             raise CliError(
                 f"backend {backend.name!r} does not support --python"
             )

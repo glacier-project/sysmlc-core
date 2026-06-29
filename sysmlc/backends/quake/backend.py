@@ -33,9 +33,15 @@ class QuakeBackend(Backend):
         )
 
     @override
-    def build(self, model: syside.Model, element_qn: str) -> object:
+    def build(
+        self,
+        model: syside.Model,
+        element_qn: str,
+        *,
+        external: tuple[str, frozenset[str]] | None = None,
+    ) -> object:
         """Build the Sismic statechart for the given state definition."""
-        return build_statechart(model, element_qn)
+        return build_statechart(model, element_qn, external=external)
 
     @override
     def serialize(self, artifact: object, fmt: str) -> str:

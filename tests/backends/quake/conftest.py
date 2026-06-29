@@ -9,6 +9,13 @@ from tests.backends.test_sm_examples import (  # noqa: F401  (re-exported)
     SmExample,
 )
 
+QUAKE_PREAMBLE_IMPORTS = ("import math", "from types import SimpleNamespace")
+
+
+def quake_preamble(*lines: str) -> str:
+    """Return expected quake preamble text with unconditional imports."""
+    return "\n".join((*QUAKE_PREAMBLE_IMPORTS, *lines))
+
 
 def _discover_all_state_def_qns() -> list[tuple[SmExample, str]]:
     """Eagerly enumerate every ``StateDefinition`` QN in every sm-example.

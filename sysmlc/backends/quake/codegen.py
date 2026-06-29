@@ -9,9 +9,32 @@ from sysmlc.codegen.python import (
     PythonCodeGenContext,
     payload_signature,
 )
+from sysmlc.errors import UnsupportedConstructError
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+
+
+class QuakeRenderNeeds:
+    """Tracks external imports configured for generated sismic snippets."""
+
+    def __init__(self) -> None:
+        self.external_module: str | None = None
+        self.external_names: frozenset[str] = frozenset()
+
+    def register_external(self, *, module: str, names: frozenset[str]) -> None:
+        """Record the --python module and the function names it provides."""
+        self.external_module = module
+        self.external_names = names
+
+    def external_import_lines(self) -> list[str]:
+        """Render sorted imports for all configured external functions."""
+        if self.external_module is None:
+            return []
+        return [
+            f"from {self.external_module} import {name}"
+            for name in sorted(self.external_names)
+        ]
 
 
 class SismicCodeGen(PythonCodeGen):
@@ -21,18 +44,21 @@ class SismicCodeGen(PythonCodeGen):
         self,
         context: PythonCodeGenContext | None = None,
         *,
+        needs: QuakeRenderNeeds | None = None,
         feature_aliases: Sequence[tuple[syside.Feature, str]] = (),
     ) -> None:
         """Initialize the generator.
 
         Args:
             context: General Python rendering context.
+            needs: External import configuration shared by generated snippets.
             feature_aliases: Transition-local feature identities that should
                 render as target runtime names. The comparison is by object
                 identity so same-named SysML features in other scopes do not
                 alias accidentally.
         """
         super().__init__(context)
+        self._needs = needs if needs is not None else QuakeRenderNeeds()
         self._feature_aliases = tuple(feature_aliases)
 
     @override
@@ -98,6 +124,28 @@ class SismicCodeGen(PythonCodeGen):
                 )
             segments.append(feature.name)
         return ".".join(segments)
+
+    @override
+    def _emit_invocation(self, expr: syside.InvocationExpression) -> str:
+        """Emit a shared library call or backend-specific calc-def call."""
+        library_call = self._emit_library_invocation(expr)
+        if library_call is not None:
+            return library_call[0]
+        external_call = self._emit_external_calculation_invocation(
+            expr,
+            external_module=self._needs.external_module,
+            external_names=self._needs.external_names,
+            used_external=None,
+        )
+        if external_call is not None:
+            return external_call
+        func = expr.function
+        qn = None if func is None else func.qualified_name
+        raise UnsupportedConstructError(
+            f"function {qn or '<unresolved>'!s} is not in quake's "
+            "supported set.",
+            node=expr,
+        )
 
     def _feature_alias(self, feature: syside.Feature) -> str | None:
         """Return the runtime alias for ``feature``, if one is configured."""
