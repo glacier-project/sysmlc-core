@@ -27,8 +27,8 @@ def test_scoped_constraint_carries_state_path() -> None:
 
 
 def test_constraint_hook_is_optional() -> None:
-    # A builder without `bind_constraint` (quake's) must keep working on a
-    # model that declares asserted constraints.
+    # A builder without `bind_constraint` must keep working on a model that
+    # declares asserted constraints.
     class _NoHook:
         def bind_attribute(self, binding: object) -> None:
             pass

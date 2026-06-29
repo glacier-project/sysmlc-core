@@ -24,6 +24,7 @@ from sysmlc.semantics.statemachine.facts import (
     AtTrigger,
     CompletionTarget,
     CompositeValue,
+    ConstraintFact,
     SignalTrigger,
     StateFact,
     StateKind,
@@ -119,6 +120,7 @@ class SismicBuilder:
         self._codegen = SismicCodeGen(needs=self._needs)
         self._preamble: list[str] = []
         self._seen_attrs: dict[str, str] = {}
+        self._constraints: list[ConstraintFact] = []
         self._state_facts: list[StateFact] = []
         self._transition_facts: list[TransitionFact] = []
         self._done_finals: set[str] = set()
@@ -153,6 +155,10 @@ class SismicBuilder:
             return
         self._preamble.append(f"{binding.name} = {rendered}")
 
+    def bind_constraint(self, fact: ConstraintFact) -> None:
+        """Buffer an asserted constraint for sismic invariant emission."""
+        self._constraints.append(fact)
+
     def add_state(self, state: StateFact) -> None:
         """Buffer a state fact (emitted in :meth:`result`)."""
         self._state_facts.append(state)
@@ -172,6 +178,7 @@ class SismicBuilder:
         )
         for state in self._state_facts:
             self._emit_state(statechart, state)
+        self._emit_constraints(statechart)
         for index, transition in enumerate(self._transition_facts):
             self._emit_transition(
                 statechart, transition, self._planned_triggers.get(index)
@@ -181,7 +188,14 @@ class SismicBuilder:
 
     def _preamble_import_lines(self) -> list[str]:
         """Return import lines before seeded context variables."""
-        lines = ["import math", "from types import SimpleNamespace"]
+        if self._constraints:
+            lines = [
+                "from math import cos, sin, tan",
+                "from types import SimpleNamespace",
+                "math = SimpleNamespace(cos=cos, sin=sin, tan=tan)",
+            ]
+        else:
+            lines = ["import math", "from types import SimpleNamespace"]
         lines.extend(self._needs.external_import_lines())
         return lines
 
@@ -348,6 +362,14 @@ class SismicBuilder:
             ]
         )
         return rendered or None
+
+    def _emit_constraints(self, statechart: Statechart) -> None:
+        """Attach asserted constraints to their owning sismic states."""
+        for fact in self._constraints:
+            state_name = self._name if fact.scope == "" else fact.scope
+            statechart.state_for(state_name).invariants.append(
+                self._codegen.render_expression(fact.expression)
+            )
 
     def _emit_transition(
         self,
