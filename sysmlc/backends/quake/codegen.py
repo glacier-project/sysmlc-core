@@ -14,6 +14,8 @@ from sysmlc.errors import UnsupportedConstructError
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+# Avoid `import math`: sismic copies the preamble context while checking
+# contracts, and Python modules are not copyable.
 _QUAKE_LIBRARY_FUNCTIONS: Final[dict[str, str]] = {
     "TrigFunctions::sin": "sin",
     "TrigFunctions::cos": "cos",
