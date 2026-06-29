@@ -77,9 +77,11 @@ def classify(
         name = _signal_name(trans)
         if name is None:
             return None
+        payload_name = _payload_name(trans)
         return SignalTrigger(
             signal_name=name,
-            payload_name=_payload_name(trans),
+            payload_name=payload_name,
+            payload_feature=_payload_feature(trans, payload_name),
             via_port=_via_port(trans),
         )
     if invocation.kind is syside.TriggerKind.After:
@@ -161,6 +163,15 @@ def _payload_name(trans: syside.TransitionUsage) -> str | None:
     if param is None:
         return None
     return param.declared_name
+
+
+def _payload_feature(
+    trans: syside.TransitionUsage, payload_name: str | None
+) -> syside.Feature | None:
+    """Return the transition-scoped payload feature used by expressions."""
+    if payload_name is None:
+        return None
+    return trans.payload
 
 
 def _via_port(trans: syside.TransitionUsage) -> str | None:

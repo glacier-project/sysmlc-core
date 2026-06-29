@@ -88,6 +88,10 @@ class SismicBuilder:
       guarded by the flag and the condition, and, with an ``if`` guard, a
       negative-priority internal consumer transition that disarms the flag
       when the occurrence is rejected;
+    - the named-payload aliasing: a signal accepter that binds its payload
+      (``accept reading : Measurement``) renders references to that binding
+      against sismic's runtime ``event``, so ``reading.value`` becomes
+      ``event.value``;
     - the capability rejections: non-inline ``do`` bodies, unstable
       self-loops, and model names starting with ``_``.
 
@@ -316,10 +320,15 @@ class SismicBuilder:
         parts = [part for part in (entry, do, arming) if part]
         return "\n".join(parts) or None
 
-    def _statements(self, action: syside.ActionUsage | None) -> str | None:
+    def _statements(
+        self,
+        action: syside.ActionUsage | None,
+        codegen: SismicCodeGen | None = None,
+    ) -> str | None:
+        generator = self._codegen if codegen is None else codegen
         rendered = join_statements(
             [
-                self._codegen.render_action(candidate)
+                generator.render_action(candidate)
                 for candidate in actions.inline_actions(action)
             ]
         )
@@ -344,13 +353,14 @@ class SismicBuilder:
         if isinstance(plan, _ChangeTriggerPlan):
             self._emit_change_transitions(statechart, transition, plan, target)
             return
+        codegen = self._transition_codegen(transition)
         statechart.add_transition(
             Transition(
                 source=transition.source,
                 target=target,
                 event=self._event(transition.trigger, plan),
-                guard=self._guard(transition, plan),
-                action=self._statements(transition.effect),
+                guard=self._guard(transition, plan, codegen),
+                action=self._statements(transition.effect, codegen),
             )
         )
 
@@ -368,16 +378,17 @@ class SismicBuilder:
         consumes without re-running ``on entry`` (which would re-arm).
         """
         delivery = f"{plan.flag} and ({plan.condition})"
+        codegen = self._transition_codegen(transition)
         guard = delivery
         if transition.guard is not None:
-            condition = self._codegen.render_expression(transition.guard)
+            condition = codegen.render_expression(transition.guard)
             guard = f"{delivery} and ({condition})"
         statechart.add_transition(
             Transition(
                 source=transition.source,
                 target=target,
                 guard=guard,
-                action=self._statements(transition.effect),
+                action=self._statements(transition.effect, codegen),
             )
         )
         if plan.consumer_priority is not None:
@@ -417,7 +428,10 @@ class SismicBuilder:
         return name
 
     def _guard(
-        self, transition: TransitionFact, plan: _TimeTriggerPlan | None
+        self,
+        transition: TransitionFact,
+        plan: _TimeTriggerPlan | None,
+        codegen: SismicCodeGen,
     ) -> str | None:
         """Compose the transition's sismic guard string, or None.
 
@@ -426,7 +440,7 @@ class SismicBuilder:
         while the condition is false is consumed, with no late firing.
         """
         condition = (
-            self._codegen.render_expression(transition.guard)
+            codegen.render_expression(transition.guard)
             if transition.guard is not None
             else None
         )
@@ -436,6 +450,18 @@ class SismicBuilder:
         if condition is None:
             return deadline
         return f"{deadline} and ({condition})"
+
+    def _transition_codegen(self, transition: TransitionFact) -> SismicCodeGen:
+        """Return a code generator scoped to ``transition``."""
+        trigger = transition.trigger
+        if (
+            not isinstance(trigger, SignalTrigger)
+            or trigger.payload_feature is None
+        ):
+            return self._codegen
+        return SismicCodeGen(
+            feature_aliases=((trigger.payload_feature, "event"),)
+        )
 
     def _final_state(self, statechart: Statechart, scope: str) -> str:
         scope_name = scope or self._name

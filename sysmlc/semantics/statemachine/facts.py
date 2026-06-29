@@ -34,12 +34,14 @@ class SignalTrigger:
 
     ``signal_name`` is the accepted payload type's simple name;
     ``payload_name`` is the declared payload parameter name (``accept
-    reading : Tick`` -> ``"reading"``) and ``via_port`` the receiver
-    port's simple name, each ``None`` when absent.
+    reading : Tick`` -> ``"reading"``); ``payload_feature`` is the
+    transition-scoped reference feature that guard/effect expressions resolve
+    to for that payload; ``via_port`` is the receiver port's simple name.
     """
 
     signal_name: str
     payload_name: str | None = None
+    payload_feature: syside.Feature | None = None
     via_port: str | None = None
 
 
