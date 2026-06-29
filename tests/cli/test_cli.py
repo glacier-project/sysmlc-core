@@ -429,6 +429,13 @@ def test_quake_build_with_python_imports_without_copying(
     tmp_path: Path,
 ) -> None:
     model = SM_EXAMPLES_DIR / "sm15-external"
+    py = tmp_path / "ext.py"
+    py.write_text(
+        "def step(x, dt):\n"
+        "    return x + dt\n\n"
+        "def unused():\n"
+        "    return None\n"
+    )
     out = tmp_path / "out"
     rc = main(
         [
@@ -442,15 +449,18 @@ def test_quake_build_with_python_imports_without_copying(
             "-f",
             "yaml",
             "--python",
-            str(model / "ramp.py"),
+            str(py),
         ]
     )
 
     assert rc == 0
     yaml = (out / "Ramp.yaml").read_text()
-    assert "from ramp import step" in yaml
+    assert "import math" in yaml
+    assert "from types import SimpleNamespace" in yaml
+    assert "from ext import step" in yaml
+    assert "from ext import unused" in yaml
     assert "x = step(x, 0.1)" in yaml
-    assert not (out / "ramp.py").exists()
+    assert not (out / "ext.py").exists()
 
 
 def test_build_part_system_emits_main_reactor(tmp_path: Path) -> None:

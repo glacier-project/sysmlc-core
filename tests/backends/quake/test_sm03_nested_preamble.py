@@ -9,6 +9,7 @@ from sismic.interpreter import Interpreter
 from sysmlc.backends.quake import build_statechart
 from sysmlc.errors import UnsupportedConstructError
 from sysmlc.sysml.loading import load_model
+from tests.backends.quake.conftest import quake_preamble
 
 if TYPE_CHECKING:
     import syside
@@ -28,7 +29,9 @@ def test_nested_attr_seeded_into_preamble(model: syside.Model) -> None:
     sc = build_statechart(
         model, "NestedAttributePreamble::MachineNestedAttrSelfScope"
     )
-    assert sc.preamble == "innerDur = 3.0\n_n_outer__alpha = 0"
+    assert sc.preamble == quake_preamble(
+        "innerDur = 3.0", "_n_outer__alpha = 0"
+    )
 
 
 def test_nested_attr_visible_in_deep_substate(model: syside.Model) -> None:
@@ -36,7 +39,9 @@ def test_nested_attr_visible_in_deep_substate(model: syside.Model) -> None:
     sc = build_statechart(
         model, "NestedAttributePreamble::MachineNestedAttrDeepScope"
     )
-    assert sc.preamble == "innerDur = 4.0\n_n_outer__mid__alpha = 0"
+    assert sc.preamble == quake_preamble(
+        "innerDur = 4.0", "_n_outer__mid__alpha = 0"
+    )
     interp = Interpreter(sc)
     interp.execute()
     assert "outer::mid::alpha" in interp.configuration
@@ -53,7 +58,9 @@ def test_root_and_nested_attrs_coexist(model: syside.Model) -> None:
     sc = build_statechart(
         model, "NestedAttributePreamble::MachineRootAndNestedDistinctNames"
     )
-    assert sc.preamble == "speed = 1.5\ninnerDur = 2.0\n_n_outer__alpha = 0"
+    assert sc.preamble == quake_preamble(
+        "speed = 1.5", "innerDur = 2.0", "_n_outer__alpha = 0"
+    )
 
 
 def test_root_nested_collision_raises(model: syside.Model) -> None:

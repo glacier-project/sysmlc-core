@@ -63,4 +63,5 @@ def test_trig_call_renders_math_target_and_imports_math(
     sc = build_statechart(model, "TrigCall::Machine")
 
     assert sc.preamble.splitlines()[0] == "import math"
+    assert sc.preamble.splitlines()[1] == "from types import SimpleNamespace"
     assert _transition_from(sc, "idle").guard == "math.cos(x) <= 1.0"

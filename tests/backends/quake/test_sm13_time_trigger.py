@@ -9,7 +9,7 @@ from sismic.interpreter import Interpreter
 
 from sysmlc.backends.quake import build_statechart
 from sysmlc.sysml.loading import load_model
-from tests.backends.quake.conftest import SM_EXAMPLES_BY_DIR
+from tests.backends.quake.conftest import SM_EXAMPLES_BY_DIR, quake_preamble
 
 if TYPE_CHECKING:
     import syside
@@ -72,7 +72,7 @@ def test_activation_counter_is_initialized_in_preamble(
 ) -> None:
     """The timed source state's activation counter starts at zero."""
     sc = build_statechart(model, "SM13::MachineAfterSeconds")
-    assert sc.preamble == "_n_idle = 0"
+    assert sc.preamble == quake_preamble("_n_idle = 0")
 
 
 def test_attribute_duration_default_seeds_preamble(
@@ -80,7 +80,7 @@ def test_attribute_duration_default_seeds_preamble(
 ) -> None:
     """A ``DurationValue`` attribute's default is seeded as its SI scalar."""
     sc = build_statechart(model, "SM13::MachineAfterAttribute")
-    assert sc.preamble == "pickDuration = 120.0\n_n_idle = 0"
+    assert sc.preamble == quake_preamble("pickDuration = 120.0", "_n_idle = 0")
 
 
 def test_chained_reference_duration_is_read_at_entry(
@@ -141,7 +141,7 @@ def test_after_with_guard_conjoins_condition(model: syside.Model) -> None:
     timed = next(t for t in sc.transitions if t.source == "idle")
     assert timed.event == "_tick_idle_t1"
     assert timed.guard == "event.n == _n_idle and (ready)"
-    assert sc.preamble == "ready = True\n_n_idle = 0"
+    assert sc.preamble == quake_preamble("ready = True", "_n_idle = 0")
 
 
 def test_after_with_guard_fires_when_condition_holds_at_deadline(
@@ -183,7 +183,7 @@ def test_absolute_time_trigger_emits_arming_delta(
 ) -> None:
     """An absolute time trigger arms a tick only for a non-past instant."""
     sc = build_statechart(model, "SM13::MachineAt")
-    assert sc.preamble == "deadline = 8.0\n_n_idle = 0"
+    assert sc.preamble == quake_preamble("deadline = 8.0", "_n_idle = 0")
     assert len(sc.transitions) == 2
     timed = next(t for t in sc.transitions if t.source == "idle")
     assert timed.target == "running"
@@ -291,7 +291,7 @@ def test_no_default_duration_leaves_only_machinery_in_preamble(
     sc = build_statechart(
         no_default_model, "SM13NoDefault::MachineAfterNoDefault"
     )
-    assert sc.preamble == "_n_idle = 0"
+    assert sc.preamble == quake_preamble("_n_idle = 0")
     assert len(sc.transitions) == 1
     timed = sc.transitions[0]
     assert timed.event == "_tick_idle_t1"

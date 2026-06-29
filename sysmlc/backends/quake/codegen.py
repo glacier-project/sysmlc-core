@@ -16,13 +16,11 @@ if TYPE_CHECKING:
 
 
 class QuakeRenderNeeds:
-    """Collects imports required by generated sismic Python snippets."""
+    """Tracks external imports configured for generated sismic snippets."""
 
     def __init__(self) -> None:
-        self.uses_math = False
         self.external_module: str | None = None
         self.external_names: frozenset[str] = frozenset()
-        self.used_external: set[str] = set()
 
     def register_external(self, *, module: str, names: frozenset[str]) -> None:
         """Record the --python module and the function names it provides."""
@@ -30,13 +28,12 @@ class QuakeRenderNeeds:
         self.external_names = names
 
     def external_import_lines(self) -> list[str]:
-        """Render sorted external function imports used by the statechart."""
-        if not self.used_external:
+        """Render sorted imports for all configured external functions."""
+        if self.external_module is None:
             return []
-        assert self.external_module is not None
         return [
             f"from {self.external_module} import {name}"
-            for name in sorted(self.used_external)
+            for name in sorted(self.external_names)
         ]
 
 
@@ -54,8 +51,7 @@ class SismicCodeGen(PythonCodeGen):
 
         Args:
             context: General Python rendering context.
-            needs: Registry that collects imports required by rendered
-                expressions.
+            needs: External import configuration shared by generated snippets.
             feature_aliases: Transition-local feature identities that should
                 render as target runtime names. The comparison is by object
                 identity so same-named SysML features in other scopes do not
@@ -134,15 +130,12 @@ class SismicCodeGen(PythonCodeGen):
         """Emit a shared library call or backend-specific calc-def call."""
         library_call = self._emit_library_invocation(expr)
         if library_call is not None:
-            source, needs_math = library_call
-            if needs_math:
-                self._needs.uses_math = True
-            return source
+            return library_call[0]
         external_call = self._emit_external_calculation_invocation(
             expr,
             external_module=self._needs.external_module,
             external_names=self._needs.external_names,
-            used_external=self._needs.used_external,
+            used_external=None,
         )
         if external_call is not None:
             return external_call

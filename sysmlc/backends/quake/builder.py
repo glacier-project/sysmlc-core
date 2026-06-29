@@ -118,7 +118,6 @@ class SismicBuilder:
             self._needs.register_external(module=external[0], names=external[1])
         self._codegen = SismicCodeGen(needs=self._needs)
         self._preamble: list[str] = []
-        self._needs_namespace = False
         self._seen_attrs: dict[str, str] = {}
         self._state_facts: list[StateFact] = []
         self._transition_facts: list[TransitionFact] = []
@@ -165,7 +164,6 @@ class SismicBuilder:
     def result(self) -> Statechart:
         """Build, validate, and return the assembled sismic statechart."""
         self._plan_triggers()
-        self._collect_render_needs()
         imports = self._preamble_import_lines()
         if imports:
             self._preamble[0:0] = imports
@@ -181,29 +179,9 @@ class SismicBuilder:
         statechart.validate()
         return statechart
 
-    def _collect_render_needs(self) -> None:
-        """Render snippets once up front so preamble imports are known."""
-        for state in self._state_facts:
-            self._on_entry(state)
-            self._statements(state.exit_action)
-        for index, transition in enumerate(self._transition_facts):
-            plan = self._planned_triggers.get(index)
-            codegen = self._transition_codegen(transition)
-            if isinstance(plan, _ChangeTriggerPlan):
-                if transition.guard is not None:
-                    codegen.render_expression(transition.guard)
-                self._statements(transition.effect, codegen)
-                continue
-            self._guard(transition, plan, codegen)
-            self._statements(transition.effect, codegen)
-
     def _preamble_import_lines(self) -> list[str]:
-        """Return import lines needed before seeded context variables."""
-        lines: list[str] = []
-        if self._needs.uses_math:
-            lines.append("import math")
-        if self._needs_namespace:
-            lines.append("from types import SimpleNamespace")
+        """Return import lines before seeded context variables."""
+        lines = ["import math", "from types import SimpleNamespace"]
         lines.extend(self._needs.external_import_lines())
         return lines
 
@@ -312,7 +290,6 @@ class SismicBuilder:
         if value is None:
             return None
         if isinstance(value, CompositeValue):
-            self._needs_namespace = True
             fields = ", ".join(
                 f"{name}={self._render_value(field)}"
                 for name, field in value.fields

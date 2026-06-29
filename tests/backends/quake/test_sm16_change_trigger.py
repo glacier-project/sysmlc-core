@@ -8,7 +8,7 @@ from sismic.interpreter import Interpreter
 
 from sysmlc.backends.quake import build_statechart
 from sysmlc.sysml.loading import load_model
-from tests.backends.quake.conftest import SM_EXAMPLES_BY_DIR
+from tests.backends.quake.conftest import SM_EXAMPLES_BY_DIR, quake_preamble
 
 if TYPE_CHECKING:
     import syside
@@ -26,7 +26,7 @@ def test_bare_change_trigger_emits_armed_flag_transition(
 ) -> None:
     """A bare `accept when` becomes one flag-guarded eventless transition."""
     sc = build_statechart(model, "SM16::MachineWhenBare")
-    assert sc.preamble == "hot = False\n_w_idle_t1 = False"
+    assert sc.preamble == quake_preamble("hot = False", "_w_idle_t1 = False")
     assert sc.state_for("idle").on_entry == "_w_idle_t1 = True"
     assert len(sc.transitions) == 2
     when = next(t for t in sc.transitions if t.source == "idle")

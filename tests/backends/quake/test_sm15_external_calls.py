@@ -32,6 +32,19 @@ def test_external_call_builds_sm15_ramp() -> None:
     assert "from ramp import step" in sc.preamble.splitlines()
 
 
+def test_external_imports_all_configured_functions() -> None:
+    model = load_model(SM15_DIR)
+    sc = build_statechart(
+        model,
+        "SM15::Ramp",
+        external=("ramp", frozenset({"step", "unused"})),
+    )
+
+    lines = sc.preamble.splitlines()
+    assert "from ramp import step" in lines
+    assert "from ramp import unused" in lines
+
+
 def test_missing_external_function_names_function_and_module() -> None:
     model = load_model(SM15_DIR)
     with pytest.raises(
