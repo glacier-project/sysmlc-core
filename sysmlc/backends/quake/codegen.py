@@ -11,6 +11,7 @@ from sysmlc.codegen.python import (
     payload_signature,
 )
 from sysmlc.errors import UnsupportedConstructError
+from sysmlc.semantics.statemachine.interface import send_via_port
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -85,6 +86,7 @@ class SismicCodeGen(PythonCodeGen):
         context: PythonCodeGenContext | None = None,
         *,
         needs: QuakeRenderNeeds | None = None,
+        route_via_sends: bool = False,
         feature_aliases: Sequence[tuple[syside.Feature, str]] = (),
     ) -> None:
         """Initialize the generator.
@@ -92,6 +94,8 @@ class SismicCodeGen(PythonCodeGen):
         Args:
             context: General Python rendering context.
             needs: External import configuration shared by generated snippets.
+            route_via_sends: Render ``send ... via <port>`` as calls to the
+                injected part-system router instead of sismic ``send``.
             feature_aliases: Transition-local feature identities that should
                 render as target runtime names. The comparison is by object
                 identity so same-named SysML features in other scopes do not
@@ -99,6 +103,7 @@ class SismicCodeGen(PythonCodeGen):
         """
         super().__init__(context)
         self._needs = needs if needs is not None else QuakeRenderNeeds()
+        self._route_via_sends = route_via_sends
         self._feature_aliases = tuple(feature_aliases)
 
     @override
@@ -131,6 +136,13 @@ class SismicCodeGen(PythonCodeGen):
             for name, argument in pairs
         )
         delimiter = self._context.string_delimiter
+        via_port = send_via_port(send)
+        if self._route_via_sends and via_port is not None:
+            event = f"{delimiter}{event_name}{delimiter}"
+            port = f"{delimiter}{via_port}{delimiter}"
+            if kwargs:
+                return f"_sysmlc_route({event}, {port}, {kwargs})"
+            return f"_sysmlc_route({event}, {port})"
         if kwargs:
             return f"send({delimiter}{event_name}{delimiter}, {kwargs})"
         return f"send({delimiter}{event_name}{delimiter})"

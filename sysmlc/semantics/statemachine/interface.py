@@ -87,7 +87,7 @@ class SignalInterfaceCollector:
             if isinstance(action, syside.SendActionUsage):
                 event_name, _pairs = payload_signature(action)
                 self._sent.add(event_name)
-                self._sent_via[_send_via_port(action)].add(event_name)
+                self._sent_via[send_via_port(action)].add(event_name)
 
 
 def machine_interface(
@@ -101,7 +101,7 @@ def machine_interface(
     return result
 
 
-def _send_via_port(send: syside.SendActionUsage) -> str | None:
+def send_via_port(send: syside.SendActionUsage) -> str | None:
     """Return the simple name of a send's ``via`` (sender) port, or None.
 
     ``send E via p`` stores ``p`` as the sender argument (a

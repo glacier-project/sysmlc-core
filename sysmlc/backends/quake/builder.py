@@ -109,6 +109,7 @@ class SismicBuilder:
         name: str,
         *,
         external: tuple[str, frozenset[str]] | None = None,
+        route_via_sends: bool = False,
     ) -> None:
         """Initialize the builder.
 
@@ -116,12 +117,17 @@ class SismicBuilder:
             name: The sismic statechart name (the state definition's name).
             external: Optional ``(module_stem, function_names)`` pair for
                 external calc-def backing.
+            route_via_sends: Render ``send ... via <port>`` as calls to the
+                injected part-system router.
         """
         self._name = name
+        self._route_via_sends = route_via_sends
         self._needs = QuakeRenderNeeds()
         if external is not None:
             self._needs.register_external(module=external[0], names=external[1])
-        self._codegen = SismicCodeGen(needs=self._needs)
+        self._codegen = SismicCodeGen(
+            needs=self._needs, route_via_sends=route_via_sends
+        )
         self._preamble: list[str] = []
         self._seen_attrs: dict[str, str] = {}
         self._constraints: list[ConstraintFact] = []
@@ -497,6 +503,7 @@ class SismicBuilder:
             return self._codegen
         return SismicCodeGen(
             needs=self._needs,
+            route_via_sends=self._route_via_sends,
             feature_aliases=((trigger.payload_feature, "event"),),
         )
 
@@ -514,6 +521,7 @@ def build_statechart(
     state_def_qn: str,
     *,
     external: tuple[str, frozenset[str]] | None = None,
+    route_via_sends: bool = False,
 ) -> Statechart:
     """Build a sismic Statechart from a SysML state definition.
 
@@ -524,11 +532,14 @@ def build_statechart(
         state_def_qn: Qualified name of the SysML ``state def`` to translate.
         external: Optional ``(module_stem, function_names)`` pair for
             external calc-def backing.
+        route_via_sends: Render ``send ... via <port>`` as calls to the
+            injected part-system router.
 
     Returns:
         A sismic ``Statechart`` ready to feed into ``Interpreter``.
     """
     name = state_def_qn.split("::")[-1]
     return StateMachineDriver(model).run(
-        state_def_qn, SismicBuilder(name, external=external)
+        state_def_qn,
+        SismicBuilder(name, external=external, route_via_sends=route_via_sends),
     )
