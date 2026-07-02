@@ -372,7 +372,7 @@ def _build_part(
     external: tuple[str, frozenset[str]] | None = None
     python_path: Path | None = getattr(args, "python", None)
     if python_path is not None:
-        if backend.name != "rosetta":
+        if backend.name not in {"rosetta", "quake"}:
             raise CliError(
                 f"backend {backend.name!r} does not support --python"
             )

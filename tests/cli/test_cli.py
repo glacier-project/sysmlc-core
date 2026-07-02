@@ -556,6 +556,36 @@ def test_build_part_system_with_python_copies_module_and_imports(
     assert (out / "bump.py").exists()  # copied beside the .lf
 
 
+def test_quake_build_part_system_with_python_imports_without_copying(
+    tmp_path: Path,
+) -> None:
+    # --python for a quake part build: the per-instance YAML imports the
+    # external function, and the module is not copied.
+    part_ext = SM_EXAMPLES_DIR / "part-external"
+    py = tmp_path / "ext.py"
+    py.write_text("def bump(v):\n    return v + 1.0\n")
+    out = tmp_path / "out"
+    rc = main(
+        [
+            "quake",
+            "build",
+            str(part_ext),
+            "-o",
+            str(out),
+            "-f",
+            "yaml",
+            "--python",
+            str(py),
+        ]
+    )
+
+    assert rc == 0
+    assert (out / "counterSystem" / "routing.json").exists()
+    yaml = (out / "counterSystem" / "c.yaml").read_text()
+    assert "from ext import bump" in yaml
+    assert not (out / "ext.py").exists()
+
+
 def test_parse_external_collects_sync_functions(tmp_path: Path) -> None:
     py = tmp_path / "phys.py"
     py.write_text("def step(): ...\nasync def nope(): ...\nx = 1\n")
