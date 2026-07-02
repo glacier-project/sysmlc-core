@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import importlib.util
 import logging
 import shutil
 import sys
@@ -49,6 +50,25 @@ def _parse_external(python_path: Path) -> tuple[str, frozenset[str]]:
         node.name for node in tree.body if isinstance(node, ast.FunctionDef)
     )
     return python_path.stem, names
+
+
+def _load_external_module(python_path: Path) -> None:
+    """Import a ``--python`` file under its stem so preamble imports resolve.
+
+    Registers the module in ``sys.modules`` under the file's stem, overwriting
+    any existing same-stem entry, so an emitted ``from <stem> import <name>``
+    resolves when a statechart preamble runs.
+
+    Raises:
+        ValueError: If the path is not an importable Python module.
+    """
+    stem = python_path.stem
+    spec = importlib.util.spec_from_file_location(stem, python_path)
+    if spec is None or spec.loader is None:
+        raise ValueError(f"cannot import external module from {python_path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[stem] = module
+    spec.loader.exec_module(module)
 
 
 def _build_parser(backends: dict[str, Backend]) -> argparse.ArgumentParser:
@@ -205,6 +225,12 @@ def _add_run_arguments(run: argparse.ArgumentParser) -> None:
         type=float,
         help="stop at this simulated time in seconds, keeping the trace up "
         "to it (default: run to quiescence)",
+    )
+    run.add_argument(
+        "--python",
+        type=Path,
+        help="a Python file whose top-level functions back external calc-def "
+        "calls; matched to SysML functions by simple name",
     )
 
 
@@ -429,9 +455,20 @@ def _cmd_run(args: argparse.Namespace) -> int:
     hook = getattr(backend, hook_name, None) if hook_name else None
     if hook is None:
         raise CliError(f"backend {backend.name!r} cannot run a {kind!r}")
+
+    external: tuple[str, frozenset[str]] | None = None
+    python_path: Path | None = args.python
+    if python_path is not None:
+        external = _parse_external(python_path)
+        _load_external_module(python_path)
+
     try:
         report = hook(
-            model, element_qn, max_steps=args.max_steps, until=args.until
+            model,
+            element_qn,
+            max_steps=args.max_steps,
+            until=args.until,
+            external=external,
         )
     except CodeEvaluationError as error:
         raise CliError(str(error)) from error

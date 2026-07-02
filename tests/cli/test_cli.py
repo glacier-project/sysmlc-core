@@ -677,3 +677,43 @@ def test_quake_run_until_bounds_a_nonterminating_model(
     assert rc == 0
     assert "clock=3.0" in out
     assert "status=reached time bound" in out
+
+
+def test_quake_run_state_def_with_python(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    model = SM_EXAMPLES_DIR / "sm15-external"
+    rc = main(
+        [
+            "quake",
+            "run",
+            str(model),
+            "--python",
+            str(model / "ramp.py"),
+            "--until",
+            "0.25",
+        ]
+    )
+
+    assert rc == 0
+    assert "status=reached time bound" in capsys.readouterr().out
+
+
+def test_quake_run_part_system_with_python(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    part_ext = SM_EXAMPLES_DIR / "part-external"
+    rc = main(
+        [
+            "quake",
+            "run",
+            str(part_ext),
+            "--python",
+            str(part_ext / "bump.py"),
+            "--until",
+            "0.25",
+        ]
+    )
+
+    assert rc == 0
+    assert "status=reached time bound" in capsys.readouterr().out

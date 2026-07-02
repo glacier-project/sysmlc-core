@@ -69,10 +69,15 @@ class QuakeBackend(Backend):
         *,
         max_steps: int = 1000,
         until: float | None = None,
+        external: tuple[str, frozenset[str]] | None = None,
     ) -> runner.RunReport:
         """Execute a state definition to quiescence."""
         return runner.run_state_def(
-            model, state_def_qn, max_steps=max_steps, until=until
+            model,
+            state_def_qn,
+            max_steps=max_steps,
+            until=until,
+            external=external,
         )
 
     def run_part_system(
@@ -82,10 +87,15 @@ class QuakeBackend(Backend):
         *,
         max_steps: int = 1000,
         until: float | None = None,
+        external: tuple[str, frozenset[str]] | None = None,
     ) -> runner.RunReport:
         """Execute a connected part system to quiescence."""
         return runner.run_part_system(
-            model, usage_qn, max_steps=max_steps, until=until
+            model,
+            usage_qn,
+            max_steps=max_steps,
+            until=until,
+            external=external,
         )
 
     @override

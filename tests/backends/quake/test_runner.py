@@ -11,7 +11,11 @@ from tests.backends.test_sm_examples import SM_EXAMPLES_DIR
 if TYPE_CHECKING:
     from pathlib import Path
 
+    import pytest
+
 FIX = SM_EXAMPLES_DIR / "part01-two-parts"
+RAMP = SM_EXAMPLES_DIR / "sm15-external"
+PART_EXTERNAL = SM_EXAMPLES_DIR / "part-external"
 
 TIMED_MODEL = """
 package RunTimed {
@@ -100,3 +104,37 @@ def test_run_state_def_stops_at_time_bound(tmp_path: Path) -> None:
     assert report.stop_reason is StopReason.TIME_BOUND
     assert report.clock_time == 3.0
     assert report.all_final is False
+
+
+def test_run_state_def_with_external_module(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # sm15 Ramp calls step() from ramp.py each 0.1s and never terminates;
+    # bound it with until. The runner does not import the module itself:
+    # the caller must make it importable, so put the fixture directory on
+    # sys.path for the preamble's `from ramp import step`.
+    monkeypatch.syspath_prepend(str(RAMP))
+    report = run_state_def(
+        load_model(RAMP),
+        "SM15::Ramp",
+        until=0.25,
+        external=("ramp", frozenset({"step"})),
+    )
+
+    assert report.stop_reason is StopReason.TIME_BOUND
+    assert report.trace
+
+
+def test_run_part_system_with_external_module(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.syspath_prepend(str(PART_EXTERNAL))
+    report = run_part_system(
+        load_model(PART_EXTERNAL),
+        "PartExt::counterSystem",
+        until=0.25,
+        external=("bump", frozenset({"bump"})),
+    )
+
+    assert report.stop_reason is StopReason.TIME_BOUND
+    assert report.trace
