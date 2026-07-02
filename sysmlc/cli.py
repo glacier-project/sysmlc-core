@@ -200,6 +200,12 @@ def _add_run_arguments(run: argparse.ArgumentParser) -> None:
         default=1000,
         help="safety cap on total macro steps (default: %(default)s)",
     )
+    run.add_argument(
+        "--until",
+        type=float,
+        help="stop at this simulated time in seconds, keeping the trace up "
+        "to it (default: run to quiescence)",
+    )
 
 
 def _select_element(
@@ -424,11 +430,20 @@ def _cmd_run(args: argparse.Namespace) -> int:
     if hook is None:
         raise CliError(f"backend {backend.name!r} cannot run a {kind!r}")
     try:
-        report = hook(model, element_qn, max_steps=args.max_steps)
-    except (RuntimeError, CodeEvaluationError) as error:
+        report = hook(
+            model, element_qn, max_steps=args.max_steps, until=args.until
+        )
+    except CodeEvaluationError as error:
         raise CliError(str(error)) from error
     print(f"Ran {element_qn}:")
     print(report.render())
+    if report.hit_step_cap:
+        print(
+            f"error: exceeded the {args.max_steps}-step safety cap; "
+            "raise --max-steps or bound the run with --until",
+            file=sys.stderr,
+        )
+        return 1
     return 0
 
 

@@ -67,9 +67,12 @@ class QuakeBackend(Backend):
         state_def_qn: str,
         *,
         max_steps: int = 1000,
+        until: float | None = None,
     ) -> runner.RunReport:
         """Execute a state definition to quiescence."""
-        return runner.run_state_def(model, state_def_qn, max_steps=max_steps)
+        return runner.run_state_def(
+            model, state_def_qn, max_steps=max_steps, until=until
+        )
 
     def run_part_system(
         self,
@@ -77,9 +80,12 @@ class QuakeBackend(Backend):
         usage_qn: str,
         *,
         max_steps: int = 1000,
+        until: float | None = None,
     ) -> runner.RunReport:
         """Execute a connected part system to quiescence."""
-        return runner.run_part_system(model, usage_qn, max_steps=max_steps)
+        return runner.run_part_system(
+            model, usage_qn, max_steps=max_steps, until=until
+        )
 
     @override
     def serialize(self, artifact: object, fmt: str) -> str:

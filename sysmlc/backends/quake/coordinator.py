@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import enum
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
@@ -25,6 +26,15 @@ class CoordinatedStep:
 
     instance: str
     step: MacroStep
+
+
+class StopReason(enum.Enum):
+    """Why ``run_to_quiescence`` stopped driving the interpreters."""
+
+    FINAL = "all final"
+    QUIESCENT = "quiescent, not all final"
+    TIME_BOUND = "reached time bound"
+    STEP_CAP = "hit step cap"
 
 
 class PartSystemCoordinator:
@@ -59,21 +69,24 @@ class PartSystemCoordinator:
         """Interpreters keyed by part instance name."""
         return self._interpreters.copy()
 
-    def run(self, *, max_steps: int = 1000) -> tuple[CoordinatedStep, ...]:
-        """Run all machines until quiescence with no future events.
+    def run(
+        self, *, max_steps: int = 1000, until: float | None = None
+    ) -> tuple[tuple[CoordinatedStep, ...], StopReason]:
+        """Run all machines until quiescence, a time bound, or the step cap.
 
         Args:
             max_steps: Safety cap on total macro steps.
+            until: Simulated-time upper bound; stop before advancing the
+                shared clock past it. ``None`` runs to quiescence.
 
         Returns:
-            The coordinated macro-step trace.
+            The coordinated macro-step trace and the reason the run stopped.
 
         Raises:
-            RuntimeError: If ``max_steps`` is exceeded before quiescence.
             ValueError: If ``max_steps`` is less than one.
         """
         return run_to_quiescence(
-            self._interpreters, self._clock, max_steps=max_steps
+            self._interpreters, self._clock, max_steps=max_steps, until=until
         )
 
     def _route_for(self, source: str) -> Callable[..., None]:
@@ -92,36 +105,36 @@ def run_to_quiescence(
     clock: SimulatedClock,
     *,
     max_steps: int = 1000,
-) -> tuple[CoordinatedStep, ...]:
-    """Drive interpreters to quiescence on a shared clock.
+    until: float | None = None,
+) -> tuple[tuple[CoordinatedStep, ...], StopReason]:
+    """Drive interpreters to quiescence, a time bound, or the step cap.
 
     Runs every interpreter to a fixpoint at the current clock instant, then
     advances the shared clock to the next scheduled event, repeating until
-    all interpreters are final or no future event remains. Single machines
-    (one interpreter) and part systems (many) share this loop.
+    all interpreters are final, no future event remains, the next event is
+    past ``until``, or ``max_steps`` is reached. Single machines (one
+    interpreter) and part systems (many) share this loop.
 
     Args:
         interpreters: Interpreters keyed by name, all sharing ``clock``.
         clock: The shared logical clock, advanced to each next event time.
         max_steps: Safety cap on total macro steps.
+        until: Simulated-time upper bound; stop before advancing ``clock``
+            past it, so events at exactly ``until`` still run. ``None`` runs
+            to quiescence.
 
     Returns:
-        The coordinated macro-step trace.
+        The coordinated macro-step trace and the reason the run stopped.
 
     Raises:
-        RuntimeError: If ``max_steps`` is exceeded before quiescence.
         ValueError: If ``max_steps`` is less than one.
     """
     if max_steps < 1:
         raise ValueError("max_steps must be at least 1")
 
     trace: list[CoordinatedStep] = []
-    # Two-level time: the inner loop settles every machine at the current
-    # instant; the outer loop advances the shared clock to the next event.
     while True:
-        # Sweep every machine round-robin until a full sweep produces no
-        # step: re-sweeping drains cross-machine deliveries and eventless
-        # follow-ups, all at the same logical time.
+        capped = False
         while True:
             progressed = False
             for name, interpreter in interpreters.items():
@@ -129,26 +142,25 @@ def run_to_quiescence(
                 if step is None:
                     continue
                 trace.append(CoordinatedStep(name, step))
-                if len(trace) > max_steps:
-                    raise RuntimeError(
-                        "part-system execution exceeded "
-                        f"{max_steps} macro steps"
-                    )
                 progressed = True
-            # A full sweep with no step means the system is settled at T.
-            if not progressed:
+                # Cap hit: keep the trace so far instead of raising.
+                if len(trace) > max_steps:
+                    capped = True
+                    break
+            if capped or not progressed:
                 break
 
-        # Settled at this instant. Stop if every machine finished, or if no
-        # event is scheduled ahead (stuck but stable); else jump the clock.
+        if capped:
+            return tuple(trace), StopReason.STEP_CAP
         if all(interpreter.final for interpreter in interpreters.values()):
-            break
+            return tuple(trace), StopReason.FINAL
         next_time = _next_system_event_time(interpreters.values(), clock.time)
         if next_time is None:
-            break
+            return tuple(trace), StopReason.QUIESCENT
+        if until is not None and next_time > until:
+            return tuple(trace), StopReason.TIME_BOUND
+        # Advance the clock to the next event, then settle again.
         clock.time = next_time
-
-    return tuple(trace)
 
 
 def _route_map(

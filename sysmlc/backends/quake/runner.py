@@ -12,6 +12,7 @@ from sysmlc.backends.quake.builder import build_statechart
 from sysmlc.backends.quake.coordinator import (
     CoordinatedStep,
     PartSystemCoordinator,
+    StopReason,
     run_to_quiescence,
 )
 from sysmlc.backends.quake.parts import build_part_system
@@ -31,13 +32,24 @@ class RunReport:
             that ran it. A single machine's steps carry its own name.
         configurations: Final active-state configuration per instance name.
         clock_time: The logical time the shared clock reached.
-        all_final: Whether every machine ended in a final configuration.
+        stop_reason: Why the run stopped (all final, quiescent, time bound,
+            or the step cap).
     """
 
     trace: tuple[CoordinatedStep, ...]
     configurations: dict[str, list[str]]
     clock_time: float
-    all_final: bool
+    stop_reason: StopReason
+
+    @property
+    def all_final(self) -> bool:
+        """Whether every machine ended in a final configuration."""
+        return self.stop_reason is StopReason.FINAL
+
+    @property
+    def hit_step_cap(self) -> bool:
+        """Whether the run stopped at the ``max_steps`` safety cap."""
+        return self.stop_reason is StopReason.STEP_CAP
 
     def render(self) -> str:
         """Render the run as a human-readable multi-line report."""
@@ -48,13 +60,16 @@ class RunReport:
             config = self.configurations[name]
             shown = ", ".join(config) if config else "(final)"
             lines.append(f"  {name}: {shown}")
-        status = "all final" if self.all_final else "quiescent, not all final"
-        lines.append(f"clock={self.clock_time} status={status}")
+        lines.append(f"clock={self.clock_time} status={self.stop_reason.value}")
         return "\n".join(lines)
 
 
 def run_state_def(
-    model: syside.Model, state_def_qn: str, *, max_steps: int = 1000
+    model: syside.Model,
+    state_def_qn: str,
+    *,
+    max_steps: int = 1000,
+    until: float | None = None,
 ) -> RunReport:
     """Execute a single state definition to quiescence.
 
@@ -62,23 +77,31 @@ def run_state_def(
         model: Loaded syside model.
         state_def_qn: Qualified name of the ``state def`` to run.
         max_steps: Safety cap on total macro steps.
+        until: Simulated-time upper bound; stop before advancing the clock
+            past it. ``None`` runs to quiescence.
 
     Returns:
-        The run report (trace, final configuration, clock time, all-final).
+        The run report (trace, final configuration, clock time, stop reason).
 
     Raises:
-        RuntimeError: If ``max_steps`` is exceeded before quiescence.
+        ValueError: If ``max_steps`` is less than one.
     """
     name = state_def_qn.split("::")[-1]
     clock = SimulatedClock()
     statechart = build_statechart(model, state_def_qn)
     interpreters = {name: Interpreter(statechart, clock=clock)}
-    trace = run_to_quiescence(interpreters, clock, max_steps=max_steps)
-    return _report(interpreters, clock, trace)
+    trace, stop_reason = run_to_quiescence(
+        interpreters, clock, max_steps=max_steps, until=until
+    )
+    return _report(interpreters, clock, trace, stop_reason)
 
 
 def run_part_system(
-    model: syside.Model, usage_qn: str, *, max_steps: int = 1000
+    model: syside.Model,
+    usage_qn: str,
+    *,
+    max_steps: int = 1000,
+    until: float | None = None,
 ) -> RunReport:
     """Execute a connected part system to quiescence.
 
@@ -86,22 +109,27 @@ def run_part_system(
         model: Loaded syside model.
         usage_qn: Qualified name of the top-level part usage to run.
         max_steps: Safety cap on total macro steps.
+        until: Simulated-time upper bound; stop before advancing the clock
+            past it. ``None`` runs to quiescence.
 
     Returns:
-        The run report (trace, final configurations, clock time, all-final).
+        The run report (trace, final configurations, clock time, stop reason).
 
     Raises:
-        RuntimeError: If ``max_steps`` is exceeded before quiescence.
+        ValueError: If ``max_steps`` is less than one.
     """
     coordinator = PartSystemCoordinator(build_part_system(model, usage_qn))
-    trace = coordinator.run(max_steps=max_steps)
-    return _report(coordinator.interpreters, coordinator.clock, trace)
+    trace, stop_reason = coordinator.run(max_steps=max_steps, until=until)
+    return _report(
+        coordinator.interpreters, coordinator.clock, trace, stop_reason
+    )
 
 
 def _report(
     interpreters: Mapping[str, Interpreter],
     clock: SimulatedClock,
     trace: tuple[CoordinatedStep, ...],
+    stop_reason: StopReason,
 ) -> RunReport:
     """Package executed interpreters into a run report."""
     return RunReport(
@@ -111,7 +139,5 @@ def _report(
             for name, interpreter in interpreters.items()
         },
         clock_time=clock.time,
-        all_final=all(
-            interpreter.final for interpreter in interpreters.values()
-        ),
+        stop_reason=stop_reason,
     )

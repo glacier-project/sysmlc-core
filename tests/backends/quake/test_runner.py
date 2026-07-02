@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import pytest
-
+from sysmlc.backends.quake.coordinator import StopReason
 from sysmlc.backends.quake.runner import run_part_system, run_state_def
 from sysmlc.sysml.loading import load_model
 from tests import _load_inline_model
@@ -32,6 +31,18 @@ package RunFlat {
         entry; then idle;
         state idle;
         transition first idle then done;
+    }
+}
+"""
+
+LOOP_MODEL = """
+package RunLoop {
+    private import SI::*;
+
+    state def Machine {
+        entry; then running;
+        state running;
+        transition running accept after 1 [s] then running;
     }
 }
 """
@@ -73,6 +84,19 @@ def test_run_state_def_settles_at_zero_without_a_timer(
     assert report.all_final is True
 
 
-def test_run_part_system_respects_max_steps() -> None:
-    with pytest.raises(RuntimeError, match="exceeded"):
-        run_part_system(load_model(FIX), "Part01::pingSystem", max_steps=1)
+def test_run_part_system_keeps_trace_at_step_cap() -> None:
+    report = run_part_system(load_model(FIX), "Part01::pingSystem", max_steps=1)
+
+    assert report.hit_step_cap is True
+    # The trace up to the cap is preserved.
+    assert report.trace
+
+
+def test_run_state_def_stops_at_time_bound(tmp_path: Path) -> None:
+    model = _load_inline_model(tmp_path, LOOP_MODEL)
+
+    report = run_state_def(model, "RunLoop::Machine", until=3)
+
+    assert report.stop_reason is StopReason.TIME_BOUND
+    assert report.clock_time == 3.0
+    assert report.all_final is False

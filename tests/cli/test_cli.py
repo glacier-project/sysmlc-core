@@ -579,7 +579,9 @@ def test_rosetta_run_is_rejected() -> None:
     assert rc == 1
 
 
-def test_quake_run_respects_max_steps() -> None:
+def test_quake_run_respects_max_steps(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     rc = main(
         [
             "quake",
@@ -591,6 +593,7 @@ def test_quake_run_respects_max_steps() -> None:
     )
 
     assert rc == 1
+    assert "status=hit step cap" in capsys.readouterr().out
 
 
 INCOMPLETE_GUARD_MODEL = """\
@@ -617,3 +620,30 @@ def test_quake_run_reports_code_evaluation_error(
 
     assert rc == 1
     assert "not defined" in capsys.readouterr().err
+
+
+NONTERMINATING_MODEL = """\
+package Loop {
+    private import SI::*;
+    state def Machine {
+        entry; then running;
+        state running;
+        transition running accept after 1 [s] then running;
+    }
+}
+"""
+
+
+def test_quake_run_until_bounds_a_nonterminating_model(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    model_dir = tmp_path / "model"
+    model_dir.mkdir()
+    (model_dir / "m.sysml").write_text(NONTERMINATING_MODEL)
+
+    rc = main(["quake", "run", str(model_dir), "--until", "3"])
+
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "clock=3.0" in out
+    assert "status=reached time bound" in out

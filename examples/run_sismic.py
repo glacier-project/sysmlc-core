@@ -254,7 +254,7 @@ def run_one(model: syside.Model, state_def_qn: str) -> None:
     logger.info("Executing via the shared discrete-event loop")
     name = state_def_qn.split("::")[-1]
     try:
-        trace = run_to_quiescence({name: interpreter}, clock)
+        trace, _ = run_to_quiescence({name: interpreter}, clock)
     except CodeEvaluationError as error:
         logger.warning("Execution skipped: %s", error)
         return

@@ -69,7 +69,7 @@ def test_coordinator_routes_without_sender_self_copy() -> None:
     system = build_part_system(load_model(FIX), "Part01::pingSystem")
     coordinator = PartSystemCoordinator(system)
 
-    trace = coordinator.run(max_steps=50)
+    trace, _ = coordinator.run(max_steps=50)
 
     consumed = [
         (entry.instance, entry.step.event.name)
@@ -92,7 +92,7 @@ def test_coordinator_drains_cross_machine_cascade_at_one_time() -> None:
     system = build_part_system(load_model(FIX), "Part01::pingSystem")
     coordinator = PartSystemCoordinator(system)
 
-    trace = coordinator.run(max_steps=50)
+    trace, _ = coordinator.run(max_steps=50)
 
     routed_times = [
         entry.step.time
