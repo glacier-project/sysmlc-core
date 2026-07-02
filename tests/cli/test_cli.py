@@ -562,3 +562,32 @@ def test_parse_external_collects_sync_functions(tmp_path: Path) -> None:
     module, names = _parse_external(py)
     assert module == "phys"
     assert names == frozenset({"step"})
+
+
+def test_quake_run_part_system(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    rc = main(["quake", "run", str(SM_EXAMPLES_DIR / "part01-two-parts")])
+
+    assert rc == 0
+    assert "status=" in capsys.readouterr().out
+
+
+def test_rosetta_run_is_rejected() -> None:
+    rc = main(["rosetta", "run", str(SM_EXAMPLES_DIR / "part01-two-parts")])
+
+    assert rc == 1
+
+
+def test_quake_run_respects_max_steps() -> None:
+    rc = main(
+        [
+            "quake",
+            "run",
+            str(SM_EXAMPLES_DIR / "part01-two-parts"),
+            "--max-steps",
+            "1",
+        ]
+    )
+
+    assert rc == 1

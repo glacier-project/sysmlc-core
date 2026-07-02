@@ -39,6 +39,19 @@ class RunReport:
     clock_time: float
     all_final: bool
 
+    def render(self) -> str:
+        """Render the run as a human-readable multi-line report."""
+        lines = ["trace:"]
+        lines += [f"  {step.instance}: {step.step}" for step in self.trace]
+        lines.append("final configuration:")
+        for name in sorted(self.configurations):
+            config = self.configurations[name]
+            shown = ", ".join(config) if config else "(final)"
+            lines.append(f"  {name}: {shown}")
+        status = "all final" if self.all_final else "quiescent, not all final"
+        lines.append(f"clock={self.clock_time} status={status}")
+        return "\n".join(lines)
+
 
 def run_state_def(
     model: syside.Model, state_def_qn: str, *, max_steps: int = 1000

@@ -64,6 +64,15 @@ sysmlc quake build models/sm-examples/sm01-helloworld \
   -e SM01::Machine -o out/
 ```
 
+The **quake** backend can also execute a model with `run`, printing the
+macro-step trace and each machine's final configuration. A lone state
+definition runs as a single statechart; a top-level part usage runs one
+interpreter per part on a shared clock:
+
+```bash
+sysmlc quake run models/sm-examples/part01-two-parts
+```
+
 Translate a state machine to a Lingua Franca modal-reactor program with the
 **rosetta** backend. The showcase corpus under `models/showcase/` exercises
 the supported construct set (enums, parameters, payloads, function calls,

@@ -89,6 +89,12 @@ def _build_parser(backends: dict[str, Backend]) -> argparse.ArgumentParser:
         )
         _add_build_arguments(build, backend)
         build.set_defaults(_backend=backend)
+        run = actions.add_parser(
+            "run",
+            help=f"execute a {backend.name} model to quiescence",
+        )
+        _add_run_arguments(run)
+        run.set_defaults(_backend=backend)
     return parser
 
 
@@ -177,6 +183,22 @@ def _select_state_def(model: syside.Model, requested: str | None) -> str:
     if requested not in state_defs:
         raise CliError(f"state definition {requested!r} not found")
     return requested
+
+
+def _add_run_arguments(run: argparse.ArgumentParser) -> None:
+    """Add the inputs for a ``run`` command."""
+    run.add_argument("model", type=Path, help="path to a SysML model directory")
+    run.add_argument(
+        "-e",
+        "--element",
+        help="qualified name of the state definition or part usage to run",
+    )
+    run.add_argument(
+        "--max-steps",
+        type=int,
+        default=1000,
+        help="safety cap on total macro steps (default: %(default)s)",
+    )
 
 
 def _select_element(
@@ -388,6 +410,27 @@ def _write_artifact(
     return 0
 
 
+def _cmd_run(args: argparse.Namespace) -> int:
+    """Run a ``<backend> run`` command: execute the model to quiescence."""
+    backend: Backend = args._backend
+    model = load_model(args.model)
+    element_qn, kind = _select_element(model, args.element)
+    hook_name = {
+        "statedef": "run_state_def",
+        "part": "run_part_system",
+    }.get(kind)
+    hook = getattr(backend, hook_name, None) if hook_name else None
+    if hook is None:
+        raise CliError(f"backend {backend.name!r} cannot run a {kind!r}")
+    try:
+        report = hook(model, element_qn, max_steps=args.max_steps)
+    except RuntimeError as error:
+        raise CliError(str(error)) from error
+    print(f"Ran {element_qn}:")
+    print(report.render())
+    return 0
+
+
 def _cmd_backends(backends: dict[str, Backend]) -> int:
     """Run the ``backends`` command: list what is installed."""
     if not backends:
@@ -417,6 +460,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.command == "backends":
             return _cmd_backends(backends)
+        if args.action == "run":
+            return _cmd_run(args)
         return _cmd_build(args)
     except (SysmlcError, ValueError) as error:
         logger.debug("command failed", exc_info=True)

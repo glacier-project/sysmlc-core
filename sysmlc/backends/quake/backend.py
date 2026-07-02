@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, ClassVar, override
 from sismic.model import Statechart
 
 from sysmlc.backends.base import Backend, OutputOptions
+from sysmlc.backends.quake import runner
 from sysmlc.backends.quake.builder import build_statechart
 from sysmlc.backends.quake.parts import QuakePartSystem, build_part_system
 from sysmlc.backends.quake.serialize import to_plantuml, to_yaml
@@ -59,6 +60,26 @@ class QuakeBackend(Backend):
                 "quake part systems do not support LF target options"
             )
         return build_part_system(model, usage_qn)
+
+    def run_state_def(
+        self,
+        model: syside.Model,
+        state_def_qn: str,
+        *,
+        max_steps: int = 1000,
+    ) -> runner.RunReport:
+        """Execute a state definition to quiescence."""
+        return runner.run_state_def(model, state_def_qn, max_steps=max_steps)
+
+    def run_part_system(
+        self,
+        model: syside.Model,
+        usage_qn: str,
+        *,
+        max_steps: int = 1000,
+    ) -> runner.RunReport:
+        """Execute a connected part system to quiescence."""
+        return runner.run_part_system(model, usage_qn, max_steps=max_steps)
 
     @override
     def serialize(self, artifact: object, fmt: str) -> str:
