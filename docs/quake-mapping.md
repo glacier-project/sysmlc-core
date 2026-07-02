@@ -59,8 +59,7 @@ Limitation callout. **Not yet**: not implemented.
 
 Every rule is a real **SysML input → emitted YAML output** pair, drawn from the
 `models/sm-examples/` corpus and its generated `output/sismic/` artifacts.
-Generate outputs with `uv run python examples/run_sismic.py <example>`, which builds every state def in the example and writes
-`output/sismic/<example>/<Machine>.{yaml,puml}`.
+Generate a statechart's YAML/PlantUML with `sysmlc quake build models/sm-examples/<example> -e <StateDef> -o output/sismic/<example>` (omit `-e` when the example declares a single state def).
 
 ## The statechart at a glance
 
