@@ -189,7 +189,7 @@ class SismicBuilder:
     def _preamble_import_lines(self) -> list[str]:
         """Return import lines before seeded context variables."""
         lines = [
-            "from math import cos, sin, tan",
+            "from math import cos as _cos, sin as _sin, tan as _tan",
             "from types import SimpleNamespace",
         ]
         lines.extend(self._needs.external_import_lines())

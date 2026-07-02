@@ -38,7 +38,7 @@ def test_builtin_call_effect_renders_and_runs() -> None:
     assert interpreter.context["x"] == 0.0
 
 
-def test_trig_call_renders_direct_math_import(
+def test_trig_call_renders_aliased_math_import(
     tmp_path: Path,
 ) -> None:
     model = _load_inline_model(
@@ -62,6 +62,40 @@ def test_trig_call_renders_direct_math_import(
 
     sc = build_statechart(model, "TrigCall::Machine")
 
-    assert sc.preamble.splitlines()[0] == "from math import cos, sin, tan"
+    assert (
+        sc.preamble.splitlines()[0]
+        == "from math import cos as _cos, sin as _sin, tan as _tan"
+    )
     assert sc.preamble.splitlines()[1] == "from types import SimpleNamespace"
-    assert _transition_from(sc, "idle").guard == "cos(x) <= 1.0"
+    assert _transition_from(sc, "idle").guard == "_cos(x) <= 1.0"
+
+
+def test_trig_call_immune_to_attribute_named_cos(
+    tmp_path: Path,
+) -> None:
+    model = _load_inline_model(
+        tmp_path,
+        """
+        package TrigShadow {
+            private import ScalarValues::*;
+            private import TrigFunctions::*;
+
+            state def Machine {
+                attribute cos : Real := 1.0;
+                attribute x : Real := 0.0;
+                entry; then idle;
+                state idle;
+                state running;
+                transition first idle if TrigFunctions::cos(x) <= 1.0
+                    then running;
+            }
+        }
+        """,
+    )
+
+    sc = build_statechart(model, "TrigShadow::Machine")
+
+    interpreter = Interpreter(sc)
+    interpreter.execute()
+    assert interpreter.context["cos"] == 1.0
+    assert "running" in interpreter.configuration

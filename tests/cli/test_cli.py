@@ -459,7 +459,7 @@ def test_quake_build_with_python_imports_without_copying(
     yaml = yaml_path.read_text()
     sc = import_from_yaml(filepath=str(yaml_path))
     assert sc.preamble.splitlines()[:4] == [
-        "from math import cos, sin, tan",
+        "from math import cos as _cos, sin as _sin, tan as _tan",
         "from types import SimpleNamespace",
         "from ext import step",
         "from ext import unused",

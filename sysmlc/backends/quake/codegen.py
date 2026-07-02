@@ -17,9 +17,9 @@ if TYPE_CHECKING:
 # Avoid `import math`: sismic copies the preamble context while checking
 # contracts, and Python modules are not copyable.
 _QUAKE_LIBRARY_FUNCTIONS: Final[dict[str, str]] = {
-    "TrigFunctions::sin": "sin",
-    "TrigFunctions::cos": "cos",
-    "TrigFunctions::tan": "tan",
+    "TrigFunctions::sin": "_sin",
+    "TrigFunctions::cos": "_cos",
+    "TrigFunctions::tan": "_tan",
 }
 
 

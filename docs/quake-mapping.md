@@ -1503,9 +1503,9 @@ The shared Python expression renderer whitelists these standard-library calls:
 | `NumericalFunctions::abs` | `abs(...)`       |
 | `NumericalFunctions::max` | `max(...)`       |
 | `NumericalFunctions::min` | `min(...)`       |
-| `TrigFunctions::sin`      | `sin(...)`       |
-| `TrigFunctions::cos`      | `cos(...)`       |
-| `TrigFunctions::tan`      | `tan(...)`       |
+| `TrigFunctions::sin`      | `_sin(...)`      |
+| `TrigFunctions::cos`      | `_cos(...)`      |
+| `TrigFunctions::tan`      | `_tan(...)`      |
 
 ```sysml
 state def MachineAssignCall {
@@ -1628,9 +1628,10 @@ the rendered expression, so the emitted invariant is `not (expr)`.
 
 Function calls inside asserted constraints use the same expression renderer as
 guards and assignments. Quake imports the supported trigonometric functions
-directly, so the sismic context contains copyable functions instead of Python's
-`math` module. This matters because sismic snapshots the context while checking
-contracts.
+under the reserved `_` aliases (`_cos`, `_sin`, `_tan`), so the sismic context
+contains copyable functions instead of Python's `math` module, and a model
+attribute named `cos`, `sin`, or `tan` cannot shadow them. This matters because
+sismic snapshots the context while checking contracts.
 
 > ⚠️ **Boundary:** plain, non-asserted `constraint` usages are not runtime
 > checks and are ignored. `assume` and `require` constraints are not mapped here;
