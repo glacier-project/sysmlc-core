@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -8,6 +9,7 @@ from sismic.model import Statechart
 
 from sysmlc.backends import OutputOptions, discover_backends
 from sysmlc.backends.quake.backend import QuakeBackend
+from sysmlc.backends.quake.parts import QuakePartSystem
 from sysmlc.errors import SerializationError
 from sysmlc.sysml.loading import load_model
 
@@ -16,6 +18,7 @@ if TYPE_CHECKING:
 
 SM_EXAMPLES_DIR = Path(__file__).resolve().parents[3] / "models" / "sm-examples"
 SM01_DIR = SM_EXAMPLES_DIR / "sm01-helloworld"
+PART01_DIR = SM_EXAMPLES_DIR / "part01-two-parts"
 MACHINE_QN = "SM01::Machine"
 
 
@@ -98,6 +101,43 @@ def test_write_creates_missing_output_dir(
     assert (nested / "Machine.yaml").is_file()
 
 
+def test_write_part_system_emits_manifest_and_instance_statecharts(
+    backend: QuakeBackend, tmp_path: Path
+) -> None:
+    artifact = backend.build_part(load_model(PART01_DIR), "Part01::pingSystem")
+    assert isinstance(artifact, QuakePartSystem)
+
+    written = backend.write(
+        artifact,
+        OutputOptions(
+            output_dir=tmp_path, formats=("yaml",), basename="pingSystem"
+        ),
+    )
+
+    relative = sorted(path.relative_to(tmp_path).as_posix() for path in written)
+    assert relative == [
+        "pingSystem/plant.yaml",
+        "pingSystem/routing.json",
+        "pingSystem/tb.yaml",
+    ]
+    manifest_path = tmp_path / "pingSystem" / "routing.json"
+    manifest = json.loads(manifest_path.read_text())
+    assert manifest["name"] == "pingSystem"
+    assert {
+        (
+            route["source"],
+            route["source_port"],
+            route["signal"],
+            route["target"],
+        )
+        for route in manifest["routes"]
+    } == {
+        ("tb", "commPort", "Ping", "plant"),
+        ("plant", "commPort", "Pong", "tb"),
+    }
+    assert "statechart:" in (tmp_path / "pingSystem" / "plant.yaml").read_text()
+
+
 def test_summary_reports_counts(
     backend: QuakeBackend, artifact: Statechart
 ) -> None:
@@ -105,6 +145,14 @@ def test_summary_reports_counts(
     assert "Machine" in summary
     assert "states" in summary
     assert "transitions" in summary
+
+
+def test_summary_reports_part_system(backend: QuakeBackend) -> None:
+    artifact = backend.build_part(load_model(PART01_DIR), "Part01::pingSystem")
+    summary = backend.summary(artifact)
+    assert "pingSystem" in summary
+    assert "2 parts" in summary
+    assert "2 routes" in summary
 
 
 def test_quake_backend_is_discoverable() -> None:

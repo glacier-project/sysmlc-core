@@ -508,6 +508,27 @@ def test_single_part_system_auto_selected(tmp_path: Path) -> None:
     assert (out / "pingSystem.lf").exists()
 
 
+def test_quake_build_part_system_writes_artifact_directory(
+    tmp_path: Path,
+) -> None:
+    out = tmp_path / "out"
+    rc = main(
+        [
+            "quake",
+            "build",
+            str(SM_EXAMPLES_DIR / "part01-two-parts"),
+            "-o",
+            str(out),
+            "-f",
+            "yaml",
+        ]
+    )
+    assert rc == 0
+    assert (out / "pingSystem" / "routing.json").exists()
+    assert (out / "pingSystem" / "plant.yaml").exists()
+    assert (out / "pingSystem" / "tb.yaml").exists()
+
+
 def test_build_part_system_with_python_copies_module_and_imports(
     tmp_path: Path,
 ) -> None:
