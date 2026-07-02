@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import syside
+from sismic.exceptions import CodeEvaluationError
 
 from sysmlc.backends import Backend, OutputOptions, discover_backends
 from sysmlc.errors import SysmlcError
@@ -424,7 +425,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         raise CliError(f"backend {backend.name!r} cannot run a {kind!r}")
     try:
         report = hook(model, element_qn, max_steps=args.max_steps)
-    except RuntimeError as error:
+    except (RuntimeError, CodeEvaluationError) as error:
         raise CliError(str(error)) from error
     print(f"Ran {element_qn}:")
     print(report.render())

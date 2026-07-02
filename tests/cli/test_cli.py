@@ -591,3 +591,29 @@ def test_quake_run_respects_max_steps() -> None:
     )
 
     assert rc == 1
+
+
+INCOMPLETE_GUARD_MODEL = """\
+package Incomplete {
+    private import ScalarValues::*;
+    state def Machine {
+        attribute threshold : Integer;
+        entry; then waiting;
+        state waiting;
+        transition waiting if threshold > 0 then done;
+    }
+}
+"""
+
+
+def test_quake_run_reports_code_evaluation_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    model_dir = tmp_path / "model"
+    model_dir.mkdir()
+    (model_dir / "m.sysml").write_text(INCOMPLETE_GUARD_MODEL)
+
+    rc = main(["quake", "run", str(model_dir)])
+
+    assert rc == 1
+    assert "not defined" in capsys.readouterr().err
