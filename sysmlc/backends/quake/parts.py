@@ -38,8 +38,23 @@ class QuakePartSystem:
         raise KeyError(usage_name)
 
 
-def build_part_system(model: syside.Model, usage_qn: str) -> QuakePartSystem:
-    """Build a quake part-system artifact for a top-level part usage."""
+def build_part_system(
+    model: syside.Model,
+    usage_qn: str,
+    *,
+    external: tuple[str, frozenset[str]] | None = None,
+) -> QuakePartSystem:
+    """Build a quake part-system artifact for a top-level part usage.
+
+    Args:
+        model: Loaded syside model containing the part usage.
+        usage_qn: Qualified name of the top-level part usage to build.
+        external: Optional ``(module_stem, function_names)`` pair for
+            external calc-def backing.
+
+    Returns:
+        A quake part-system artifact ready to feed into a coordinator.
+    """
     graph = part_graph(model, usage_qn)
     if not graph.parts:
         raise UnsupportedConstructError(
@@ -68,7 +83,7 @@ def build_part_system(model: syside.Model, usage_qn: str) -> QuakePartSystem:
         behaviors.setdefault(node.definition_name, node.behaviors[0][1])
     for definition_name, behavior_qn in behaviors.items():
         statecharts[definition_name] = build_statechart(
-            model, behavior_qn, route_via_sends=True
+            model, behavior_qn, external=external, route_via_sends=True
         )
 
     return QuakePartSystem(

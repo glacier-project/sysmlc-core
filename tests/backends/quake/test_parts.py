@@ -14,6 +14,7 @@ FIX = SM_EXAMPLES_DIR / "part01-two-parts"
 MUX = SM_EXAMPLES_DIR / "part-mux"
 MULTI = SM_EXAMPLES_DIR / "part-multi-exhibit"
 UNDECLARED_VIA = SM_EXAMPLES_DIR / "part-undeclared-via"
+EXTERNAL = SM_EXAMPLES_DIR / "part-external"
 FANIN = Path(__file__).resolve().parents[1] / ("rosetta/fixtures/part-fanin")
 
 
@@ -34,6 +35,19 @@ def test_build_part_system_composes_two_parts() -> None:
         ("tb", "commPort", "Ping", "plant"),
         ("plant", "commPort", "Pong", "tb"),
     }
+
+
+def test_build_part_system_threads_external_functions() -> None:
+    system = build_part_system(
+        load_model(EXTERNAL),
+        "PartExt::counterSystem",
+        external=("ext", frozenset({"bump"})),
+    )
+
+    counter = system.statecharts["Counter"]
+    assert "from ext import bump" in counter.preamble.splitlines()
+    ticking = [t for t in counter.transitions if t.source == "ticking"]
+    assert [t.action for t in ticking] == ["x = bump(x)"]
 
 
 def test_routing_is_port_based_not_name_based() -> None:

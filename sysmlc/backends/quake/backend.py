@@ -53,13 +53,14 @@ class QuakeBackend(Backend):
         usage_qn: str,
         *,
         target_options: tuple[tuple[str, str], ...] = (),
+        external: tuple[str, frozenset[str]] | None = None,
     ) -> QuakePartSystem:
         """Build a connected part system for coordinated execution."""
         if target_options:
             raise UnsupportedConstructError(
                 "quake part systems do not support LF target options"
             )
-        return build_part_system(model, usage_qn)
+        return build_part_system(model, usage_qn, external=external)
 
     def run_state_def(
         self,
