@@ -37,7 +37,7 @@ Limitation callout. **Not yet**: not implemented.
 | external `calc def` calls via `--python`                             | **Done**        | state-definition builds only; imports are serialized in the sismic preamble, the Python module is not copied        |
 | enum literals → Python `Enum`                                        | Not yet         |                                                                                                                     |
 | referenced / performed actions                                       | Not yet         | `entry helper;`, `do A;`, perform in any action slot: fixes the silent drops of the entry/exit and effect rows      |
-| `assert constraint` in a state                                       | Not yet         | asserted constraint usages become sismic `invariants`, checked while the state is active                            |
+| `assert constraint` in a state                                       | **Done**        | asserted constraint usages become sismic `invariants`, checked while the state is active                            |
 | `assert constraint` on a transition                                  | Not yet         | asserted constraint usages become sismic preconditions/postconditions, checked around the firing                    |
 | exhibit / entry point                                                | Not yet         | build the statechart from an exhibited state usage, not only a `state def`                                          |
 | submachine reuse (`state s1 : Sub;`)                                 | Not yet         | a state usage typed by a `state def`; today it is **silently flattened** to a leaf, losing the def's whole content  |
@@ -1498,14 +1498,14 @@ must appear inside an expression such as `assign x := f(x)`.
 
 The shared Python expression renderer whitelists these standard-library calls:
 
-| SysML qualified name      | Python rendering                     |
-| ------------------------- | ------------------------------------ |
-| `NumericalFunctions::abs` | `abs(...)`                           |
-| `NumericalFunctions::max` | `max(...)`                           |
-| `NumericalFunctions::min` | `min(...)`                           |
-| `TrigFunctions::sin`      | `math.sin(...)` (adds `import math`) |
-| `TrigFunctions::cos`      | `math.cos(...)`                      |
-| `TrigFunctions::tan`      | `math.tan(...)`                      |
+| SysML qualified name      | Python rendering |
+| ------------------------- | ---------------- |
+| `NumericalFunctions::abs` | `abs(...)`       |
+| `NumericalFunctions::max` | `max(...)`       |
+| `NumericalFunctions::min` | `min(...)`       |
+| `TrigFunctions::sin`      | `_sin(...)`      |
+| `TrigFunctions::cos`      | `_cos(...)`      |
+| `TrigFunctions::tan`      | `_tan(...)`      |
 
 ```sysml
 state def MachineAssignCall {
@@ -1576,3 +1576,63 @@ directory or by adding the `--python` file's parent directory to `sys.path`.
 > ⚠️ **Boundary:** a `calc def` whose simple name is absent from the supplied
 > `--python` module fails loud, naming both the function and the module. Without
 > `--python`, unsupported functions fail as unsupported function calls.
+
+### 4.7 `assert constraint` in a state → invariant
+
+*Corpus: `sm17-assert-constraints`*
+
+*Spec: SysML 7.17.2 (constraints), KerML 7.4.5 (constraint usages)*
+
+An asserted constraint declared directly in a `state def` or nested `state`
+becomes a sismic state invariant. Sismic checks the invariant while that state
+is active: a root-state invariant is effectively global for the machine, while
+a nested-state invariant is checked only when that nested state is active.
+
+```sysml
+state def MachineCounterLimit {
+    attribute counter : Integer := 0;
+    attribute maxCount : Integer := 1;
+    assert constraint belowLimit { counter <= maxCount }
+
+    entry; then idle;
+    state idle;
+    transition first idle accept Tick
+        do assign counter := counter + 1
+        then idle;
+}
+```
+
+```yaml
+statechart:
+  name: MachineCounterLimit
+  root state:
+    contract:
+    - always: counter <= maxCount
+    initial: idle
+    name: MachineCounterLimit
+    states:
+    - name: idle
+      transitions:
+      - action: counter = counter + 1
+        event: Tick
+        target: idle
+```
+
+The invariant is enforced by sismic's contract runtime. A violating initial
+value or a transition action that makes the expression false raises
+`InvariantError`.
+
+SysML also allows the negated form `assert not constraint { expr }`, which
+asserts that the expression is false while the state is active. Quake wraps
+the rendered expression, so the emitted invariant is `not (expr)`.
+
+Function calls inside asserted constraints use the same expression renderer as
+guards and assignments. Quake imports the supported trigonometric functions
+under the reserved `_` aliases (`_cos`, `_sin`, `_tan`), so the sismic context
+contains copyable functions instead of Python's `math` module, and a model
+attribute named `cos`, `sin`, or `tan` cannot shadow them. This matters because
+sismic snapshots the context while checking contracts.
+
+> ⚠️ **Boundary:** plain, non-asserted `constraint` usages are not runtime
+> checks and are ignored. `assume` and `require` constraints are not mapped here;
+> they belong to a future precondition/postcondition mapping.

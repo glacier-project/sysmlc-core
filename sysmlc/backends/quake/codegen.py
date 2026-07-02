@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, override
+from typing import TYPE_CHECKING, ClassVar, override
 
 import syside
 
 from sysmlc.codegen.python import (
+    LIBRARY_FUNCTIONS,
     PythonCodeGen,
     PythonCodeGenContext,
     payload_signature,
@@ -12,7 +13,42 @@ from sysmlc.codegen.python import (
 from sysmlc.errors import UnsupportedConstructError
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
+
+
+def _aliased_library_functions() -> dict[str, str]:
+    """Alias every shared ``math.<name>`` rendering to ``_<name>``.
+
+    Sismic copies the preamble context while checking contracts and
+    Python modules are not copyable, so quake cannot ``import math``.
+    The ``_`` namespace is reserved for generated machinery, so no
+    model attribute can shadow the aliases.
+    """
+    aliased: dict[str, str] = {}
+    for qualified_name, target in LIBRARY_FUNCTIONS.items():
+        if target.startswith("math."):
+            aliased[qualified_name] = "_" + target.removeprefix("math.")
+        else:
+            aliased[qualified_name] = target
+    return aliased
+
+
+def math_import_lines() -> list[str]:
+    """Render the aliased ``from math import ...`` preamble line.
+
+    Returns:
+        One import line covering every ``math.``-backed rendering in the
+        shared library table, or no lines when the table has none.
+    """
+    names = sorted(
+        target.removeprefix("math.")
+        for target in LIBRARY_FUNCTIONS.values()
+        if target.startswith("math.")
+    )
+    if not names:
+        return []
+    aliases = ", ".join(f"{name} as _{name}" for name in names)
+    return [f"from math import {aliases}"]
 
 
 class QuakeRenderNeeds:
@@ -39,6 +75,10 @@ class QuakeRenderNeeds:
 
 class SismicCodeGen(PythonCodeGen):
     """Python code generator for Sismic statecharts."""
+
+    _library_functions: ClassVar[Mapping[str, str]] = (
+        _aliased_library_functions()
+    )
 
     def __init__(
         self,

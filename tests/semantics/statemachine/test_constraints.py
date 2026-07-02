@@ -2,6 +2,7 @@ from sysmlc.semantics.statemachine.driver import StateMachineDriver
 from sysmlc.sysml.loading import load_model
 from tests.backends.rosetta.conftest import FIXTURES_DIR
 from tests.backends.test_showcase import SHOWCASE_DIR
+from tests.backends.test_sm_examples import SM_EXAMPLES_BY_DIR
 from tests.test_recording import RecordingBuilder
 
 
@@ -26,9 +27,19 @@ def test_scoped_constraint_carries_state_path() -> None:
     assert fact.scope == "idle"
 
 
+def test_negated_constraint_carries_flag() -> None:
+    example = SM_EXAMPLES_BY_DIR["sm17-assert-constraints"]
+    model = load_model(example.model_dir)
+    builder = RecordingBuilder()
+    StateMachineDriver(model).run("SM17::MachineNegated", builder)
+    (fact,) = builder.constraints
+    assert fact.name == "tooHigh"
+    assert fact.is_negated
+
+
 def test_constraint_hook_is_optional() -> None:
-    # A builder without `bind_constraint` (quake's) must keep working on a
-    # model that declares asserted constraints.
+    # A builder without `bind_constraint` must keep working on a model that
+    # declares asserted constraints.
     class _NoHook:
         def bind_attribute(self, binding: object) -> None:
             pass

@@ -132,12 +132,15 @@ class ConstraintFact:
     ``scope`` is the owning scope's state path (``""`` = the root state
     def); ``name`` is the declared constraint name, or ``None`` when
     anonymous. Only ASSERTED constraints become facts: a plain
-    ``constraint`` is not required to hold.
+    ``constraint`` is not required to hold. ``is_negated`` is ``True``
+    for ``assert not constraint``: the expression is asserted to be
+    false rather than true.
     """
 
     scope: str
     name: str | None
     expression: syside.Expression
+    is_negated: bool
 
 
 @dataclass(frozen=True)
