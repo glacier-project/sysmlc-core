@@ -72,48 +72,9 @@ class PartSystemCoordinator:
             RuntimeError: If ``max_steps`` is exceeded before quiescence.
             ValueError: If ``max_steps`` is less than one.
         """
-        if max_steps < 1:
-            raise ValueError("max_steps must be at least 1")
-
-        trace: list[CoordinatedStep] = []
-        # Two-level time: the inner loop settles every machine at the current
-        # instant; the outer loop advances the shared clock to the next event.
-        while True:
-            # Sweep every machine round-robin until a full sweep produces no
-            # step: re-sweeping drains cross-machine deliveries and eventless
-            # follow-ups, all at the same logical time.
-            while True:
-                progressed = False
-                for name, interpreter in self._interpreters.items():
-                    step = interpreter.execute_once()
-                    if step is None:
-                        continue
-                    trace.append(CoordinatedStep(name, step))
-                    # Runaway guard: a live-lock could append forever at one T.
-                    if len(trace) > max_steps:
-                        raise RuntimeError(
-                            "part-system execution exceeded "
-                            f"{max_steps} macro steps"
-                        )
-                    progressed = True
-                # A full sweep with no step means the system is settled at T.
-                if not progressed:
-                    break
-
-            # Settled at this instant. Stop if every machine finished, or if no
-            # event is scheduled ahead (stuck but stable); else jump the clock.
-            if all(
-                interpreter.final for interpreter in self._interpreters.values()
-            ):
-                break
-            next_time = _next_system_event_time(
-                self._interpreters.values(), self._clock.time
-            )
-            if next_time is None:
-                break
-            self._clock.time = next_time
-
-        return tuple(trace)
+        return run_to_quiescence(
+            self._interpreters, self._clock, max_steps=max_steps
+        )
 
     def _route_for(self, source: str) -> Callable[..., None]:
         """Return a route closure bound to one source part instance."""
@@ -124,6 +85,70 @@ class PartSystemCoordinator:
                 self._interpreters[edge.target].queue(signal, **payload)
 
         return route
+
+
+def run_to_quiescence(
+    interpreters: Mapping[str, Interpreter],
+    clock: SimulatedClock,
+    *,
+    max_steps: int = 1000,
+) -> tuple[CoordinatedStep, ...]:
+    """Drive interpreters to quiescence on a shared clock.
+
+    Runs every interpreter to a fixpoint at the current clock instant, then
+    advances the shared clock to the next scheduled event, repeating until
+    all interpreters are final or no future event remains. Single machines
+    (one interpreter) and part systems (many) share this loop.
+
+    Args:
+        interpreters: Interpreters keyed by name, all sharing ``clock``.
+        clock: The shared logical clock, advanced to each next event time.
+        max_steps: Safety cap on total macro steps.
+
+    Returns:
+        The coordinated macro-step trace.
+
+    Raises:
+        RuntimeError: If ``max_steps`` is exceeded before quiescence.
+        ValueError: If ``max_steps`` is less than one.
+    """
+    if max_steps < 1:
+        raise ValueError("max_steps must be at least 1")
+
+    trace: list[CoordinatedStep] = []
+    # Two-level time: the inner loop settles every machine at the current
+    # instant; the outer loop advances the shared clock to the next event.
+    while True:
+        # Sweep every machine round-robin until a full sweep produces no
+        # step: re-sweeping drains cross-machine deliveries and eventless
+        # follow-ups, all at the same logical time.
+        while True:
+            progressed = False
+            for name, interpreter in interpreters.items():
+                step = interpreter.execute_once()
+                if step is None:
+                    continue
+                trace.append(CoordinatedStep(name, step))
+                if len(trace) > max_steps:
+                    raise RuntimeError(
+                        "part-system execution exceeded "
+                        f"{max_steps} macro steps"
+                    )
+                progressed = True
+            # A full sweep with no step means the system is settled at T.
+            if not progressed:
+                break
+
+        # Settled at this instant. Stop if every machine finished, or if no
+        # event is scheduled ahead (stuck but stable); else jump the clock.
+        if all(interpreter.final for interpreter in interpreters.values()):
+            break
+        next_time = _next_system_event_time(interpreters.values(), clock.time)
+        if next_time is None:
+            break
+        clock.time = next_time
+
+    return tuple(trace)
 
 
 def _route_map(
