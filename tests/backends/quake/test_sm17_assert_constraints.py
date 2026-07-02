@@ -51,6 +51,28 @@ def test_counter_constraint_fails_after_limit_is_exceeded(
         interpreter.execute()
 
 
+def test_negated_constraint_renders_wrapped_invariant(
+    model: syside.Model,
+) -> None:
+    sc = build_statechart(model, "SM17::MachineNegated")
+
+    assert sc.state_for("MachineNegated").invariants == ["not (level > 2.0)"]
+    Interpreter(sc).execute()
+
+
+def test_negated_constraint_violation_raises_at_runtime(
+    model: syside.Model,
+) -> None:
+    sc = build_statechart(model, "SM17::MachineNegated")
+
+    interpreter = Interpreter(sc)
+    interpreter.execute()
+    interpreter.queue("Tick")
+
+    with pytest.raises(InvariantError):
+        interpreter.execute()
+
+
 def test_constraint_serializes_as_yaml_contract(model: syside.Model) -> None:
     sc = build_statechart(model, "SM17::MachineScoped")
 

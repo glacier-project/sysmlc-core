@@ -108,6 +108,7 @@ class StateMachineDriver:
                     scope=scope_path,
                     name=constraint.name,
                     expression=expression,
+                    is_negated=constraint.is_negated,
                 )
             )
 

@@ -26,6 +26,15 @@ package SM17 {
             then idle;
     }
 
+    state def MachineNegated {
+        attribute level : Real := 1.0;
+        assert not constraint tooHigh { level > 2.0 }
+
+        entry; then idle;
+        state idle;
+        transition first idle accept Tick do assign level := 3.0 then idle;
+    }
+
     state def MachineFunctionViolation {
         attribute x : Real := 3.2;
         assert constraint cosineNonPositive {

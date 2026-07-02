@@ -363,9 +363,10 @@ class SismicBuilder:
         """Attach asserted constraints to their owning sismic states."""
         for fact in self._constraints:
             state_name = self._name if fact.scope == "" else fact.scope
-            statechart.state_for(state_name).invariants.append(
-                self._codegen.render_expression(fact.expression)
-            )
+            rendered = self._codegen.render_expression(fact.expression)
+            if fact.is_negated:
+                rendered = f"not ({rendered})"
+            statechart.state_for(state_name).invariants.append(rendered)
 
     def _emit_transition(
         self,

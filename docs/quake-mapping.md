@@ -1622,6 +1622,10 @@ The invariant is enforced by sismic's contract runtime. A violating initial
 value or a transition action that makes the expression false raises
 `InvariantError`.
 
+SysML also allows the negated form `assert not constraint { expr }`, which
+asserts that the expression is false while the state is active. Quake wraps
+the rendered expression, so the emitted invariant is `not (expr)`.
+
 Function calls inside asserted constraints use the same expression renderer as
 guards and assignments. Quake imports the supported trigonometric functions
 directly, so the sismic context contains copyable functions instead of Python's
