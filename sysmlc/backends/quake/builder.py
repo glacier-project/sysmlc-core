@@ -12,7 +12,11 @@ from sismic.model import (
     Transition,
 )
 
-from sysmlc.backends.quake.codegen import QuakeRenderNeeds, SismicCodeGen
+from sysmlc.backends.quake.codegen import (
+    QuakeRenderNeeds,
+    SismicCodeGen,
+    math_import_lines,
+)
 from sysmlc.codegen.python import join_statements
 from sysmlc.errors import UnsupportedConstructError
 from sysmlc.semantics.statemachine import actions, transitions
@@ -188,10 +192,8 @@ class SismicBuilder:
 
     def _preamble_import_lines(self) -> list[str]:
         """Return import lines before seeded context variables."""
-        lines = [
-            "from math import cos as _cos, sin as _sin, tan as _tan",
-            "from types import SimpleNamespace",
-        ]
+        lines = math_import_lines()
+        lines.append("from types import SimpleNamespace")
         lines.extend(self._needs.external_import_lines())
         return lines
 

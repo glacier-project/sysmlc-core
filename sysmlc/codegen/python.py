@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Final
+from typing import TYPE_CHECKING, ClassVar, Final
 
 import syside
 
 from sysmlc.errors import UnsupportedConstructError
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +47,9 @@ _COMPARISON_OPERATORS: Final[frozenset[syside.Operator]] = frozenset(
 )
 
 # Maps a fully-qualified SysML function name to the Python call target.
-_LIBRARY_FUNCTIONS: Final[dict[str, str]] = {
+# The single source of truth for the supported standard-library calls;
+# backends that need different call targets derive their table from it.
+LIBRARY_FUNCTIONS: Final[dict[str, str]] = {
     "NumericalFunctions::abs": "abs",
     "NumericalFunctions::max": "max",
     "NumericalFunctions::min": "min",
@@ -162,6 +167,10 @@ class PythonCodeGen:
         context: A PythonCodeGenContext instance carrying information through
             the generation process, or None to use the default context.
     """
+
+    # The whitelist consulted by `_emit_library_invocation`. Subclasses
+    # may override it to re-target renderings.
+    _library_functions: ClassVar[Mapping[str, str]] = LIBRARY_FUNCTIONS
 
     def __init__(self, context: PythonCodeGenContext | None = None) -> None:
         self._context = context or PythonCodeGenContext()
@@ -311,7 +320,7 @@ class PythonCodeGen:
     def _emit_library_invocation(
         self, expr: syside.InvocationExpression
     ) -> tuple[str, bool] | None:
-        """Emit a supported shared library function call.
+        """Emit a library function call from the class's whitelist.
 
         Non-operator invocations are atoms, so no precedence wrapping is
         needed.
@@ -320,12 +329,13 @@ class PythonCodeGen:
             expr: The invocation expression to translate.
 
         Returns:
-            ``(source, needs_math)`` for supported shared library calls, or
-            ``None`` when the invocation is not in the shared supported set.
+            ``(source, needs_math)`` for calls in the class's
+            library-function whitelist, or ``None`` when the invocation
+            is not in it.
         """
         func = expr.function
         qn = None if func is None else func.qualified_name
-        target = None if qn is None else _LIBRARY_FUNCTIONS.get(str(qn))
+        target = None if qn is None else self._library_functions.get(str(qn))
         if target is None:
             return None
         args = ", ".join(
