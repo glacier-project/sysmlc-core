@@ -20,15 +20,15 @@ def test_ids_header_lists_states(sm_models):
 def test_config_has_states_table_and_completion_rows(sm_models):
     files, d, s = _files_for(sm_models["sm01"], "SM01::Machine")
     config = files[f"src/{d}/{s}.c"]
-    assert "sc_state_def_t sm01_machine_states[]" in config
+    assert "static const sc_state_def_t states[] = {" in config
     assert "SC_EVENT_COMPLETION" in config
-    assert "sm01_machine_states," in config
+    assert "    states,\n" in config  # wired into the machine_def literal
 
 
 def test_generated_guard_body(sm_models):
     files, d, s = _files_for(sm_models["sm03"], "SM03::MachineRef")
     actions_c = files[f"src/{d}/{s}.c"]
-    assert "static bool sm03_machineref_guard_eval" in actions_c
+    assert "static bool guard_eval(sc_guard_id_t guard_id" in actions_c
     assert "return ctx->enabled;" in actions_c
 
 

@@ -12,10 +12,12 @@ def test_build_and_write_self_contained_project(sm_models, tmp_path):
     artifact = backend.build(sm_models["sm04"], "SM04::MachineEntryIncrement")
     written = backend.write(artifact, OutputOptions(output_dir=tmp_path))
     assert written
-    assert (tmp_path / "include" / "sm04" / "machineentryincrement.h").exists()
-    assert (tmp_path / "src" / "sm04" / "machineentryincrement.c").exists()
     assert (
-        tmp_path / "host" / "sm04" / "machineentryincrement_runner.c"
+        tmp_path / "include" / "sm04" / "machine_entry_increment.h"
+    ).exists()
+    assert (tmp_path / "src" / "sm04" / "machine_entry_increment.c").exists()
+    assert (
+        tmp_path / "host" / "sm04" / "machine_entry_increment_runner.c"
     ).exists()
     assert (tmp_path / "src" / "sc" / "sc_runtime.c").exists()
     assert (tmp_path / "include" / "sc" / "sc_runtime.h").exists()
@@ -30,10 +32,10 @@ def test_build_model_writes_multiple_statecharts(sm_models, tmp_path):
     backend.write(artifact, OutputOptions(output_dir=tmp_path))
     assert (tmp_path / "src" / "sm01" / "machine.c").exists()
     assert (
-        tmp_path / "src" / "sm01" / "machineinitial1_bytransition.c"
+        tmp_path / "src" / "sm01" / "machine_initial1_by_transition.c"
     ).exists()
     assert (
-        tmp_path / "src" / "sm01" / "machineinitial3_byqualifiedname.c"
+        tmp_path / "src" / "sm01" / "machine_initial3_by_qualified_name.c"
     ).exists()
     assert (tmp_path / "CMakeLists.txt").exists()
 
