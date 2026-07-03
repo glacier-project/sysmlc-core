@@ -88,9 +88,18 @@ ways to reuse the dispatch core without global guard/action symbols:
 
 `sysmlc statix build <model>` with **no `-e`** generates one prefixed pair per
 `state def` plus the shared runtime and one `CMakeLists.txt`; `-e <QN>` still
-builds a single machine. This reshapes the file/symbol layout, so it lands
-**first** (Phase A.0), before hierarchy piles logic on top; it is behaviorally a
-no-op for a single machine.
+builds a single machine. A.0 also emits a **minimal host runner** per machine
+(`init`, feed no-payload event ids from `argv`, print a state trace) as a
+separate hosted-C target, while the generated statechart units and runtime stay
+board-clean. This reshapes the file/symbol layout, so it lands **first** (Phase
+A.0), before hierarchy piles logic on top; it is behaviorally a no-op for a
+single machine.
+
+The full host-execution product story is a distinct increment: a `sysmlc statix
+run` command, virtual time, testbench scripts (`send` / `advance_ms` / `expect`),
+JSON/CSV traces, and trace comparison against quake/Sismic. That belongs between
+the emission-model work and the timed subset, so it can become the host
+conformance driver for `after`/`at`/`when` without bloating A.0.
 
 ## The linchpin: static, bounded, hierarchical dispatch
 
@@ -180,6 +189,7 @@ Conformance-gated, hierarchy before advanced features, untimed before timed.
 | **A.0** | Emission model | one prefixed `.c`/`.h` per statechart; whole-model build; no global dispatch symbols | multi-`state def` models (SM01, SM11) build & link together | prefix the public API, make dispatch `static`, split shared vs per-machine core |
 | **A** | UML core (untimed) | composite, `then done`/final, one-shot `do`, constraints, functions/extern | sm08, sm10, sm12, sm14, sm17 | state tree + LCA dispatch + `MAX_DEPTH`; final states; invariant check + new status |
 | **B** | Internal-event RTC | `send` + internal queue drain + payloads | sm11 | generalize the bounded micro-step; typed payloads in the event buffer |
+| **B.5** | Host execution & testbench | `sysmlc statix run`; virtual-time testbench DSL; state/context expectations; JSON/CSV traces; statix-vs-quake trace comparison | sm01-sm17 reusable scripted traces | hosted runner tooling only; board-clean generated units unchanged |
 | **C** | Timed subset | `after`/`at`, `when` | sm13, sm16, sm14(full) | `sc_runtime_tick`; timer table + activation counters; armed-flag observers; documented LF divergence |
 | **D** | Concurrency & memory | parallel regions, history | sm09, + a new history model | per-instance `active[]` / `history[]` arrays sized by generated `#define`s |
 

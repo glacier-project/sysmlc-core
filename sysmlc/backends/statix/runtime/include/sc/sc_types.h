@@ -29,6 +29,7 @@ extern "C" {
  */
 typedef uint16_t sc_state_id_t;
 typedef uint16_t sc_event_id_t;
+typedef uint16_t sc_transition_id_t;
 typedef uint16_t sc_guard_id_t;
 typedef uint16_t sc_action_id_t;
 

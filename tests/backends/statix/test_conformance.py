@@ -22,9 +22,9 @@ def test_final_state_matches_sismic(sm_models, statix_run, stem, qn):
     interpreter.execute()
     sismic_leaf = sorted(interpreter.configuration)[-1]
 
-    # statix C: build, compile, run, map final state id -> name.
+    # statix C: build, compile, run the generated host runner.
     program = build_statix(sm_models[stem], qn)
-    statix_leaf = program.states[statix_run(program)].name
+    statix_leaf = statix_run(program)
 
     assert statix_leaf == sismic_leaf, (
         f"{stem}: statix {statix_leaf!r} != sismic {sismic_leaf!r}"

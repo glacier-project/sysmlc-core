@@ -2,20 +2,12 @@
 #define SC_RUNTIME_H
 
 /*
- * sc_runtime.h - Minimal, deterministic statechart dispatcher.
+ * sc_runtime.h - Machine-agnostic statechart runtime support.
  *
- * Supports a *flat* state machine driven by a generated transition table, with
- * per-state entry/exit actions and a bounded completion (eventless-transition)
- * micro-step run on init and after every dispatch. Hierarchical states,
- * parallel regions, history and timers are intentionally not implemented yet.
- *
- * Safety notes (Power of 10):
- *   - No dynamic memory: machine definitions are generated `static const`
- *     tables and the runtime instance is a plain value owned by the caller.
- *   - No function pointers: guard/action dispatch is performed by integer ids
- *     resolved at link time through sc_guard_eval()/sc_action_exec() (see the
- *     "Application dispatch contract" below).
- *   - The dispatch loop is bounded by a compile-time constant.
+ * The generated <prefix>.c unit owns dispatch because it must call that
+ * statechart's static guard/action switches without function pointers. This
+ * shared runtime only defines common table shapes and the mutable instance
+ * record that generated code embeds in its public <prefix>_t type.
  */
 
 #include "sc/sc_event.h"
@@ -27,10 +19,9 @@ extern "C" {
 #endif
 
 /*
- * Absolute upper bound on the number of transitions the dispatcher will scan.
- * This guarantees the dispatch loop terminates even if a machine definition is
- * malformed (Power of 10 rule 2: every loop has a fixed upper bound). Override
- * at compile time with -DSC_MAX_TRANSITIONS=N if a chart legitimately needs it.
+ * Absolute upper bound on the number of transitions a generated dispatcher will
+ * scan. Override at compile time with -DSC_MAX_TRANSITIONS=N if a chart
+ * legitimately needs it.
  */
 #ifndef SC_MAX_TRANSITIONS
 #define SC_MAX_TRANSITIONS 256u
@@ -38,17 +29,15 @@ extern "C" {
 
 /*
  * Upper bound on completion (eventless) micro-steps taken after init and after
- * each dispatch. Guarantees termination even for a guarded eventless cycle
- * (a modeling error), which is surfaced as SC_STATUS_STEP_LIMIT rather than
- * masked. The generator emits a per-machine value; override with
- * -DSC_MAX_RTC_STEPS=N.
+ * each dispatch. The generated dispatcher reports SC_STATUS_STEP_LIMIT when the
+ * bound is exceeded.
  */
 #ifndef SC_MAX_RTC_STEPS
 #define SC_MAX_RTC_STEPS 64u
 #endif
 
 /*
- * One row of the generated transition table.
+ * One row of a generated transition table.
  *
  *   source -- event [guard] / action --> target
  *
@@ -65,84 +54,45 @@ typedef struct sc_transition_s {
 
 /*
  * The generated per-state action table. One row per state, indexed by state id.
- * entry_action / exit_action are SC_ACTION_NONE when the state has no such slot.
  */
 typedef struct sc_state_def_s {
-    sc_action_id_t entry_action; /* action run when the state is entered */
-    sc_action_id_t exit_action;  /* action run when the state is exited  */
+    sc_action_id_t entry_action;
+    sc_action_id_t exit_action;
 } sc_state_def_t;
 
 /*
  * A complete, immutable machine definition. Generated as `static const`.
  */
 typedef struct sc_machine_s {
-    const sc_transition_t *transitions; /* generated transition table        */
-    const sc_state_def_t *states;       /* per-state entry/exit action table */
-    uint16_t transition_count;          /* number of rows in `transitions`   */
-    sc_state_id_t state_count;          /* number of states                  */
-    sc_state_id_t initial_state;        /* state entered by sc_runtime_init  */
+    const sc_transition_t *transitions;
+    const sc_state_def_t *states;
+    uint16_t transition_count;
+    sc_state_id_t state_count;
+    sc_state_id_t initial_state;
 } sc_machine_t;
 
 /*
- * A live runtime instance. This is the only mutable runtime state and it is
- * owned entirely by the caller (no hidden globals).
+ * Common mutable runtime state. Generated <prefix>_t types embed this value.
  */
 typedef struct sc_runtime_s {
-    const sc_machine_t *machine; /* borrowed, immutable machine definition */
-    void *user_data;             /* opaque application context (one level) */
-    sc_state_id_t current_state; /* current active state                   */
-    bool initialized;            /* guards against use-before-init         */
+    const sc_machine_t *machine;
+    void *user_data;
+    sc_state_id_t current_state;
+    bool initialized;
 } sc_runtime_t;
 
 /*
- * Initializes a runtime instance for `machine`, entering its initial state.
- * `user_data` is stored verbatim and handed back to guards/actions; it may be
- * NULL. Returns SC_STATUS_INVALID_ARGUMENT on a NULL/invalid machine.
+ * Binds a runtime instance to an immutable generated machine definition and the
+ * caller-owned context pointer. It does not run entry actions or completion
+ * transitions; the generated statechart unit owns those machine-specific calls.
  */
-sc_status_t sc_runtime_init(sc_runtime_t *runtime, const sc_machine_t *machine, void *user_data);
-
-/*
- * Processes a single event against the current state.
- *
- * Scans the transition table for the first row matching (current_state, event)
- * whose guard is enabled, runs its action, and moves to the target state.
- *
- * Returns:
- *   SC_STATUS_OK             a transition fired (state may have changed),
- *   SC_STATUS_NO_TRANSITION  no enabled transition matched (state unchanged),
- *   SC_STATUS_INVALID_ARGUMENT on NULL/uninitialized input,
- *   or the status returned by a failing action.
- */
-sc_status_t sc_runtime_dispatch(sc_runtime_t *runtime, const sc_event_t *event);
+sc_status_t sc_runtime_bind(sc_runtime_t *runtime, const sc_machine_t *machine, void *user_data);
 
 /*
  * Writes the current state id to *out_state.
  * Returns SC_STATUS_INVALID_ARGUMENT on NULL/uninitialized input.
  */
 sc_status_t sc_runtime_get_state(const sc_runtime_t *runtime, sc_state_id_t *out_state);
-
-/*
- * ---------------------------------------------------------------------------
- * Application dispatch contract (NO FUNCTION POINTERS)
- * ---------------------------------------------------------------------------
- * The runtime never stores or calls function pointers. Instead, the generated
- * application code provides the two functions below, each implemented as a
- * single bounded `switch` over integer ids. They are resolved at link time.
- *
- * This keeps dispatch fully static and analyzable at the cost of one set of
- * guard/action functions per linked program (the common case for firmware).
- *
- * The runtime only calls sc_guard_eval() when a transition's guard id is not
- * SC_GUARD_NONE, and only calls sc_action_exec() when its action id is not
- * SC_ACTION_NONE, so the generated switches never need a "none" case.
- */
-
-/* Returns true if `guard_id` is satisfied for the given runtime/event. */
-bool sc_guard_eval(sc_guard_id_t guard_id, const sc_runtime_t *runtime, const sc_event_t *event);
-
-/* Executes `action_id`. Returns SC_STATUS_OK on success. */
-sc_status_t sc_action_exec(sc_action_id_t action_id, sc_runtime_t *runtime,
-                           const sc_event_t *event);
 
 #ifdef __cplusplus
 }

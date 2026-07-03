@@ -17,6 +17,13 @@ where they overlap, Power of 10 wins.
 
 ## Types
 
+- Use the standard headers for primitive widths and booleans:
+  `<stdint.h>`, `<stdbool.h>`, and `<stddef.h>`. Do not create statix-owned
+  aliases for `int32_t`, `uint32_t`, `bool`, or `size_t`; exact-width standard
+  types are part of the portability contract.
+- Create statix typedefs only for **domain** concepts whose representation may
+  change centrally, e.g. `sc_state_id_t`, `sc_event_id_t`,
+  `sc_transition_id_t`, `sc_action_id_t`, and `sc_guard_id_t`.
 - Use the fixed-width id typedefs from `sc_types.h` (`sc_state_id_t`, …), never
   bare `int`/`unsigned`, in public APIs and generated tables.
 - `0` is reserved as "none/invalid" for events, guards, and actions. Generated
@@ -78,6 +85,13 @@ where they overlap, Power of 10 wins.
 - Explain *why*, especially for safety-relevant decisions (bounded loops, the
   no-function-pointer dispatch, fail-safe defaults). Avoid restating *what* the
   code already says.
+- Generated public headers use Doxygen line comments, not block comments. Every
+  public function declaration has `/// @brief`; every parameter has
+  `/// @param`; every non-`void` return has `/// @return`. This keeps generated
+  declarations readable and lets whole generated sections be wrapped safely in
+  `/* ... */` during review without nesting block comments.
+- Generated public structs, enums, and fields may use `/// @brief` or compact
+  `///< @brief` comments when the documentation clarifies the generated API.
 - Mark deferred work with `TODO:` and a one-line reason, e.g.
   `/* TODO: hierarchical entry/exit — see docs/sysmlv2_subset.md */`.
 

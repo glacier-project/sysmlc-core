@@ -12,6 +12,7 @@ from sysmlc.backends.statix.program import (
     CField,
     CGuard,
     CProgram,
+    CProject,
     CState,
     CStruct,
     CTransition,
@@ -43,6 +44,11 @@ def _c_identifier(name: str) -> str:
     return ident or "machine"
 
 
+def _c_prefix(qualified_name: str) -> str:
+    """Sanitize a SysML qualified name into a stable C symbol prefix."""
+    return _c_identifier(qualified_name.replace("::", "_"))
+
+
 def _simple(path: str) -> str:
     """The last ``::`` segment of a state path."""
     return path.rpartition("::")[2]
@@ -60,9 +66,11 @@ class StatixBuilder:
     are rejected loudly.
     """
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, qualified_name: str) -> None:
+        name = qualified_name.split("::")[-1]
         self._name = name
-        self._prefix = _c_identifier(name)
+        self._qualified_name = qualified_name
+        self._prefix = _c_prefix(qualified_name)
         # Guard/action codegen is re-created in result() once the attribute
         # names are known; the init codegen never sees a context pointer.
         self._gen = CCodeGen()
@@ -138,6 +146,7 @@ class StatixBuilder:
             )
         return CProgram(
             name=self._name,
+            qualified_name=self._qualified_name,
             prefix=self._prefix,
             states=states,
             events=tuple(self._events),
@@ -292,7 +301,22 @@ class StatixBuilder:
 
 def build_statix(model: syside.Model, state_def_qn: str) -> CProgram:
     """Build a flat C statechart program from a SysML state definition."""
-    name = state_def_qn.split("::")[-1]
-    result = StateMachineDriver(model).run(state_def_qn, StatixBuilder(name))
+    result = StateMachineDriver(model).run(
+        state_def_qn, StatixBuilder(state_def_qn)
+    )
     assert isinstance(result, CProgram)
     return result
+
+
+def build_statix_project(
+    model: syside.Model, state_def_qns: tuple[str, ...]
+) -> CProject:
+    """Build a statix C project from several state definitions."""
+    programs = tuple(build_statix(model, qn) for qn in state_def_qns)
+    prefixes = [program.prefix for program in programs]
+    if len(set(prefixes)) != len(prefixes):
+        raise UnsupportedConstructError(
+            "two state definitions produce the same C prefix; rename or "
+            "repackage one of them before building a combined statix project."
+        )
+    return CProject(programs=programs)
