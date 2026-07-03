@@ -17,6 +17,7 @@ CASES = [
     ("sm07", "SM07::MachineFiringOrder", "sm07_machinefiringorder"),
 ]
 
+
 @pytest.mark.parametrize("stem,qn,prefix", CASES)
 def test_generated_c_matches_fixture(sm_models, stem, qn, prefix):
     program = build_statix(sm_models[stem], qn)

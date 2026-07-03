@@ -33,18 +33,14 @@ def test_generated_guard_body(sm_models):
 
 
 def test_generated_action_body(sm_models):
-    files, d, s = _files_for(
-        sm_models["sm04"], "SM04::MachineEntryIncrement"
-    )
+    files, d, s = _files_for(sm_models["sm04"], "SM04::MachineEntryIncrement")
     actions_c = files[f"src/{d}/{s}.c"]
     assert "ctx->counter = ctx->counter + 1;" in actions_c
     assert "return SC_STATUS_OK;" in actions_c
 
 
 def test_context_struct(sm_models):
-    files, d, s = _files_for(
-        sm_models["sm04"], "SM04::MachineEntryIncrement"
-    )
+    files, d, s = _files_for(sm_models["sm04"], "SM04::MachineEntryIncrement")
     ctx_h = files[f"include/{d}/{s}.h"]
     assert "int32_t counter;" in ctx_h
 

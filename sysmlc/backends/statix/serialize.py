@@ -463,8 +463,7 @@ def emit_runner(program: CProgram) -> str:
 def emit_cmakelists(project: CProject) -> str:
     """Render a CMakeLists.txt building runtime, statecharts, and runners."""
     lib_sources = "\n".join(
-        f"  src/{d}/{s}.c"
-        for d, s in (_paths(p) for p in project.programs)
+        f"  src/{d}/{s}.c" for d, s in (_paths(p) for p in project.programs)
     )
     runners = []
     for program in project.programs:
