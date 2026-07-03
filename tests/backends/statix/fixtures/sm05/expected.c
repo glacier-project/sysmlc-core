@@ -45,142 +45,12 @@ static sc_status_t sm05_machinechainnested_action_exec(sc_action_id_t action_id,
     return SC_STATUS_OK;
 }
 
-/* Private dispatch helpers. */
-static sc_status_t sm05_machinechainnested_run_state_action(sm05_machinechainnested_t *sm, sc_action_id_t action, const sc_event_t *event)
-{
-    if (action == SC_ACTION_NONE) {
-        return SC_STATUS_OK;
-    }
-    return sm05_machinechainnested_action_exec(action, &sm->runtime, event);
-}
-
-static int32_t sm05_machinechainnested_find_transition(const sc_machine_t *machine, sc_state_id_t state, sc_event_id_t event_id, const sm05_machinechainnested_t *sm, const sc_event_t *event)
-{
-    uint16_t limit = machine->transition_count;
-    uint16_t i;
-    if (limit > (uint16_t)SC_MAX_TRANSITIONS) {
-        limit = (uint16_t)SC_MAX_TRANSITIONS;
-    }
-    for (i = 0u; i < limit; ++i) {
-        const sc_transition_t *t = &machine->transitions[i];
-        if ((t->source == state) && (t->event == event_id)) {
-            bool enabled = (t->guard == SC_GUARD_NONE) ? true : sm05_machinechainnested_guard_eval(t->guard, &sm->runtime, event);
-            if (enabled) {
-                return (int32_t)i;
-            }
-        }
-    }
-    return -1;
-}
-
-static sc_status_t sm05_machinechainnested_take_transition(sm05_machinechainnested_t *sm, const sc_transition_t *t, const sc_event_t *event)
-{
-    const sc_machine_t *machine = sm->runtime.machine;
-    sc_status_t status;
-
-    status = sm05_machinechainnested_run_state_action(sm, machine->states[sm->runtime.current_state].exit_action, event);
-    if (status != SC_STATUS_OK) {
-        return status;
-    }
-    if (t->action != SC_ACTION_NONE) {
-        status = sm05_machinechainnested_action_exec(t->action, &sm->runtime, event);
-        if (status != SC_STATUS_OK) {
-            return status;
-        }
-    }
-    sm->runtime.current_state = t->target;
-    return sm05_machinechainnested_run_state_action(sm, machine->states[t->target].entry_action, event);
-}
-
-static sc_status_t sm05_machinechainnested_run_completion(sm05_machinechainnested_t *sm)
-{
-    const sc_machine_t *machine = sm->runtime.machine;
-    sc_event_t completion;
-    uint16_t step;
-    (void)sc_event_init(&completion, SC_EVENT_COMPLETION);
-    for (step = 0u; step < (uint16_t)SC_MAX_RTC_STEPS; ++step) {
-        int32_t idx = sm05_machinechainnested_find_transition(machine, sm->runtime.current_state, SC_EVENT_COMPLETION, sm, &completion);
-        sc_status_t status;
-        if (idx < 0) {
-            return SC_STATUS_OK;
-        }
-        status = sm05_machinechainnested_take_transition(sm, &machine->transitions[idx], &completion);
-        if (status != SC_STATUS_OK) {
-            return status;
-        }
-    }
-    return SC_STATUS_STEP_LIMIT;
-}
-
-/* Public API. */
 void sm05_machinechainnested_context_init(sm05_machinechainnested_context_t *ctx)
 {
     if (ctx == NULL) {
         return;
     }
     *ctx = (sm05_machinechainnested_context_t){.box = {.inner = {.z = 0.25}}};
-}
-
-sc_status_t sm05_machinechainnested_init(sm05_machinechainnested_t *sm, sm05_machinechainnested_context_t *ctx)
-{
-    sc_status_t status;
-    sc_event_t completion;
-    if ((sm == NULL) || (ctx == NULL)) {
-        return SC_STATUS_INVALID_ARGUMENT;
-    }
-    status = sc_runtime_bind(&sm->runtime, &sm05_machinechainnested_machine, ctx);
-    if (status != SC_STATUS_OK) {
-        return status;
-    }
-    (void)sc_event_init(&completion, SC_EVENT_COMPLETION);
-    status = sm05_machinechainnested_run_state_action(sm, sm05_machinechainnested_machine.states[sm05_machinechainnested_machine.initial_state].entry_action, &completion);
-    if (status != SC_STATUS_OK) {
-        return status;
-    }
-    return sm05_machinechainnested_run_completion(sm);
-}
-
-sc_status_t sm05_machinechainnested_dispatch(sm05_machinechainnested_t *sm, const sc_event_t *event)
-{
-    const sc_machine_t *machine;
-    int32_t idx;
-    sc_status_t status;
-    if ((sm == NULL) || (event == NULL) || (!sm->runtime.initialized)) {
-        return SC_STATUS_INVALID_ARGUMENT;
-    }
-    machine = sm->runtime.machine;
-    if ((machine == NULL) || (machine->transitions == NULL) || (machine->states == NULL)) {
-        return SC_STATUS_INVALID_ARGUMENT;
-    }
-    idx = sm05_machinechainnested_find_transition(machine, sm->runtime.current_state, event->id, sm, event);
-    if (idx < 0) {
-        return SC_STATUS_NO_TRANSITION;
-    }
-    status = sm05_machinechainnested_take_transition(sm, &machine->transitions[idx], event);
-    if (status != SC_STATUS_OK) {
-        return status;
-    }
-    return sm05_machinechainnested_run_completion(sm);
-}
-
-sc_status_t sm05_machinechainnested_post(sm05_machinechainnested_t *sm, sc_event_id_t event_id)
-{
-    sc_event_t event;
-    sc_status_t status = sc_event_init(&event, event_id);
-    if (status != SC_STATUS_OK) {
-        return status;
-    }
-    return sm05_machinechainnested_dispatch(sm, &event);
-}
-
-sc_state_id_t sm05_machinechainnested_get_state(const sm05_machinechainnested_t *sm)
-{
-    sc_state_id_t state = SC_STATE_INVALID;
-    if (sm == NULL) {
-        return SC_STATE_INVALID;
-    }
-    (void)sc_runtime_get_state(&sm->runtime, &state);
-    return state;
 }
 
 const char *sm05_machinechainnested_state_name(sc_state_id_t state)
@@ -208,3 +78,10 @@ const char *sm05_machinechainnested_event_name(sc_event_id_t event)
         return "SC_EVENT_UNKNOWN";
     }
 }
+
+/* Instantiate the shared dispatch for this machine. */
+#define SC_MACHINE_PREFIX sm05_machinechainnested
+#define SC_MACHINE_DEF sm05_machinechainnested_machine
+#define SC_MACHINE_GUARD sm05_machinechainnested_guard_eval
+#define SC_MACHINE_ACTION sm05_machinechainnested_action_exec
+#include "sc/sc_machine.h"
