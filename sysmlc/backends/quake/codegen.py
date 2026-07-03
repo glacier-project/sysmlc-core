@@ -52,6 +52,17 @@ def math_import_lines() -> list[str]:
     return [f"from math import {aliases}"]
 
 
+# The reserved runtime names shared across quake modules. Names with a
+# single owner stay with that owner (the builder's `_tick_*`/`_n_*`/
+# `_w_*`/`_d_*` families, the `_`-aliased math imports above).
+
+# Context name of the injected part-system router: render_send emits
+# calls to it, the coordinator binds one per interpreter.
+ROUTER_CONTEXT_KEY = "_sysmlc_route"
+
+# Kwarg on a time trigger's reminder event carrying the (source state,
+# counter variable) pair its guard checks: the builder emits it, the
+# coordinator reads it to purge stale reminders.
 TICK_METADATA_KEY = "_sysmlc_tick"
 
 
@@ -150,8 +161,8 @@ class SismicCodeGen(PythonCodeGen):
             event = f"{delimiter}{event_name}{delimiter}"
             port = f"{delimiter}{via_port}{delimiter}"
             if kwargs:
-                return f"_sysmlc_route({event}, {port}, {kwargs})"
-            return f"_sysmlc_route({event}, {port})"
+                return f"{ROUTER_CONTEXT_KEY}({event}, {port}, {kwargs})"
+            return f"{ROUTER_CONTEXT_KEY}({event}, {port})"
         if kwargs:
             return f"send({delimiter}{event_name}{delimiter}, {kwargs})"
         return f"send({delimiter}{event_name}{delimiter})"

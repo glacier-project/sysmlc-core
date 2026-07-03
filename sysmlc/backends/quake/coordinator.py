@@ -10,7 +10,10 @@ from typing import TYPE_CHECKING, cast
 from sismic.clock import SimulatedClock
 from sismic.interpreter import Interpreter
 
-from sysmlc.backends.quake.codegen import TICK_METADATA_KEY
+from sysmlc.backends.quake.codegen import (
+    ROUTER_CONTEXT_KEY,
+    TICK_METADATA_KEY,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -54,7 +57,7 @@ class PartSystemCoordinator:
             node.usage_name: Interpreter(
                 system.statecharts[node.usage_name],
                 initial_context={
-                    "_sysmlc_route": self._route_for(node.usage_name)
+                    ROUTER_CONTEXT_KEY: self._route_for(node.usage_name)
                 },
                 clock=self._clock,
             )
