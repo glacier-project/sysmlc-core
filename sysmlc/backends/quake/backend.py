@@ -148,7 +148,7 @@ class QuakeBackend(Backend):
         )
         written = [manifest]
         for node in artifact.graph.parts:
-            statechart = artifact.statechart_for_usage(node.usage_name)
+            statechart = artifact.statecharts[node.usage_name]
             for fmt in formats:
                 path = system_dir / f"{node.usage_name}.{self._EXTENSIONS[fmt]}"
                 path.write_text(self.serialize(statechart, fmt))

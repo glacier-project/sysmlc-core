@@ -8,6 +8,7 @@ from sysmlc.backends.quake.coordinator import PartSystemCoordinator
 from sysmlc.backends.quake.parts import QuakePartSystem, build_part_system
 from sysmlc.errors import UnsupportedConstructError
 from sysmlc.sysml.loading import load_model
+from tests import _load_inline_model
 from tests.backends.test_sm_examples import SM_EXAMPLES_DIR
 
 FIX = SM_EXAMPLES_DIR / "part01-two-parts"
@@ -22,7 +23,7 @@ def test_build_part_system_composes_two_parts() -> None:
     system = build_part_system(load_model(FIX), "Part01::pingSystem")
 
     assert isinstance(system, QuakePartSystem)
-    assert set(system.statecharts) == {"Plant", "Tester"}
+    assert set(system.statecharts) == {"plant", "tb"}
     instances = {
         (node.usage_name, node.definition_name) for node in system.graph.parts
     }
@@ -44,7 +45,7 @@ def test_build_part_system_threads_external_functions() -> None:
         external=("ext", frozenset({"bump"})),
     )
 
-    counter = system.statecharts["Counter"]
+    counter = system.statecharts["c"]
     assert "from ext import bump" in counter.preamble.splitlines()
     ticking = [t for t in counter.transitions if t.source == "ticking"]
     assert [t.action for t in ticking] == ["x = bump(x)"]
@@ -115,3 +116,83 @@ def test_coordinator_drains_cross_machine_cascade_at_one_time() -> None:
         and entry.step.event.name in {"Ping", "Pong"}
     ]
     assert routed_times == [0.1, 0.1]
+
+
+TWINS_MODEL = """
+package PkgA {
+    state def MotorBehavior {
+        entry; then spinning;
+        state spinning;
+    }
+    part def Motor { exhibit state : MotorBehavior; }
+}
+package PkgB {
+    state def MotorBehavior {
+        entry; then humming;
+        state humming;
+    }
+    part def Motor { exhibit state : MotorBehavior; }
+}
+package PartTwins {
+    part sys {
+        part a : PkgA::Motor;
+        part b : PkgB::Motor;
+    }
+}
+"""
+
+SHARED_DEF_MODEL = """
+package PartShared {
+    state def CounterBehavior {
+        entry; then idle;
+        state idle;
+    }
+    part def Counter { exhibit state : CounterBehavior; }
+    part sys {
+        part a : Counter;
+        part b : Counter;
+    }
+}
+"""
+
+ANONYMOUS_MODEL = """
+package PartAnon {
+    state def Behavior {
+        entry; then idle;
+        state idle;
+    }
+    part def A { exhibit state : Behavior; }
+    part sys {
+        part : A;
+        part : A;
+    }
+}
+"""
+
+
+def test_same_named_defs_get_distinct_statecharts(tmp_path: Path) -> None:
+    model = _load_inline_model(tmp_path, TWINS_MODEL)
+
+    system = build_part_system(model, "PartTwins::sys")
+
+    assert system.statecharts["a"] is not system.statecharts["b"]
+    assert "spinning" in system.statecharts["a"].states
+    assert "humming" not in system.statecharts["a"].states
+    assert "humming" in system.statecharts["b"].states
+
+
+def test_usages_sharing_a_definition_share_one_statechart(
+    tmp_path: Path,
+) -> None:
+    model = _load_inline_model(tmp_path, SHARED_DEF_MODEL)
+
+    system = build_part_system(model, "PartShared::sys")
+
+    assert system.statecharts["a"] is system.statecharts["b"]
+
+
+def test_duplicate_usage_names_are_rejected(tmp_path: Path) -> None:
+    model = _load_inline_model(tmp_path, ANONYMOUS_MODEL)
+
+    with pytest.raises(UnsupportedConstructError, match="uniquely named"):
+        build_part_system(model, "PartAnon::sys")

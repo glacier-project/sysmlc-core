@@ -23,19 +23,18 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class QuakePartSystem:
-    """A compiled multi-machine quake artifact."""
+    """A compiled multi-machine quake artifact.
+
+    Attributes:
+        statecharts: The executable statechart of each part instance, keyed
+            by usage name. Usages exhibiting the same behavior share one
+            statechart object.
+    """
 
     name: str
     graph: PartGraph
     statecharts: dict[str, Statechart]
     routes: tuple[PortSignalRoute, ...]
-
-    def statechart_for_usage(self, usage_name: str) -> Statechart:
-        """Return the statechart backing the part usage ``usage_name``."""
-        for node in self.graph.parts:
-            if node.usage_name == usage_name:
-                return self.statecharts[node.definition_name]
-        raise KeyError(usage_name)
 
 
 def build_part_system(
@@ -54,12 +53,28 @@ def build_part_system(
 
     Returns:
         A quake part-system artifact ready to feed into a coordinator.
+
+    Raises:
+        UnsupportedConstructError: If the usage composes no parts, two
+            parts share a usage name, a part def does not exhibit exactly
+            one state, or a connection fails routing validation.
     """
     graph = part_graph(model, usage_qn)
     if not graph.parts:
         raise UnsupportedConstructError(
             f"part usage {usage_qn!r} composes no parts"
         )
+
+    # Keyed by usage name, so a repeated name would silently drop a machine.
+    seen_usage_names: set[str] = set()
+    for node in graph.parts:
+        if node.usage_name in seen_usage_names:
+            raise UnsupportedConstructError(
+                f"part usage {usage_qn!r} composes two parts named "
+                f"{node.usage_name!r}; quake part systems require uniquely "
+                "named part usages"
+            )
+        seen_usage_names.add(node.usage_name)
 
     for node in graph.parts:
         if len(node.behaviors) != 1:
@@ -77,14 +92,15 @@ def build_part_system(
     validate_via_ports(graph.parts, faces)
     validate_connections(graph, parts)
 
+    built_behaviors: dict[str, Statechart] = {}
     statecharts: dict[str, Statechart] = {}
-    behaviors: dict[str, str] = {}
     for node in graph.parts:
-        behaviors.setdefault(node.definition_name, node.behaviors[0][1])
-    for definition_name, behavior_qn in behaviors.items():
-        statecharts[definition_name] = build_statechart(
-            model, behavior_qn, external=external, route_via_sends=True
-        )
+        behavior_qn = node.behaviors[0][1]
+        if behavior_qn not in built_behaviors:
+            built_behaviors[behavior_qn] = build_statechart(
+                model, behavior_qn, external=external, route_via_sends=True
+            )
+        statecharts[node.usage_name] = built_behaviors[behavior_qn]
 
     return QuakePartSystem(
         name=graph.name,

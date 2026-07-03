@@ -50,7 +50,7 @@ class PartSystemCoordinator:
         self._routes = _route_map(system.routes)
         self._interpreters = {
             node.usage_name: Interpreter(
-                system.statechart_for_usage(node.usage_name),
+                system.statecharts[node.usage_name],
                 initial_context={
                     "_sysmlc_route": self._route_for(node.usage_name)
                 },
