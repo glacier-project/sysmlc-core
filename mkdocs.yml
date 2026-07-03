@@ -32,6 +32,14 @@ plugins:
 nav:
 - Home: index.md
 - API Reference: api.md
+- statix:
+  - Mapping (SysML → C): statix-mapping.md
+  - Architecture: statix/architecture.md
+  - Power of 10 compliance: statix/power_of_10_compliance.md
+  - Coding standard: statix/coding_standard.md
+  - Positioning: statix/positioning.md
+  - Design dialogue: statix/design-dialogue.md
+  - vs boost::sml: statix/comparison_boost_sml.md
 
 # Some docs link to repo source files outside docs/ (e.g.
 # ../models/**/*.sysml). Those are not documentation pages, so mkdocs cannot
