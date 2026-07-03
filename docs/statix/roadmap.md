@@ -65,35 +65,32 @@ declares several `state def`s (SM01 has 3, SM11 has 7); parts/systems/compositio
 put several machines in one image; real firmware runs several small machines side
 by side.
 
-Almost everything statix generates is already namespaced by `<prefix>`
-(`MACHINE_STATE_*`, the `machine_transitions` / `machine_states` tables,
-`machine_context_t`, `machine_statechart_machine`), so machine *data* coexists.
-The single blocker is the **dispatch contract**: the runtime calls the fixed
-global symbols `sc_guard_eval` / `sc_action_exec`, and each machine's `_actions.c`
-*defines* them — link two machines and the definitions **collide**. The tempting
-fix (a generic runtime calling `machine->guard_fn(...)`) is a **function
-pointer**, which the invariant forbids and which is exactly what separates statix
-from QP.
+Almost everything statix generated was already namespaced by `<prefix>`, so
+machine *data* could coexist. The old blocker was the **dispatch contract**: the
+runtime called fixed global symbols `sc_guard_eval` / `sc_action_exec`, and each
+machine's generated action file defined them — link two machines and the
+definitions collided. The tempting fix (a generic runtime calling
+`machine->guard_fn(...)`) is a **function pointer**, which the invariant forbids
+and which is exactly what separates statix from QP.
 
-**The design:** each statechart becomes a self-contained `.c`/`.h` unit with a
-fully **prefixed public API** (`machine_init`, `machine_dispatch`,
-`machine_get_state`, later `machine_tick`) and keeps guard/action evaluation
-`static` (internal linkage). N machines link cleanly, no function pointers. Two
-ways to reuse the dispatch core without global guard/action symbols:
+**A.0 is landed:** each statechart is now a self-contained `.h`/`.c` unit with a
+fully **prefixed public API** (`<prefix>_context_init`, `<prefix>_init`,
+`<prefix>_dispatch`, `<prefix>_post`, `<prefix>_get_state`, later
+`<prefix>_tick`) and file-local `static` guard/action evaluation. N machines
+link cleanly, no function pointers.
 
-| Shape | How N machines coexist | Trade-off |
-|-------|------------------------|-----------|
-| **Per-machine core** (default) | the dispatch core is instantiated per machine (header / `static`); its guard/action calls bind to that unit's `static` functions | small dispatch loop duplicated per machine — negligible on a KB-class target, and better for per-machine MC/DC coverage |
-| **Shared core + split** | machine-agnostic parts (queue, LCA / table math) compile once and are shared; only the guard/action-calling orchestration is per-machine | minimal duplication; a little more generated logic per machine |
+The dispatch algorithm itself lives in one audited C template,
+`include/sc/sc_machine.h`, instantiated once per generated unit via
+`SC_MACHINE_PREFIX`, `SC_MACHINE_DEF`, `SC_MACHINE_GUARD`, and
+`SC_MACHINE_ACTION`. That keeps the algorithm centralized while preserving direct
+calls to each unit's file-local static guard/action functions.
 
 `sysmlc statix build <model>` with **no `-e`** generates one prefixed pair per
 `state def` plus the shared runtime and one `CMakeLists.txt`; `-e <QN>` still
 builds a single machine. A.0 also emits a **minimal host runner** per machine
 (`init`, feed no-payload event ids from `argv`, print a state trace) as a
 separate hosted-C target, while the generated statechart units and runtime stay
-board-clean. This reshapes the file/symbol layout, so it lands **first** (Phase
-A.0), before hierarchy piles logic on top; it is behaviorally a no-op for a
-single machine.
+board-clean.
 
 The full host-execution product story is a distinct increment: a `sysmlc statix
 run` command, virtual time, testbench scripts (`send` / `advance_ms` / `expect`),
@@ -186,7 +183,7 @@ Conformance-gated, hierarchy before advanced features, untimed before timed.
 
 | Phase | Theme | Features | Corpus | Runtime delta |
 |-------|-------|----------|--------|---------------|
-| **A.0** | Emission model | one prefixed `.c`/`.h` per statechart; whole-model build; no global dispatch symbols | multi-`state def` models (SM01, SM11) build & link together | prefix the public API, make dispatch `static`, split shared vs per-machine core |
+| **A.0** | Emission model | **landed:** one prefixed `.c`/`.h` per statechart; whole-model build; host runners; no global dispatch symbols | SM01 multi-`state def` project compiles, links, and runs | prefixed public API; static guard/action; shared `sc/sc_machine.h` dispatch template |
 | **A** | UML core (untimed) | composite, `then done`/final, one-shot `do`, constraints, functions/extern | sm08, sm10, sm12, sm14, sm17 | state tree + LCA dispatch + `MAX_DEPTH`; final states; invariant check + new status |
 | **B** | Internal-event RTC | `send` + internal queue drain + payloads | sm11 | generalize the bounded micro-step; typed payloads in the event buffer |
 | **B.5** | Host execution & testbench | `sysmlc statix run`; virtual-time testbench DSL; state/context expectations; JSON/CSV traces; statix-vs-quake trace comparison | sm01-sm17 reusable scripted traces | hosted runner tooling only; board-clean generated units unchanged |
@@ -209,9 +206,8 @@ requiring heap allocation or function-pointer dispatch.
 
 ## Decisions to confirm per phase
 
-- **Runtime shape** — table-driven tree dispatch (recommended) and, for multiple
-  statecharts, per-machine core (default) vs shared-core+split. Both preserve
-  no-function-pointers; the choice is duplication vs coupling.
+- **Runtime shape for hierarchy** — table-driven tree dispatch (recommended)
+  versus per-model flattening when Phase A grows beyond the flat A.0 template.
 - **Timed correspondence (Phase C)** — a timed model conforms to Sismic event
   *order* + settled state (recommended), given LF logical time and MCU wall-clock
   genuinely differ.

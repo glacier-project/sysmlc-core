@@ -28,7 +28,7 @@ with a clear boundary between the shared sysmlc front-end and the C it emits.
                                      │ #include + link
         ┌───────────────────────────▼───────────────────────────────────┐
         │ 1. C runtime kernel (sc_runtime, bundled)                      │
-        │    generic, machine-agnostic, static-memory dispatcher         │
+        │    machine-agnostic runtime + dispatch template                │
         └───────────────────────────────────────────────────────────────┘
 ```
 
@@ -63,15 +63,19 @@ dispatch orchestration** rather than runtime indirection:
 
 - The shared runtime never declares or calls global `sc_guard_eval()` /
   `sc_action_exec()` hooks.
-- Each generated `<prefix>.c` defines `static` guard/action switches and the
-  small dispatch logic that calls them directly.
+- Each generated `<prefix>.c` defines `static` guard/action switches and
+  includes `sc/sc_machine.h` after setting four `SC_MACHINE_*` macros.
+- `sc/sc_machine.h` is the single audited dispatch algorithm. It is instantiated
+  once per generated unit and calls the file-local static guard/action switches
+  directly.
 - The public API is fully prefixed (`<prefix>_init`, `<prefix>_dispatch`,
   `<prefix>_post`, `<prefix>_get_state`), so several generated machines link
   cleanly into one firmware image.
 
-The cost is a small dispatch loop instantiated per generated statechart. The
-benefit is that *all* control flow is statically analyzable: there is no indirect
-call anywhere, and no generated global symbols collide.
+The cost is a small dispatch template instantiated per generated statechart. The
+benefit is that the algorithm lives in one C artifact while *all* control flow
+remains statically analyzable: there is no indirect call anywhere, and no
+generated global symbols collide.
 
 ## 2. Generated C project
 
@@ -83,10 +87,14 @@ diff cleanly.
   type, and documented API. Public declarations use Doxygen `/// @brief`,
   `@param`, and `@return` comments.
 - **`<prefix>.c`** — static state/transition tables, generated context defaults,
-  generated guard/action switches, private dispatch helpers, and the public
-  prefixed API. Eventless transitions carry the reserved `SC_EVENT_COMPLETION`
-  event id. Guard/action bodies are lowered directly from the SysML guard/effect/
-  entry/exit expressions, so the model is the single source of truth.
+  generated guard/action switches, state/event name helpers, and the
+  `SC_MACHINE_*` glue that instantiates `sc/sc_machine.h`. Eventless transitions
+  carry the reserved `SC_EVENT_COMPLETION` event id. Guard/action bodies are
+  lowered directly from the SysML guard/effect/entry/exit expressions, so the
+  model is the single source of truth.
+- **`include/sc/sc_machine.h`** — shared, header-only dispatch template. It
+  owns the flat dispatch algorithm (`init`, `dispatch`, `post`, `get_state`)
+  and is included once per generated statechart unit.
 - **`<prefix>_runner.c`** — host-only smoke runner: initialize the machine, feed
   no-payload event ids from command-line arguments, and print a state trace. It
   may use hosted C facilities such as `<stdio.h>`; it is not part of the board
