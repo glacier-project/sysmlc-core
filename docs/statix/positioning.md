@@ -12,7 +12,7 @@
 > the [design dialogue](design-dialogue.md) it grew out of. Where it makes
 > recommendations, it says so; where a decision is still open, it says that too.
 
----
+______________________________________________________________________
 
 ## 1. One-paragraph positioning
 
@@ -51,11 +51,11 @@ way across backends.*
 
 Each backend answers a different question about the *same* model:
 
-| Backend | Target | Question it answers | Model of computation |
-|---------|--------|---------------------|----------------------|
-| **quake** | Sismic (Python) | "Is the design correct? What does it do?" | SCXML / UML statecharts, run-to-completion |
-| **rosetta** | Lingua Franca | "How does it behave in real time, concurrently?" | Reactors: logical time, deterministic concurrency |
-| **statix** | C on MCU | "How do we ship it on tiny hardware?" | Synchronous statechart dispatch, static memory |
+| Backend     | Target          | Question it answers                              | Model of computation                              |
+| ----------- | --------------- | ------------------------------------------------ | ------------------------------------------------- |
+| **quake**   | Sismic (Python) | "Is the design correct? What does it do?"        | SCXML / UML statecharts, run-to-completion        |
+| **rosetta** | Lingua Franca   | "How does it behave in real time, concurrently?" | Reactors: logical time, deterministic concurrency |
+| **statix**  | C on MCU        | "How do we ship it on tiny hardware?"            | Synchronous statechart dispatch, static memory    |
 
 statix's job is **fidelity + frugality**: reproduce the verified behavior, on the
 smallest possible target, with the strongest possible auditability.
@@ -83,16 +83,16 @@ investment.
 
 boost::sml is a red herring. The tools that actually occupy statix's niche:
 
-| Tool | Kind | Source model | Memory / dispatch | Notes (verify current details) |
-|------|------|--------------|-------------------|--------------------------------|
-| **StateSmith** | codegen, open (MIT) | PlantUML / draw.io / YAML | static, single switch fn | Closest open peer *in spirit*. Mature-ish, active. |
-| **itemis CREATE** (YAKINDU SCT) | modeling tool + codegen, commercial + community | own statechart notation | static, generated C/C++/Java | SCXML-ish semantics, simulation, established in industry. |
-| **IAR visualSTATE** | commercial | own notation | generated C + formal checks | Automotive/industrial; verification story. |
-| **Stateflow + Embedded Coder** | commercial (MathWorks) | Simulink/Stateflow | generated C | Dominant in automotive/aero; huge, heavy. |
-| **QP/QM** (Quantum Leaps) | framework + free modeling tool | QM diagrams | **function-pointer** state handlers, active objects | Very embedded-focused; dual GPL/commercial. *Uses function pointers — which Power of 10 forbids.* |
-| **Zephyr SMF** | C framework (no codegen) | hand-written tables | static | Part of Zephyr RTOS; not model-driven. |
-| **Ragel** | state machine compiler | regex-like | generated C | Protocol/lexer FSMs, not UML statecharts. |
-| **statix** | codegen, open | **SysML v2** (via shared IR) | **static, no function pointers, Power of 10** | Pipeline member + strict safety posture. |
+| Tool                            | Kind                                            | Source model                 | Memory / dispatch                                   | Notes (verify current details)                                                                    |
+| ------------------------------- | ----------------------------------------------- | ---------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| **StateSmith**                  | codegen, open (MIT)                             | PlantUML / draw.io / YAML    | static, single switch fn                            | Closest open peer *in spirit*. Mature-ish, active.                                                |
+| **itemis CREATE** (YAKINDU SCT) | modeling tool + codegen, commercial + community | own statechart notation      | static, generated C/C++/Java                        | SCXML-ish semantics, simulation, established in industry.                                         |
+| **IAR visualSTATE**             | commercial                                      | own notation                 | generated C + formal checks                         | Automotive/industrial; verification story.                                                        |
+| **Stateflow + Embedded Coder**  | commercial (MathWorks)                          | Simulink/Stateflow           | generated C                                         | Dominant in automotive/aero; huge, heavy.                                                         |
+| **QP/QM** (Quantum Leaps)       | framework + free modeling tool                  | QM diagrams                  | **function-pointer** state handlers, active objects | Very embedded-focused; dual GPL/commercial. *Uses function pointers — which Power of 10 forbids.* |
+| **Zephyr SMF**                  | C framework (no codegen)                        | hand-written tables          | static                                              | Part of Zephyr RTOS; not model-driven.                                                            |
+| **Ragel**                       | state machine compiler                          | regex-like                   | generated C                                         | Protocol/lexer FSMs, not UML statecharts.                                                         |
+| **statix**                      | codegen, open                                   | **SysML v2** (via shared IR) | **static, no function pointers, Power of 10**       | Pipeline member + strict safety posture.                                                          |
 
 Honest reading of this table:
 
@@ -101,10 +101,10 @@ Honest reading of this table:
   features." Your differentiation must be real and defended:
   1. **SysML v2 front-end + multi-backend equivalence** (StateSmith is a
      standalone tool; statix is part of a verified pipeline).
-  2. **Power-of-10 / MISRA-grade strictness** as a first-class, tested property
+  1. **Power-of-10 / MISRA-grade strictness** as a first-class, tested property
      (no function pointers, no heap, bounded everything) — most competitors,
      notably QP, *do* use function pointers.
-  3. **Cross-backend conformance evidence** (§6) — nobody else can offer "the C
+  1. **Cross-backend conformance evidence** (§6) — nobody else can offer "the C
      provably matches the verified Sismic model."
 - **Against QP/QM**, statix's honest edge is the safety posture (QP's classic
   design is function-pointer-based) and openness; QP's edge is maturity, active
@@ -136,15 +136,15 @@ credible toolchain you need:
    support — ideally expressed once, at the IR level, and cited by all backends.
    Pragmatically, **adopt Sismic/SCXML RTC semantics as the oracle**, because
    quake is your verification backend (open decision #2).
-2. **statix's runtime redefined to implement that semantics precisely** for the
+1. **statix's runtime redefined to implement that semantics precisely** for the
    supported subset: RTC step, deterministic transition selection, entry/exit
    ordering, internal-event handling. This is a bigger deal than any single
    "feature" on the boost-comparison list.
-3. **A defined correspondence with LF.** Statechart RTC and reactor logical-time
+1. **A defined correspondence with LF.** Statechart RTC and reactor logical-time
    execution do not map trivially (especially *timed* behavior). Decide the
    agreed subset where all three coincide (likely: untimed, event-driven,
    deterministic) and explicitly mark where they diverge (timers, concurrency).
-4. **Trace equivalence as the definition of "correct."** Two backends "agree" iff
+1. **Trace equivalence as the definition of "correct."** Two backends "agree" iff
    for the same input event sequence they produce corresponding state/output
    traces (modulo a documented mapping). This is testable — see §6.
 
@@ -203,11 +203,11 @@ to a SysML v2 element."** No competitor in §4 can say all of that.
 Three viable shapes; statix is currently a hybrid of the first two. Choose
 deliberately.
 
-| Model | What it is | Pros | Cons |
-|-------|------------|------|------|
-| **(A) Interpreter + data tables** | one generic `sc_runtime` + `const` machine tables (current design) | one audited core; tiny per-model data; many models cheap; matches TFLite-Micro | a (small) generic interpreter loop |
-| **(B) Per-model full codegen** | emit a bespoke goto-free `switch` machine per model; no generic core | nothing to interpret; fully inlined; each artifact self-contained | more generated code; less shared audited core; harder cross-model reuse |
-| **(C) Amalgamation single-header** | ship (A) or (B) collapsed into one `.h`/`.c` (or one header) | *the* "drop-on-Arduino" ergonomic; trivial integration | build-time concatenation step; care with include-once |
+| Model                              | What it is                                                           | Pros                                                                           | Cons                                                                    |
+| ---------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
+| **(A) Interpreter + data tables**  | one generic `sc_runtime` + `const` machine tables (current design)   | one audited core; tiny per-model data; many models cheap; matches TFLite-Micro | a (small) generic interpreter loop                                      |
+| **(B) Per-model full codegen**     | emit a bespoke goto-free `switch` machine per model; no generic core | nothing to interpret; fully inlined; each artifact self-contained              | more generated code; less shared audited core; harder cross-model reuse |
+| **(C) Amalgamation single-header** | ship (A) or (B) collapsed into one `.h`/`.c` (or one header)         | *the* "drop-on-Arduino" ergonomic; trivial integration                         | build-time concatenation step; care with include-once                   |
 
 **Recommendation:**
 
@@ -312,9 +312,9 @@ semantics work — they are not the headline.
 
 1. **Shared IR?** Does an ecosystem IR that quake/rosetta consume already exist,
    and should statix adapt to it (recommended) or seed a canonical one? (§8)
-2. **Semantic oracle?** Confirm Sismic/SCXML-RTC as the reference semantics and
+1. **Semantic oracle?** Confirm Sismic/SCXML-RTC as the reference semantics and
    define the agreed untimed subset across all three backends. (§5)
-3. **Footprint boundary vs LF-C?** The smallest target statix must hit that
+1. **Footprint boundary vs LF-C?** The smallest target statix must hit that
    rosetta/LF-C can't — stated in one sentence, proven with data in Phase 3. (§3)
 
 ## 12. The research / publication angle
@@ -333,7 +333,7 @@ evidence that a verified model reaches the smallest hardware unchanged in
 meaning. That reframing is also the product strategy: the conformance harness and
 the shared IR are simultaneously the research result and the engineering moat.
 
----
+______________________________________________________________________
 
 ### The through-line
 

@@ -61,14 +61,14 @@ where they overlap, Power of 10 wins.
 
 ## Naming
 
-| Kind | Convention | Example |
-|------|------------|---------|
-| Public type | `sc_<noun>_t` | `sc_runtime_t` |
-| Public function | `sc_<noun>_<verb>` | `sc_event_queue_push` |
-| Status code | `SC_STATUS_<NAME>` | `SC_STATUS_QUEUE_FULL` |
-| Constant / sentinel | `SC_<NAME>` | `SC_GUARD_NONE` |
-| Generated state id | `<PREFIX>_STATE_<NAME>` | `APP_STATE_OFF` |
-| Generated event id | `<PREFIX>_EVENT_<NAME>` | `APP_EVENT_TURN_ON` |
+| Kind                | Convention              | Example                |
+| ------------------- | ----------------------- | ---------------------- |
+| Public type         | `sc_<noun>_t`           | `sc_runtime_t`         |
+| Public function     | `sc_<noun>_<verb>`      | `sc_event_queue_push`  |
+| Status code         | `SC_STATUS_<NAME>`      | `SC_STATUS_QUEUE_FULL` |
+| Constant / sentinel | `SC_<NAME>`             | `SC_GUARD_NONE`        |
+| Generated state id  | `<PREFIX>_STATE_<NAME>` | `APP_STATE_OFF`        |
+| Generated event id  | `<PREFIX>_EVENT_<NAME>` | `APP_EVENT_TURN_ON`    |
 
 ## Formatting
 

@@ -9,7 +9,7 @@
 > reproduced as given. The synthesized deep-dive that came out of this is in
 > [positioning.md](positioning.md).
 
----
+______________________________________________________________________
 
 ## Q1 — "Check what boost::sml has more than us and how we can extend ours (probably just write a readme for now)."
 
@@ -40,7 +40,7 @@ Closing point: statix's authoring model (external IR → auditable generated C99
 is itself a safety feature — a reviewer/analyzer sees exactly what runs on the
 target.
 
----
+______________________________________________________________________
 
 ## Q2 — "How useful would it be if we reimplement here with my idea of how this library should work, instead of the boost approach? Is it worth going down this path? Be honest."
 
@@ -80,7 +80,7 @@ lane where you're not rebuilding something that already exists. (Ended by asking
 what's the target, what's your actual idea, and what's the goal — product vs
 reference implementation?)
 
----
+______________________________________________________________________
 
 ## Q3 — "My idea is to hook the SysML v2 parser my colleagues and I use to the other backends. We have backends that generate Sismic code (quake) and Lingua Franca modal reactors (rosetta); this one goes directly to C, ready for microcontroller — like TensorFlow Lite makes an ML model a pure header for an Arduino."
 
@@ -131,11 +131,11 @@ features.
    backend re-parse SysML v2? statix currently has its own JSON IR; if an
    ecosystem IR exists, statix should consume *that* (its `ir.py` becomes a thin
    adapter). Most important structural decision.
-2. **Which semantics is the source of truth?** Almost certainly Sismic/SCXML
+1. **Which semantics is the source of truth?** Almost certainly Sismic/SCXML
    (since quake is the verification backend). If so, target that run-to-completion
    semantics precisely — which reshapes the roadmap (RTC and entry/exit ordering
    matter more than wildcard transitions).
-3. **The footprint boundary vs LF:** the smallest target statix must hit that
+1. **The footprint boundary vs LF:** the smallest target statix must hit that
    rosetta/LF-C can't. That's the one-sentence reason to exist.
 
 Suggested first build: the **conformance-testing harness** that ties the backends

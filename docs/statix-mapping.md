@@ -31,14 +31,14 @@ A `state def` becomes one generated C unit with a stable file layout, where
 (`SM01::Machine` → `sm01_machine`). A whole-model build emits one such unit per
 state definition.
 
-| File | Contents |
-|------|----------|
-| `<prefix>.h` | public API, state/event/guard/action ids, context type, instance type |
-| `<prefix>.c` | static tables, static guard/action switches, `context_init`, name helpers, dispatch-template instantiation |
-| `<prefix>_runner.c` | host-only smoke runner (`stdio`, argv events, state trace) |
-| `include/sc/sc_machine.h` | shared dispatch template instantiated per statechart |
-| `include/sc/*.h`, `src/*.c` | bundled machine-agnostic runtime support |
-| `CMakeLists.txt` | builds the runtime, generated statechart library, and runners |
+| File                        | Contents                                                                                                   |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `<prefix>.h`                | public API, state/event/guard/action ids, context type, instance type                                      |
+| `<prefix>.c`                | static tables, static guard/action switches, `context_init`, name helpers, dispatch-template instantiation |
+| `<prefix>_runner.c`         | host-only smoke runner (`stdio`, argv events, state trace)                                                 |
+| `include/sc/sc_machine.h`   | shared dispatch template instantiated per statechart                                                       |
+| `include/sc/*.h`, `src/*.c` | bundled machine-agnostic runtime support                                                                   |
+| `CMakeLists.txt`            | builds the runtime, generated statechart library, and runners                                              |
 
 Generation is **deterministic**: the same model yields byte-identical C.
 
@@ -104,16 +104,16 @@ A transition guard (`if <expr>`) becomes a `<PREFIX>_GUARD_*` id whose body is
 the **lowered C boolean expression**, returned from the generated static
 `<prefix>_guard_eval`. Supported expression forms:
 
-| SysML | C |
-|-------|---|
-| `true` / `false` | `true` / `false` |
-| integer / real literal | `0`, `1.0`, … |
-| attribute reference `x` | `ctx->x` |
-| chained reference `pt.x` | `ctx->pt.x` |
-| `not a`, `-x` | `!a`, `-x` |
-| `a and b`, `a or b` | `a && b`, `a || b` |
-| `== != < <= > >=` | same |
-| `+ - * /` | same (precedence preserved) |
+| SysML                    | C                           |
+| ------------------------ | --------------------------- |
+| `true` / `false`         | `true` / `false`            |
+| integer / real literal   | `0`, `1.0`, …               |
+| attribute reference `x`  | `ctx->x`                    |
+| chained reference `pt.x` | `ctx->pt.x`                 |
+| `not a`, `-x`            | `!a`, `-x`                  |
+| `a and b`, `a or b`      | `a && b`, \`a               |
+| `== != < <= > >=`        | same                        |
+| `+ - * /`                | same (precedence preserved) |
 
 A reference to anything that is not a machine attribute is rejected at
 generation (loud), not silently mis-rendered.
@@ -146,11 +146,11 @@ Attribute initial values are lowered to C initializers (`.counter = 0`,
 
 ## 8. Type mapping
 
-| SysML | C |
-|-------|---|
-| `Boolean` | `bool` |
-| `Integer` | `int32_t` |
-| `Real` | `double` *(provisional)* |
+| SysML                     | C                         |
+| ------------------------- | ------------------------- |
+| `Boolean`                 | `bool`                    |
+| `Integer`                 | `int32_t`                 |
+| `Real`                    | `double` *(provisional)*  |
 | composite `attribute def` | generated nested `struct` |
 
 **`Real → double` is provisional.** It is the faithful choice for iteration 1,
@@ -168,17 +168,17 @@ statix **never silently drops** a construct: anything outside the supported flat
 subset raises `UnsupportedConstructError` with a clear message. Rejected in
 iteration 1:
 
-| Construct | Status |
-|-----------|--------|
-| composite / parallel / history states, deep entry | rejected (flat only) |
-| `after` / `at` / `when` triggers | rejected (no timers/change events yet) |
-| `send` effects, reading `accept` payload data | rejected (send/RTC family) |
-| `then done` completion targets | rejected (no final-state model yet) |
-| machine-level (state def) entry/do/exit actions | rejected (put on states) |
-| non-inline / referenced `do` activities | rejected |
-| asserted constraints | rejected |
-| `String` / non-scalar, non-composite attributes | rejected |
-| external / library function calls in expressions | rejected |
+| Construct                                         | Status                                 |
+| ------------------------------------------------- | -------------------------------------- |
+| composite / parallel / history states, deep entry | rejected (flat only)                   |
+| `after` / `at` / `when` triggers                  | rejected (no timers/change events yet) |
+| `send` effects, reading `accept` payload data     | rejected (send/RTC family)             |
+| `then done` completion targets                    | rejected (no final-state model yet)    |
+| machine-level (state def) entry/do/exit actions   | rejected (put on states)               |
+| non-inline / referenced `do` activities           | rejected                               |
+| asserted constraints                              | rejected                               |
+| `String` / non-scalar, non-composite attributes   | rejected                               |
+| external / library function calls in expressions  | rejected                               |
 
 ## 10. Forward notes (not settled)
 
