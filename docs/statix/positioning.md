@@ -31,14 +31,14 @@ way across backends.*
 
 ```
                          ┌─────────────────────────────┐
-                         │   SysML v2 statechart model  │   (authored / MBSE)
+                         │   SysML v2 statechart model │   (authored / MBSE)
                          └───────────────┬─────────────┘
                                          │ parse
                          ┌───────────────▼─────────────┐
-                         │   Shared front-end / IR      │   ← the contract
-                         └───┬───────────┬───────────┬──┘
+                         │   Shared front-end / IR     │   ← the contract
+                         └───┬───────────┬───────────┬─┘
                              │           │           │
-              ┌──────────────▼──┐  ┌─────▼───────┐  ┌▼───────────────┐
+              ┌──────────────▼──┐  ┌─────▼───────┐  ┌▼────────────────┐
               │ quake           │  │ rosetta     │  │ statix          │
               │ → Sismic (Py)   │  │ → Lingua    │  │ → C (this repo) │
               │                 │  │   Franca    │  │                 │
