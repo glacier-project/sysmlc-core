@@ -24,7 +24,7 @@ package SM11 {
         state idle;
         state armed;
         state fired;
-        transition first idle do send new Ping() via commPort then armed;
+        transition first idle do send new Ping() to commPort then armed;
         transition first armed accept Ping via commPort then fired;
     }
 
@@ -37,7 +37,7 @@ package SM11 {
         state idle;
         state armed;
         state fired;
-        transition first idle do send new Reading(current) via commPort then armed;
+        transition first idle do send new Reading(current) to commPort then armed;
         transition first armed accept Reading via commPort then fired;
     }
 
@@ -49,7 +49,7 @@ package SM11 {
         state idle;
         state armed;
         state fired;
-        transition first idle do send new Note("hi") via commPort then armed;
+        transition first idle do send new Note("hi") to commPort then armed;
         transition first armed accept Note via commPort then fired;
     }
 
@@ -63,7 +63,7 @@ package SM11 {
         state armed;
         state fired;
         transition first idle
-            do send new Measurement(current) via commPort
+            do send new Measurement(current) to commPort
             then armed;
         transition first armed
             accept reading : Measurement via commPort
@@ -81,7 +81,7 @@ package SM11 {
         state armed;
         state fired;
         transition first idle
-            do send new Measurement(current) via commPort
+            do send new Measurement(current) to commPort
             then armed;
         transition first armed
             accept reading : Measurement via commPort
@@ -100,7 +100,7 @@ package SM11 {
         state armed;
         state fired;
         transition first idle
-            do send new Measurement(current) via commPort
+            do send new Measurement(current) to commPort
             then armed;
         transition first armed
             accept reading : Measurement via commPort
@@ -119,7 +119,7 @@ package SM11 {
         state armed;
         state fired;
         transition first idle
-            do send new Measurement(current, sample) via commPort
+            do send new Measurement(current, sample) to commPort
             then armed;
         transition first armed
             accept reading : Measurement via commPort
@@ -137,7 +137,7 @@ package SM11 {
         state armed;
         transition first idle do action {
             assign count := count + 1;
-            send new Ping() via commPort;
+            send new Ping() to commPort;
         } then armed;
     }
 }

@@ -11,7 +11,10 @@ from sysmlc.codegen.python import (
     payload_signature,
 )
 from sysmlc.errors import UnsupportedConstructError
-from sysmlc.semantics.statemachine.interface import send_via_port
+from sysmlc.semantics.statemachine.interface import (
+    send_receiver_is_own_port,
+    send_via_port,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -67,12 +70,19 @@ TICK_METADATA_KEY = "_sysmlc_tick"
 
 
 class QuakeRenderNeeds:
-    """Tracks external imports configured for generated sismic snippets."""
+    """Data the code generator fills and the builder reads back.
+
+    Passed to every ``SismicCodeGen`` so snippets share it. It holds the
+    external-import configuration, and collects two facts as snippets are
+    rendered: the external names actually called, so only used imports are
+    emitted, and the ``via`` sends dropped for lack of a system context.
+    """
 
     def __init__(self) -> None:
         self.external_module: str | None = None
         self.external_names: frozenset[str] = frozenset()
         self.used_external: set[str] = set()
+        self.undeliverable_sends: set[tuple[str, str]] = set()
 
     def register_external(self, *, module: str, names: frozenset[str]) -> None:
         """Record the --python module and the function names it provides."""
@@ -106,7 +116,7 @@ class SismicCodeGen(PythonCodeGen):
         context: PythonCodeGenContext | None = None,
         *,
         needs: QuakeRenderNeeds | None = None,
-        route_via_sends: bool = False,
+        part_system_mode: bool = False,
         feature_aliases: Sequence[tuple[syside.Feature, str]] = (),
     ) -> None:
         """Initialize the generator.
@@ -114,8 +124,10 @@ class SismicCodeGen(PythonCodeGen):
         Args:
             context: General Python rendering context.
             needs: External import configuration shared by generated snippets.
-            route_via_sends: Render ``send ... via <port>`` as calls to the
-                injected part-system router instead of sismic ``send``.
+            part_system_mode: True when the machine is built inside a part
+                system, where ``send ... via <port>`` renders as a call to
+                the injected router; false for a standalone statechart,
+                where such a send is dropped.
             feature_aliases: Transition-local feature identities that should
                 render as target runtime names. The comparison is by object
                 identity so same-named SysML features in other scopes do not
@@ -123,41 +135,61 @@ class SismicCodeGen(PythonCodeGen):
         """
         super().__init__(context)
         self._needs = needs if needs is not None else QuakeRenderNeeds()
-        self._route_via_sends = route_via_sends
+        self._part_system_mode = part_system_mode
         self._feature_aliases = tuple(feature_aliases)
 
     @override
     def render_send(self, send: syside.SendActionUsage) -> str:
-        """Translate a send action to a sismic ``send(...)`` call.
+        """Translate a send action by its receiver semantics.
 
-        Emits ``send('<Event>'[, <field>=<expr>, ...])``: ``<Event>`` is the
-        payload type's name. Each positional constructor argument
-        becomes a kwarg named by the payload attribute it binds to, in
-        declaration order.
-
-        Bare-value sends are rejected by ``payload_signature``. The payload
-        must be a typed ``new <Sig>(...)`` constructor.
+        The receiver decides the outcome: a ``via`` send routes over the
+        port's connections in part-system mode, or is dropped (and recorded
+        for a warning) when there is no part system to route it; a send
+        directed ``to`` the machine's own port becomes sismic
+        ``send('<Event>'[, <field>=<expr>, ...])``, which dispatches the
+        signal to the machine itself as an internal event. Each positional
+        constructor argument becomes a kwarg named by the payload attribute
+        it binds to, in declaration order. The payload must be a typed
+        ``new <Sig>(...)`` constructor; ``payload_signature`` rejects bare
+        values.
 
         Args:
             send: The ``send new <Type>(<args>)`` action to translate.
 
         Returns:
-            Python source for the ``send(...)`` call.
+            Python source for the resulting statement, or the empty string
+            for a dropped ``via`` send.
 
         Raises:
+            UnsupportedConstructError: If the send's ``to`` receiver is
+                anything but the machine's own port; a single statechart
+                cannot deliver cross-machine addressing.
             ValueError: If the payload is not a ``new <Type>(...)`` constructor
                 resolving to a named definition, if an argument has no
                 corresponding named attribute, or if an argument uses an
                 expression shape the emitter rejects.
         """
         event_name, pairs = payload_signature(send)
+        if send.receiver_argument is not None and not send_receiver_is_own_port(
+            send
+        ):
+            raise UnsupportedConstructError(
+                f"send {event_name!r} addresses a receiver that is not the "
+                "machine's own port; cross-machine 'to' addressing is not "
+                "supported. Route the signal with 'via <port>' and a "
+                "connect instead.",
+                node=send,
+            )
         kwargs = ", ".join(
             f"{name}={self.render_expression(argument)}"
             for name, argument in pairs
         )
         delimiter = self._context.string_delimiter
         via_port = send_via_port(send)
-        if self._route_via_sends and via_port is not None:
+        if via_port is not None:
+            if not self._part_system_mode:
+                self._needs.undeliverable_sends.add((event_name, via_port))
+                return ""
             event = f"{delimiter}{event_name}{delimiter}"
             port = f"{delimiter}{via_port}{delimiter}"
             if kwargs:

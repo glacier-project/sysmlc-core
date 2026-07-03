@@ -7,9 +7,12 @@ from sismic.interpreter import Interpreter
 
 from sysmlc.backends.quake import build_statechart
 from sysmlc.sysml.loading import load_model
+from tests import _load_inline_model
 from tests.backends.quake.conftest import SM_EXAMPLES_BY_DIR
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     import syside
     from sismic.model import Statechart, Transition
 
@@ -141,3 +144,55 @@ def test_payload_chain_reads_sent_value(model: syside.Model) -> None:
     interpreter = Interpreter(sc)
     interpreter.execute()
     assert "fired" in interpreter.configuration
+
+
+VIA_ALONE_MODEL = """
+package ViaAlone {
+    item def Ping;
+
+    state def Machine {
+        port p;
+        entry; then idle;
+        state idle;
+        state armed;
+        transition first idle do send new Ping() via p then armed;
+    }
+}
+"""
+
+VIA_MIXED_MODEL = """
+package ViaMixed {
+    private import ScalarValues::*;
+
+    item def Ping;
+
+    state def Machine {
+        attribute count : Integer := 0;
+        port p;
+        entry; then idle;
+        state idle;
+        state armed;
+        transition first idle do action {
+            assign count := count + 1;
+            send new Ping() via p;
+        } then armed;
+    }
+}
+"""
+
+
+def test_standalone_via_send_is_dropped(tmp_path: Path) -> None:
+    """A send through a port delivers only over the port's connections,
+    so with no system context the transfer has no receiver."""
+    model = _load_inline_model(tmp_path, VIA_ALONE_MODEL)
+    sc = build_statechart(model, "ViaAlone::Machine")
+    assert _action_of(sc, "idle", "armed") is None
+
+
+def test_standalone_via_send_keeps_sibling_statements(
+    tmp_path: Path,
+) -> None:
+    """Dropping a via-send removes only that statement from the effect."""
+    model = _load_inline_model(tmp_path, VIA_MIXED_MODEL)
+    sc = build_statechart(model, "ViaMixed::Machine")
+    assert _action_of(sc, "idle", "armed") == "count = count + 1"

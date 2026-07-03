@@ -9,40 +9,40 @@ Status of every construct, implemented and planned. **Done**: implemented.
 **Done, to refine**: implemented, with a known gap detailed in the section's
 Limitation callout. **Not yet**: not implemented.
 
-| Construct                                                            | Status          | Notes                                                                                                               |
-| -------------------------------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `state def` → statechart                                             | **Done**        |                                                                                                                     |
-| `entry; then X` → `initial`                                          | Done, to refine | only simple state targets are currently supported. Qualified-name targets (nested-state paths) are rejected         |
-| `first start then X` → `initial`                                     | Done, to refine | only simple state targets are currently supported. Qualified-name targets (nested-state paths) are rejected         |
-| leaf `state` → basic state                                           | **Done**        |                                                                                                                     |
-| composite `state` → nested state                                     | **Done**        |                                                                                                                     |
-| `parallel` → orthogonal state                                        | **Done**        |                                                                                                                     |
-| `then done` → final state                                            | **Done**        |                                                                                                                     |
-| attribute value → `preamble`                                         | Done, to refine | `=`/`constant` guarantees not enforced; bound expressions snapshotted                                               |
-| composite attribute → namespace                                      | Done, to refine | usage-site redefinitions and bindings ignored                                                                       |
-| bare `transition first A then B`                                     | **Done**        |                                                                                                                     |
-| transition into a nested state (`then running.hot`)                  | **Done**        | enters the composite bypassing its default entry; documented pair still missing in this file                        |
-| transition spellings (`then X;`, `accept E then X;` in a state body) | Done, to refine | the standalone `first A then B;` succession (no `transition` keyword) is silently dropped                           |
-| `accept E` (signal) → `event`                                        | Done, to refine | `via` port dropped                                                                                                  |
-| `if` guard → `guard`                                                 | **Done**        |                                                                                                                     |
-| `accept reading : E` payload → `event.<field>`                       | Done, to refine | field references aliased to sismic's `event`; a bare payload reference (the whole occurrence) is not                |
-| `accept after` (time)                                                | **Done**        | one-shot delayed `_tick_*` event armed on entry; composes with `if` guards and self-loops                           |
-| `accept at` (time)                                                   | **Done**        | one-shot delayed `_tick_*` event using `_d_* = instant - time`; past instants do not fire                           |
-| `accept when` (change)                                               | Done, to refine | armed flag plus consumer transition; the condition is sampled once per macro step, so an inter-step pulse is missed |
-| `entry`/`exit` actions                                               | Done, to refine | referencing form (`entry helper;`) silently dropped                                                                 |
-| `do` action (terminating body)                                       | **Done**        | ongoing bodies (`accept`, loops) rejected for now                                                                   |
-| transition effect → `action`                                         | Done, to refine | referencing form silently dropped                                                                                   |
-| `send` → `send(...)`                                                 | Done, to refine | `via` port dropped                                                                                                  |
-| library function calls                                               | **Done**        | `NumericalFunctions::{abs,max,min}` and `TrigFunctions::{sin,cos,tan}` in expression positions                      |
-| external `calc def` calls via `--python`                             | **Done**        | state-definition builds only; imports are serialized in the sismic preamble, the Python module is not copied        |
-| enum literals → Python `Enum`                                        | Not yet         |                                                                                                                     |
-| referenced / performed actions                                       | Not yet         | `entry helper;`, `do A;`, perform in any action slot: fixes the silent drops of the entry/exit and effect rows      |
-| `assert constraint` in a state                                       | **Done**        | asserted constraint usages become sismic `invariants`, checked while the state is active                            |
-| `assert constraint` on a transition                                  | Not yet         | asserted constraint usages become sismic preconditions/postconditions, checked around the firing                    |
-| exhibit / entry point                                                | Not yet         | build the statechart from an exhibited state usage, not only a `state def`                                          |
-| submachine reuse (`state s1 : Sub;`)                                 | Not yet         | a state usage typed by a `state def`; today it is **silently flattened** to a leaf, losing the def's whole content  |
-| ongoing `do` activities                                              | Not yet         | event-gated and time-gated do-loops, mixed control loops                                                            |
-| multi-machine simulation                                             | Not yet         | addressing, dispatch-once and scheduling over sismic's `bind()`                                                     |
+| Construct                                                            | Status          | Notes                                                                                                                                      |
+| -------------------------------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `state def` → statechart                                             | **Done**        |                                                                                                                                            |
+| `entry; then X` → `initial`                                          | Done, to refine | only simple state targets are currently supported. Qualified-name targets (nested-state paths) are rejected                                |
+| `first start then X` → `initial`                                     | Done, to refine | only simple state targets are currently supported. Qualified-name targets (nested-state paths) are rejected                                |
+| leaf `state` → basic state                                           | **Done**        |                                                                                                                                            |
+| composite `state` → nested state                                     | **Done**        |                                                                                                                                            |
+| `parallel` → orthogonal state                                        | **Done**        |                                                                                                                                            |
+| `then done` → final state                                            | **Done**        |                                                                                                                                            |
+| attribute value → `preamble`                                         | Done, to refine | `=`/`constant` guarantees not enforced; bound expressions snapshotted                                                                      |
+| composite attribute → namespace                                      | Done, to refine | usage-site redefinitions and bindings ignored                                                                                              |
+| bare `transition first A then B`                                     | **Done**        |                                                                                                                                            |
+| transition into a nested state (`then running.hot`)                  | **Done**        | enters the composite bypassing its default entry; documented pair still missing in this file                                               |
+| transition spellings (`then X;`, `accept E then X;` in a state body) | Done, to refine | the standalone `first A then B;` succession (no `transition` keyword) is silently dropped                                                  |
+| `accept E` (signal) → `event`                                        | Done, to refine | `via` port dropped                                                                                                                         |
+| `if` guard → `guard`                                                 | **Done**        |                                                                                                                                            |
+| `accept reading : E` payload → `event.<field>`                       | Done, to refine | field references aliased to sismic's `event`; a bare payload reference (the whole occurrence) is not                                       |
+| `accept after` (time)                                                | **Done**        | one-shot delayed `_tick_*` event armed on entry; composes with `if` guards and self-loops                                                  |
+| `accept at` (time)                                                   | **Done**        | one-shot delayed `_tick_*` event using `_d_* = instant - time`; past instants do not fire                                                  |
+| `accept when` (change)                                               | Done, to refine | armed flag plus consumer transition; the condition is sampled once per macro step, so an inter-step pulse is missed                        |
+| `entry`/`exit` actions                                               | Done, to refine | referencing form (`entry helper;`) silently dropped                                                                                        |
+| `do` action (terminating body)                                       | **Done**        | ongoing bodies (`accept`, loops) rejected for now                                                                                          |
+| transition effect → `action`                                         | Done, to refine | referencing form silently dropped                                                                                                          |
+| `send` → `send(...)`                                                 | **Done**        | `to <own port>` raises an internal event; a standalone `via` send is dropped with a warning (no connection); other `to` receivers rejected |
+| library function calls                                               | **Done**        | `NumericalFunctions::{abs,max,min}` and `TrigFunctions::{sin,cos,tan}` in expression positions                                             |
+| external `calc def` calls via `--python`                             | **Done**        | state-definition builds only; imports are serialized in the sismic preamble, the Python module is not copied                               |
+| enum literals → Python `Enum`                                        | Not yet         |                                                                                                                                            |
+| referenced / performed actions                                       | Not yet         | `entry helper;`, `do A;`, perform in any action slot: fixes the silent drops of the entry/exit and effect rows                             |
+| `assert constraint` in a state                                       | **Done**        | asserted constraint usages become sismic `invariants`, checked while the state is active                                                   |
+| `assert constraint` on a transition                                  | Not yet         | asserted constraint usages become sismic preconditions/postconditions, checked around the firing                                           |
+| exhibit / entry point                                                | Not yet         | build the statechart from an exhibited state usage, not only a `state def`                                                                 |
+| submachine reuse (`state s1 : Sub;`)                                 | Not yet         | a state usage typed by a `state def`; today it is **silently flattened** to a leaf, losing the def's whole content                         |
+| ongoing `do` activities                                              | Not yet         | event-gated and time-gated do-loops, mixed control loops                                                                                   |
+| multi-machine simulation                                             | Not yet         | addressing, dispatch-once and scheduling over sismic's `bind()`                                                                            |
 
 ## How to read this
 
@@ -1189,7 +1189,7 @@ state def MachineReadablePayloadGuard {
     state armed;
     state fired;
     transition first idle
-        do send new Measurement(current) via commPort
+        do send new Measurement(current) to commPort
         then armed;
     transition first armed
         accept reading : Measurement via commPort
@@ -1439,18 +1439,22 @@ exercises exactly this order).
 > (4.1): the transition builds with no `action` and the helper never runs. Same
 > planned support as 4.1.
 
-### 4.5 `send new Sig(args) [via port]` → `send("Sig", kwargs)`
+### 4.5 `send new Sig(args) [to port | via port]` → `send("Sig", kwargs)`
 
 *Corpus: `sm11-send-effect`*
 
-*Spec: SysML 7.17.7 (send action usages); KerML 8.3.4.8.7 (instantiation
-argument binding)*
+*Spec: SysML 7.17.7 (send action usages: `via` names the sender, `to` the
+receiver); SysML 8.3.17.15 / 8.4.13.5 (an absent receiver is determined by
+the sender's connections); KerML 8.3.4.8.7 (instantiation argument binding)*
 
-In SysML, `send new Sig(args)` emits a signal. As a transition effect it becomes
-a sismic `send(...)` call in the transition's `action`; in a state's
-`entry`/`exit`/`do` body the same call lands in `on entry`/`on exit`. Here the
-machine that sends then accepts its own event, modeling a **single-machine
-self-send**.
+In SysML, `send new Sig(args)` emits a signal, and its delivery follows the
+receiver: `send ... to <own port>` targets the machine's own port, modeling a
+**single-machine self-send**; `send ... via <port>` names the port as the
+*sender*, so the transfer is delivered over the port's connections. As a
+transition effect the self-send becomes a sismic `send(...)` call in the
+transition's `action`; in a state's `entry`/`exit`/`do` body the same call
+lands in `on entry`/`on exit`. Here the machine that sends then accepts its
+own event.
 
 ```sysml
 state def MachinePayload {
@@ -1460,7 +1464,7 @@ state def MachinePayload {
     state idle;
     state armed;
     state fired;
-    transition first idle do send new Reading(current) via commPort then armed;
+    transition first idle do send new Reading(current) to commPort then armed;
     transition first armed accept Reading via commPort then fired;
 }
 ```
@@ -1489,10 +1493,16 @@ that binds the payload can read it: `accept reading : Reading` then `reading.val
 emits `event.value` (Section 3.7). This machine's `accept Reading` binds no name,
 so it matches by type and ignores the payload.
 
-> ⚠️ **Limitation:** the `via commPort` receiver is **dropped**, as on the
-> `accept` side (3.2): a port only matters for cross-machine routing, when
-> several state machines are simulated together and the transfer must reach a
-> specific one. A single statechart has nothing to route between.
+> ⚠️ **Boundary:** a **`via` send is never delivered in a single statechart**.
+> Per the spec, `via` names the *sender* port and the receiver is determined
+> by the port's connections (the `Ports` library: "transfers outgoing from a
+> Port are always targeted to a Port connected to the original Port"); with
+> no part system there is no connection, so the statement is dropped from the
+> emitted action and the build logs a warning. In a part system the same send
+> is routed over the `connect` (see the part-system chapter). A `to` receiver
+> must be the machine's own port; any other receiver (cross-machine `to`
+> addressing, as in the official corpus's `send new OverTemp() to controller`) is rejected fail-loud rather than mistranslated to a
+> self-send.
 
 ### 4.6 function calls in expressions
 

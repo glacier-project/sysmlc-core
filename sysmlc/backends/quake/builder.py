@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -40,6 +41,8 @@ from sysmlc.semantics.statemachine.facts import (
 
 if TYPE_CHECKING:
     import syside
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -110,7 +113,7 @@ class SismicBuilder:
         name: str,
         *,
         external: tuple[str, frozenset[str]] | None = None,
-        route_via_sends: bool = False,
+        part_system_mode: bool = False,
     ) -> None:
         """Initialize the builder.
 
@@ -118,16 +121,18 @@ class SismicBuilder:
             name: The sismic statechart name (the state definition's name).
             external: Optional ``(module_stem, function_names)`` pair for
                 external calc-def backing.
-            route_via_sends: Render ``send ... via <port>`` as calls to the
-                injected part-system router.
+            part_system_mode: True when the machine is built inside a part
+                system, where ``send ... via <port>`` renders as a call to
+                the injected router; false for a standalone statechart,
+                where such a send is dropped.
         """
         self._name = name
-        self._route_via_sends = route_via_sends
+        self._part_system_mode = part_system_mode
         self._needs = QuakeRenderNeeds()
         if external is not None:
             self._needs.register_external(module=external[0], names=external[1])
         self._codegen = SismicCodeGen(
-            needs=self._needs, route_via_sends=route_via_sends
+            needs=self._needs, part_system_mode=part_system_mode
         )
         self._preamble: list[str] = []
         self._seen_attrs: dict[str, str] = {}
@@ -186,9 +191,18 @@ class SismicBuilder:
         imports = self._preamble_import_lines()
         if imports:
             self._preamble[0:0] = imports
-        return self._assemble(
+        statechart = self._assemble(
             Statechart(name=self._name, preamble="\n".join(self._preamble))
         )
+        for event_name, port in sorted(self._needs.undeliverable_sends):
+            logger.warning(
+                "machine %r sends %r via %r; without a connected system "
+                "context the signal is never delivered",
+                self._name,
+                event_name,
+                port,
+            )
+        return statechart
 
     def _assemble(self, statechart: Statechart) -> Statechart:
         """Emit every buffered fact into ``statechart`` and validate it."""
@@ -518,7 +532,7 @@ class SismicBuilder:
             return self._codegen
         return SismicCodeGen(
             needs=self._needs,
-            route_via_sends=self._route_via_sends,
+            part_system_mode=self._part_system_mode,
             feature_aliases=((trigger.payload_feature, "event"),),
         )
 
@@ -538,7 +552,7 @@ def build_statechart(
     state_def_qn: str,
     *,
     external: tuple[str, frozenset[str]] | None = None,
-    route_via_sends: bool = False,
+    part_system_mode: bool = False,
 ) -> Statechart:
     """Build a sismic Statechart from a SysML state definition.
 
@@ -549,8 +563,10 @@ def build_statechart(
         state_def_qn: Qualified name of the SysML ``state def`` to translate.
         external: Optional ``(module_stem, function_names)`` pair for
             external calc-def backing.
-        route_via_sends: Render ``send ... via <port>`` as calls to the
-            injected part-system router.
+        part_system_mode: True when the machine is built inside a part
+            system, where ``send ... via <port>`` renders as a call to
+            the injected router; false for a standalone statechart,
+            where such a send is dropped.
 
     Returns:
         A sismic ``Statechart`` ready to feed into ``Interpreter``.
@@ -558,5 +574,7 @@ def build_statechart(
     name = state_def_qn.split("::")[-1]
     return StateMachineDriver(model).run(
         state_def_qn,
-        SismicBuilder(name, external=external, route_via_sends=route_via_sends),
+        SismicBuilder(
+            name, external=external, part_system_mode=part_system_mode
+        ),
     )

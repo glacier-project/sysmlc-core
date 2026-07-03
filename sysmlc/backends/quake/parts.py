@@ -98,7 +98,7 @@ def build_part_system(
         behavior_qn = node.behaviors[0][1]
         if behavior_qn not in built_behaviors:
             built_behaviors[behavior_qn] = build_statechart(
-                model, behavior_qn, external=external, route_via_sends=True
+                model, behavior_qn, external=external, part_system_mode=True
             )
         statecharts[node.usage_name] = built_behaviors[behavior_qn]
 

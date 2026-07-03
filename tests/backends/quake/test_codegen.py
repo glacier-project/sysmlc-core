@@ -13,10 +13,10 @@ from tests import _load_inline_model, _single_element
 
 
 def _get_sismic_py_codegen(
-    quote: str, *, route_via_sends: bool = False
+    quote: str, *, part_system_mode: bool = False
 ) -> SismicCodeGen:
     context = PythonCodeGenContext(string_delimiter=quote)
-    return SismicCodeGen(context, route_via_sends=route_via_sends)
+    return SismicCodeGen(context, part_system_mode=part_system_mode)
 
 
 _SEND_VIA_MODEL = """
@@ -40,22 +40,24 @@ package Test {
 
 
 class TestSismicCodeGen:
-    def test_send_action_typed_result_keeps_source(
+    def test_send_action_via_is_dropped_without_routing(
         self, string_delimiter: str, tmp_path: Path
     ) -> None:
+        # A send through a port delivers only over the port's connections;
+        # without a part system there are none, so nothing is emitted.
         code_gen = _get_sismic_py_codegen(string_delimiter)
         model = _load_inline_model(tmp_path, _SEND_VIA_MODEL)
 
         send = _single_element(model, syside.SendActionUsage)
         emitted = code_gen.render_action(send)
 
-        assert emitted == f"send({string_delimiter}Ping{string_delimiter})"
+        assert emitted == ""
 
     def test_send_action_via_routes_in_part_mode(
         self, string_delimiter: str, tmp_path: Path
     ) -> None:
         code_gen = _get_sismic_py_codegen(
-            string_delimiter, route_via_sends=True
+            string_delimiter, part_system_mode=True
         )
         model = _load_inline_model(tmp_path, _SEND_VIA_MODEL)
 
