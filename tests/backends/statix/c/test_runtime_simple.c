@@ -40,8 +40,15 @@ static const sc_transition_t k_transitions[] = {
     {TS_ON, TE_OFF, SC_GUARD_NONE, TA_COUNT, TS_OFF},
 };
 
+/* No entry/exit actions in this machine. */
+static const sc_state_def_t k_states[] = {
+    {SC_ACTION_NONE, SC_ACTION_NONE},
+    {SC_ACTION_NONE, SC_ACTION_NONE},
+};
+
 static const sc_machine_t k_machine = {
     k_transitions,
+    k_states,
     (uint16_t)(sizeof(k_transitions) / sizeof(k_transitions[0])),
     TS_COUNT,
     TS_OFF,
@@ -98,7 +105,8 @@ static void test_init(void)
 static void test_bad_initial_state(void)
 {
     /* A machine whose initial state is out of range must be rejected. */
-    static const sc_machine_t bad = {k_transitions, 2u, TS_COUNT, (sc_state_id_t)TS_COUNT};
+    static const sc_machine_t bad = {k_transitions, k_states, 2u, TS_COUNT,
+                                     (sc_state_id_t)TS_COUNT};
     sc_runtime_t rt;
     CHECK(sc_runtime_init(&rt, &bad, NULL) == SC_STATUS_INVALID_ARGUMENT);
 }

@@ -22,6 +22,8 @@ const char *sc_status_str(sc_status_t status)
         return "SC_STATUS_QUEUE_EMPTY";
     case SC_STATUS_NO_TRANSITION:
         return "SC_STATUS_NO_TRANSITION";
+    case SC_STATUS_STEP_LIMIT:
+        return "SC_STATUS_STEP_LIMIT";
     default:
         return "SC_STATUS_UNKNOWN";
     }

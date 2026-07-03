@@ -24,3 +24,7 @@ add_test(NAME test_event_queue COMMAND test_event_queue)
 add_executable(test_runtime_simple test_runtime_simple.c)
 target_link_libraries(test_runtime_simple sc_runtime)
 add_test(NAME test_runtime_simple COMMAND test_runtime_simple)
+
+add_executable(test_runtime_completion test_runtime_completion.c)
+target_link_libraries(test_runtime_completion sc_runtime)
+add_test(NAME test_runtime_completion COMMAND test_runtime_completion)

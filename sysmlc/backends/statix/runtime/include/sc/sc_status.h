@@ -19,7 +19,8 @@ typedef enum sc_status_e {
     SC_STATUS_INVALID_ARGUMENT, /* a NULL pointer or out-of-range argument    */
     SC_STATUS_QUEUE_FULL,       /* event could not be enqueued                */
     SC_STATUS_QUEUE_EMPTY,      /* no event available to dequeue              */
-    SC_STATUS_NO_TRANSITION     /* event did not enable any transition        */
+    SC_STATUS_NO_TRANSITION,    /* event did not enable any transition        */
+    SC_STATUS_STEP_LIMIT        /* completion micro-step exceeded SC_MAX_RTC_STEPS */
 } sc_status_t;
 
 /*

@@ -49,6 +49,13 @@ typedef uint16_t sc_action_id_t;
 #define SC_STATE_INVALID ((sc_state_id_t)0xFFFFu)
 #define SC_EVENT_INVALID ((sc_event_id_t)0u)
 
+/*
+ * Reserved event id for eventless (completion) transitions. Distinct from
+ * SC_EVENT_INVALID: real signal events are generated starting at 1, so this
+ * sentinel is chosen at the top of the range and never collides with a signal.
+ */
+#define SC_EVENT_COMPLETION ((sc_event_id_t)0xFFFFu)
+
 #ifdef __cplusplus
 }
 #endif

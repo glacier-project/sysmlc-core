@@ -4,9 +4,10 @@
 /*
  * sc_runtime.h - Minimal, deterministic statechart dispatcher.
  *
- * This first version supports a *flat* state machine driven by a generated
- * transition table. Hierarchical states, parallel regions, history and timers
- * are intentionally not implemented yet (see docs/sysmlv2_subset.md).
+ * Supports a *flat* state machine driven by a generated transition table, with
+ * per-state entry/exit actions and a bounded completion (eventless-transition)
+ * micro-step run on init and after every dispatch. Hierarchical states,
+ * parallel regions, history and timers are intentionally not implemented yet.
  *
  * Safety notes (Power of 10):
  *   - No dynamic memory: machine definitions are generated `static const`
@@ -36,6 +37,17 @@ extern "C" {
 #endif
 
 /*
+ * Upper bound on completion (eventless) micro-steps taken after init and after
+ * each dispatch. Guarantees termination even for a guarded eventless cycle
+ * (a modeling error), which is surfaced as SC_STATUS_STEP_LIMIT rather than
+ * masked. The generator emits a per-machine value; override with
+ * -DSC_MAX_RTC_STEPS=N.
+ */
+#ifndef SC_MAX_RTC_STEPS
+#define SC_MAX_RTC_STEPS 64u
+#endif
+
+/*
  * One row of the generated transition table.
  *
  *   source -- event [guard] / action --> target
@@ -52,13 +64,23 @@ typedef struct sc_transition_s {
 } sc_transition_t;
 
 /*
+ * The generated per-state action table. One row per state, indexed by state id.
+ * entry_action / exit_action are SC_ACTION_NONE when the state has no such slot.
+ */
+typedef struct sc_state_def_s {
+    sc_action_id_t entry_action; /* action run when the state is entered */
+    sc_action_id_t exit_action;  /* action run when the state is exited  */
+} sc_state_def_t;
+
+/*
  * A complete, immutable machine definition. Generated as `static const`.
  */
 typedef struct sc_machine_s {
-    const sc_transition_t *transitions; /* generated transition table       */
-    uint16_t transition_count;          /* number of rows in `transitions`  */
-    sc_state_id_t state_count;          /* number of states                 */
-    sc_state_id_t initial_state;        /* state entered by sc_runtime_init */
+    const sc_transition_t *transitions; /* generated transition table        */
+    const sc_state_def_t *states;       /* per-state entry/exit action table */
+    uint16_t transition_count;          /* number of rows in `transitions`   */
+    sc_state_id_t state_count;          /* number of states                  */
+    sc_state_id_t initial_state;        /* state entered by sc_runtime_init  */
 } sc_machine_t;
 
 /*
