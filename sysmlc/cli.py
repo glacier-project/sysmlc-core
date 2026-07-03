@@ -65,6 +65,27 @@ def _parse_external(python_path: Path) -> tuple[str, frozenset[str]]:
     return python_path.stem, names
 
 
+def _parse_python_arg(
+    args: argparse.Namespace, backend: Backend
+) -> tuple[Path, tuple[str, frozenset[str]]] | tuple[None, None]:
+    """Gate and parse a command's ``--python`` flag.
+
+    Returns:
+        The flag's path paired with its ``_parse_external`` result, or
+        ``(None, None)`` when ``--python`` was not given.
+
+    Raises:
+        CliError: If the backend does not support ``--python``, or if the
+            file cannot be read or is not valid Python.
+    """
+    python_path: Path | None = getattr(args, "python", None)
+    if python_path is None:
+        return None, None
+    if backend.name not in {"rosetta", "quake"}:
+        raise CliError(f"backend {backend.name!r} does not support --python")
+    return python_path, _parse_external(python_path)
+
+
 def _load_external_module(python_path: Path) -> None:
     """Import a ``--python`` file under its stem so preamble imports resolve.
 
@@ -381,14 +402,7 @@ def _cmd_build(args: argparse.Namespace) -> int:
             overrides = select_values(tree, target_qn)
             model = configure_model(model, target_qn, overrides)
 
-    external: tuple[str, frozenset[str]] | None = None
-    python_path = getattr(args, "python", None)
-    if python_path is not None:
-        if backend.name not in {"rosetta", "quake"}:
-            raise CliError(
-                f"backend {backend.name!r} does not support --python"
-            )
-        external = _parse_external(python_path)
+    python_path, external = _parse_python_arg(args, backend)
 
     build_kwargs: dict[str, object] = (
         {"external": external} if external is not None else {}
@@ -417,14 +431,7 @@ def _build_part(
     if getattr(args, "values", None) is not None:
         raise CliError("--values is not supported with part systems yet")
 
-    external: tuple[str, frozenset[str]] | None = None
-    python_path: Path | None = getattr(args, "python", None)
-    if python_path is not None:
-        if backend.name not in {"rosetta", "quake"}:
-            raise CliError(
-                f"backend {backend.name!r} does not support --python"
-            )
-        external = _parse_external(python_path)
+    python_path, external = _parse_python_arg(args, backend)
 
     build_kwargs: dict[str, object] = (
         {"external": external} if external is not None else {}
@@ -478,10 +485,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
     if hook is None:
         raise CliError(f"backend {backend.name!r} cannot run a {kind!r}")
 
-    external: tuple[str, frozenset[str]] | None = None
-    python_path: Path | None = args.python
+    python_path, external = _parse_python_arg(args, backend)
     if python_path is not None:
-        external = _parse_external(python_path)
         _load_external_module(python_path)
 
     report = hook(

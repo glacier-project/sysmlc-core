@@ -76,6 +76,9 @@ def port_signal_routes(
         signal: str,
     ) -> None:
         key = (target_inst, signal)
+        # One source per (target, signal): delivery carries only the signal
+        # name, not the port it arrived on, so a target's `accept M via a`
+        # and `accept M via b` are indistinguishable at runtime.
         if key in destinations:
             raise UnsupportedConstructError(
                 f"signal {signal!r} has two sources "
