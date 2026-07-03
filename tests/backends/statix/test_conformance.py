@@ -1,9 +1,10 @@
+from collections.abc import Callable
+
 import pytest
 from sismic.interpreter import Interpreter
 
 from sysmlc.backends.quake.builder import build_statechart
 from sysmlc.backends.statix.builder import build_statix
-from typing import Callable
 
 pytestmark = pytest.mark.statix
 

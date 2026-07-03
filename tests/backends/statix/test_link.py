@@ -1,10 +1,10 @@
 import subprocess
+from pathlib import Path
 
 import pytest
 
 from sysmlc.backends.base import OutputOptions
 from sysmlc.backends.statix.backend import StatixBackend
-from pathlib import Path
 
 pytestmark = pytest.mark.statix
 

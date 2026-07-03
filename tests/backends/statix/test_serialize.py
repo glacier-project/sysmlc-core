@@ -1,6 +1,7 @@
+import syside
+
 from sysmlc.backends.statix.builder import build_statix
 from sysmlc.backends.statix.serialize import _paths, emit_files
-import syside
 
 
 def _files_for(model: syside.Model, qn: str) -> tuple[dict[str, str], str, str]:

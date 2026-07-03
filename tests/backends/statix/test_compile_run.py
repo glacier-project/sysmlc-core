@@ -1,7 +1,8 @@
+from collections.abc import Callable
+
 import pytest
 
 from sysmlc.backends.statix.builder import build_statix
-from typing import Callable
 
 pytestmark = pytest.mark.statix
 

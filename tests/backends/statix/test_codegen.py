@@ -1,6 +1,7 @@
+import syside
+
 from sysmlc.backends.statix.codegen import CCodeGen
 from sysmlc.semantics.statemachine.driver import StateMachineDriver
-import syside
 
 
 class _FactSink:
