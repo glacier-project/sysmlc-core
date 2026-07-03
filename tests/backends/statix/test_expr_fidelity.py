@@ -76,7 +76,7 @@ _EXPECTED = {
 
 
 @pytest.mark.parametrize("key", list(_EXPECTED), ids=lambda k: k[1])
-def test_expression_fidelity(sm_models, key):
+def test_expression_fidelity(sm_models: dict, key: tuple[str, str]) -> None:
     stem, qn = key
     expected_guards, expected_actions = _EXPECTED[key]
     program = build_statix(sm_models[stem], qn)

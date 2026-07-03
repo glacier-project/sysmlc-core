@@ -8,7 +8,7 @@ from sysmlc.backends.statix.program import (
 )
 
 
-def test_cprogram_holds_a_flat_machine():
+def test_cprogram_holds_a_flat_machine() -> None:
     program = CProgram(
         name="Machine",
         qualified_name="SM01::Machine",
@@ -20,12 +20,8 @@ def test_cprogram_holds_a_flat_machine():
         events=(),
         guards=(),
         actions=(),
-        transitions=(
-            CTransition("idle", COMPLETION_EVENT, None, None, "running"),
-        ),
-        context=CContext(
-            fields=(CField("counter", "int32_t", "0"),), structs=()
-        ),
+        transitions=(CTransition("idle", COMPLETION_EVENT, None, None, "running"),),
+        context=CContext(fields=(CField("counter", "int32_t", "0"),), structs=()),
         queue_capacity=8,
         initial="idle",
     )

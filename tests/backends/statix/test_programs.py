@@ -19,7 +19,7 @@ CASES = [
 
 
 @pytest.mark.parametrize("stem,qn", CASES)
-def test_generated_c_matches_fixture(sm_models, stem, qn):
+def test_generated_c_matches_fixture(sm_models: dict, stem: str, qn: str) -> None:
     program = build_statix(sm_models[stem], qn)
     files = emit_files(program)
     d, s = _paths(program)
