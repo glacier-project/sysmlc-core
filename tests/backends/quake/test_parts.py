@@ -295,6 +295,53 @@ package PartStale {
 """
 
 
+MIXED_EXTERNAL_MODEL = """
+package PartMixed {
+    private import ScalarValues::*;
+    private import SI::*;
+
+    calc def bump { in v : Real; return : Real; }
+
+    state def CalcBehavior {
+        attribute x : Real := 0.0;
+        entry; then ticking;
+        state ticking;
+        transition first ticking
+            accept after 0.1 [s]
+            do assign x := PartMixed::bump(x)
+            then ticking;
+    }
+    state def PlainBehavior {
+        entry; then idle;
+        state idle;
+    }
+
+    part def Calc { exhibit state : CalcBehavior; }
+    part def Plain { exhibit state : PlainBehavior; }
+
+    part sys {
+        part c : Calc;
+        part p : Plain;
+    }
+}
+"""
+
+
+def test_external_import_lands_only_in_parts_that_call_it(
+    tmp_path: Path,
+) -> None:
+    model = _load_inline_model(tmp_path, MIXED_EXTERNAL_MODEL)
+
+    system = build_part_system(
+        model, "PartMixed::sys", external=("ext", frozenset({"bump"}))
+    )
+
+    assert (
+        "from ext import bump" in system.statecharts["c"].preamble.splitlines()
+    )
+    assert "from ext" not in system.statecharts["p"].preamble
+
+
 def test_final_machine_is_not_polled_again(tmp_path: Path) -> None:
     # The sleeper terminates at t=0 with its 5s timer still queued (sismic
     # never cancels delayed events); the driver keeps the system running

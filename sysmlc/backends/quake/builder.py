@@ -133,7 +133,6 @@ class SismicBuilder:
         self._constraints: list[ConstraintFact] = []
         self._state_facts: list[StateFact] = []
         self._transition_facts: list[TransitionFact] = []
-        self._done_finals: set[str] = set()
         self._planned_triggers: dict[
             int, _TimeTriggerPlan | _ChangeTriggerPlan
         ] = {}
@@ -180,18 +179,28 @@ class SismicBuilder:
     def result(self) -> Statechart:
         """Build, validate, and return the assembled sismic statechart."""
         self._plan_triggers()
+        if self._needs.external_module is not None:
+            # Assemble a scratch statechart first purely to record the calls;
+            self._assemble(Statechart(name=self._name, preamble=""))
         imports = self._preamble_import_lines()
         if imports:
             self._preamble[0:0] = imports
-        statechart = Statechart(
-            name=self._name, preamble="\n".join(self._preamble)
+        return self._assemble(
+            Statechart(name=self._name, preamble="\n".join(self._preamble))
         )
+
+    def _assemble(self, statechart: Statechart) -> Statechart:
+        """Emit every buffered fact into ``statechart`` and validate it."""
+        done_finals: set[str] = set()
         for state in self._state_facts:
             self._emit_state(statechart, state)
         self._emit_constraints(statechart)
         for index, transition in enumerate(self._transition_facts):
             self._emit_transition(
-                statechart, transition, self._planned_triggers.get(index)
+                statechart,
+                transition,
+                self._planned_triggers.get(index),
+                done_finals,
             )
         statechart.validate()
         return statechart
@@ -381,6 +390,7 @@ class SismicBuilder:
         statechart: Statechart,
         transition: TransitionFact,
         plan: _TimeTriggerPlan | _ChangeTriggerPlan | None,
+        done_finals: set[str],
     ) -> None:
         if transitions.self_loop_is_unstable(transition):
             raise UnsupportedConstructError(
@@ -388,7 +398,7 @@ class SismicBuilder:
                 "timer, or effect to break the loop)."
             )
         target = (
-            self._final_state(statechart, transition.target.scope)
+            self._final_state(statechart, transition.target.scope, done_finals)
             if isinstance(transition.target, CompletionTarget)
             else transition.target
         )
@@ -507,12 +517,14 @@ class SismicBuilder:
             feature_aliases=((trigger.payload_feature, "event"),),
         )
 
-    def _final_state(self, statechart: Statechart, scope: str) -> str:
+    def _final_state(
+        self, statechart: Statechart, scope: str, done_finals: set[str]
+    ) -> str:
         scope_name = scope or self._name
         final_name = "done" if scope == "" else f"{scope}::done"
-        if final_name not in self._done_finals:
+        if final_name not in done_finals:
             statechart.add_state(FinalState(final_name), parent=scope_name)
-            self._done_finals.add(final_name)
+            done_finals.add(final_name)
         return final_name
 
 

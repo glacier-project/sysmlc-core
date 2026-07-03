@@ -459,11 +459,10 @@ def test_quake_build_with_python_imports_without_copying(
     yaml_path = out / "Ramp.yaml"
     yaml = yaml_path.read_text()
     sc = import_from_yaml(filepath=str(yaml_path))
-    assert sc.preamble.splitlines()[:4] == [
+    assert sc.preamble.splitlines()[:3] == [
         "from math import cos as _cos, sin as _sin, tan as _tan",
         "from types import SimpleNamespace",
         "from ext import step",
-        "from ext import unused",
     ]
     assert "x = step(x, 0.1)" in yaml
     assert not (out / "ext.py").exists()

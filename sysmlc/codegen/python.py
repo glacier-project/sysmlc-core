@@ -349,7 +349,7 @@ class PythonCodeGen:
         *,
         external_module: str | None,
         external_names: frozenset[str],
-        used_external: set[str] | None,
+        used_external: set[str],
     ) -> str | None:
         """Emit a simple-name-backed external calc-def call, if applicable."""
         func = expr.function
@@ -359,8 +359,7 @@ class PythonCodeGen:
         ):
             return None
         if func.name in external_names:
-            if used_external is not None:
-                used_external.add(func.name)
+            used_external.add(func.name)
             args = ", ".join(
                 self._emit(argument, 0) for argument in expr.arguments.collect()
             )

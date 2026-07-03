@@ -32,7 +32,9 @@ def test_external_call_builds_sm15_ramp() -> None:
     assert "from ramp import step" in sc.preamble.splitlines()
 
 
-def test_external_imports_all_configured_functions() -> None:
+def test_unused_external_names_are_not_imported() -> None:
+    # Importing a function the machine never calls would make the emitted
+    # statechart depend on the module for no reason.
     model = load_model(SM15_DIR)
     sc = build_statechart(
         model,
@@ -42,7 +44,7 @@ def test_external_imports_all_configured_functions() -> None:
 
     lines = sc.preamble.splitlines()
     assert "from ramp import step" in lines
-    assert "from ramp import unused" in lines
+    assert "from ramp import unused" not in lines
 
 
 def test_missing_external_function_names_function_and_module() -> None:

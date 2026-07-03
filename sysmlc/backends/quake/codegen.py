@@ -58,6 +58,7 @@ class QuakeRenderNeeds:
     def __init__(self) -> None:
         self.external_module: str | None = None
         self.external_names: frozenset[str] = frozenset()
+        self.used_external: set[str] = set()
 
     def register_external(self, *, module: str, names: frozenset[str]) -> None:
         """Record the --python module and the function names it provides."""
@@ -65,12 +66,17 @@ class QuakeRenderNeeds:
         self.external_names = names
 
     def external_import_lines(self) -> list[str]:
-        """Render sorted imports for all configured external functions."""
+        """Render sorted imports for the external functions actually called.
+
+        A name that no rendered snippet invokes is not imported: the emitted
+        statechart must not depend on the --python module on behalf of code
+        that never uses it.
+        """
         if self.external_module is None:
             return []
         return [
             f"from {self.external_module} import {name}"
-            for name in sorted(self.external_names)
+            for name in sorted(self.used_external)
         ]
 
 
@@ -187,7 +193,7 @@ class SismicCodeGen(PythonCodeGen):
             expr,
             external_module=self._needs.external_module,
             external_names=self._needs.external_names,
-            used_external=None,
+            used_external=self._needs.used_external,
         )
         if external_call is not None:
             return external_call
