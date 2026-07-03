@@ -52,6 +52,9 @@ def math_import_lines() -> list[str]:
     return [f"from math import {aliases}"]
 
 
+TICK_METADATA_KEY = "_sysmlc_tick"
+
+
 class QuakeRenderNeeds:
     """Tracks external imports configured for generated sismic snippets."""
 

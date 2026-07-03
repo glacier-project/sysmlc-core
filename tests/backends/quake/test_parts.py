@@ -342,6 +342,129 @@ def test_external_import_lands_only_in_parts_that_call_it(
     assert "from ext" not in system.statecharts["p"].preamble
 
 
+ABANDONED_TIMER_MODEL = """
+package PartAbandon {
+    private import SI::*;
+
+    item def Go;
+
+    state def KickerBehavior {
+        port outPort;
+        entry; then kick;
+        state kick;
+        state resting;
+        transition first kick
+            do send new Go() via outPort
+            then resting;
+    }
+    state def SleeperBehavior {
+        port rxPort;
+        entry; then armed;
+        state armed;
+        state stopped;
+        state idle;
+        transition first armed accept after 100 [s] then stopped;
+        transition first armed accept Go via rxPort then idle;
+    }
+
+    part def Kicker { port outPort; exhibit state : KickerBehavior; }
+    part def Sleeper { port rxPort; exhibit state : SleeperBehavior; }
+
+    part sys {
+        part k : Kicker;
+        part s : Sleeper;
+        connect k.outPort to s.rxPort;
+    }
+}
+"""
+
+
+def test_abandoned_timeout_does_not_hold_the_clock(tmp_path: Path) -> None:
+    # The sleeper leaves its timed state at t=0, so its 100s timeout is
+    # stale; the system is fully settled at t=0 and the clock must not
+    # chase the leftover timeout.
+    model = _load_inline_model(tmp_path, ABANDONED_TIMER_MODEL)
+    coordinator = PartSystemCoordinator(
+        build_part_system(model, "PartAbandon::sys")
+    )
+
+    trace, stop_reason = coordinator.run()
+
+    assert stop_reason is StopReason.QUIESCENT
+    assert coordinator.clock.time == 0.0
+    assert [entry for entry in trace if entry.step.time > 0] == []
+
+
+def test_abandoned_timeout_is_quiescent_not_time_bound(
+    tmp_path: Path,
+) -> None:
+    # Same system bounded below the stale timeout's time: the honest stop
+    # reason is quiescence, not the time bound.
+    model = _load_inline_model(tmp_path, ABANDONED_TIMER_MODEL)
+    coordinator = PartSystemCoordinator(
+        build_part_system(model, "PartAbandon::sys")
+    )
+
+    _, stop_reason = coordinator.run(until=10)
+
+    assert stop_reason is StopReason.QUIESCENT
+
+
+RESTART_TIMER_MODEL = """
+package PartRestart {
+    private import SI::*;
+
+    item def Kick;
+
+    state def KickerBehavior {
+        port outPort;
+        entry; then waitToKick;
+        state waitToKick;
+        state resting;
+        transition first waitToKick
+            accept after 2 [s]
+            do send new Kick() via outPort
+            then resting;
+    }
+    state def WatchBehavior {
+        port rxPort;
+        entry; then waiting;
+        state waiting;
+        transition first waiting accept after 10 [s] then done;
+        transition first waiting accept Kick via rxPort then waiting;
+    }
+
+    part def Kicker { port outPort; exhibit state : KickerBehavior; }
+    part def Watch { port rxPort; exhibit state : WatchBehavior; }
+
+    part sys {
+        part k : Kicker;
+        part w : Watch;
+        connect k.outPort to w.rxPort;
+    }
+}
+"""
+
+
+def test_restarted_timeout_leaves_no_step_at_the_old_deadline(
+    tmp_path: Path,
+) -> None:
+    # The watch arms a 10s timeout at t=0; the kick at t=2 re-enters the
+    # state and restarts the wait, so the timeout fires at t=12. The
+    # superseded timeout due at t=10 must not surface as a step.
+    model = _load_inline_model(tmp_path, RESTART_TIMER_MODEL)
+    coordinator = PartSystemCoordinator(
+        build_part_system(model, "PartRestart::sys")
+    )
+
+    trace, stop_reason = coordinator.run()
+
+    assert stop_reason is StopReason.QUIESCENT
+    assert coordinator.clock.time == 12.0
+    assert [entry for entry in trace if entry.step.time == 10.0] == []
+    assert coordinator.interpreters["w"].final
+
+
 def test_final_machine_is_not_polled_again(tmp_path: Path) -> None:
     # The sleeper terminates at t=0 with its 5s timer still queued (sismic
     # never cancels delayed events); the driver keeps the system running

@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING, cast
 from sismic.clock import SimulatedClock
 from sismic.interpreter import Interpreter
 
+from sysmlc.backends.quake.codegen import TICK_METADATA_KEY
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping, Sequence
     from typing import Any
@@ -163,6 +165,7 @@ def run_to_quiescence(
             return tuple(trace), StopReason.STEP_CAP
         if all(interpreter.final for interpreter in interpreters.values()):
             return tuple(trace), StopReason.FINAL
+        _purge_stale_ticks(interpreters.values())
         next_time = _next_system_event_time(interpreters.values(), clock.time)
         if next_time is None:
             return tuple(trace), StopReason.QUIESCENT
@@ -191,6 +194,47 @@ def _route_map(
     return {key: tuple(value) for key, value in grouped.items()}
 
 
+def _purge_stale_ticks(interpreters: Iterable[Interpreter]) -> None:
+    """Drop stale time-trigger events from the internal event queues.
+
+    A time-trigger event is stale when the machine's own delivery rules
+    would ignore it: its source state is no longer active, or its
+    activation stamp no longer matches the state's counter. Left queued, a
+    stale event makes the clock chase an instant where nothing happens.
+    """
+    for interpreter in interpreters:
+        queue = _internal_queue(interpreter)
+        if any(_is_stale_tick(event, interpreter) for _time, event in queue):
+            queue[:] = [
+                (time, event)
+                for time, event in queue
+                if not _is_stale_tick(event, interpreter)
+            ]
+
+
+def _is_stale_tick(event: Event, interpreter: Interpreter) -> bool:
+    """Whether the machine would ignore this time-trigger event."""
+    metadata = getattr(event, TICK_METADATA_KEY, None)
+    if metadata is None:
+        return False
+    state_name, counter_name = metadata
+    if state_name not in interpreter.configuration:
+        return True
+    return bool(event.n != interpreter.context[counter_name])
+
+
+def _internal_queue(interpreter: Interpreter) -> list[tuple[float, Event]]:
+    """The interpreter's private internal event queue, as a mutable list.
+
+    sismic exposes no public accessor for pending events, so this is the one
+    site that names the private ``_internal_queue`` attribute and asserts its
+    ``(time, event)`` list shape. ``_queue_times`` reads it and the stale-tick
+    purge rewrites it in place; the in-place rewrite relies on order-preserving
+    filtering to keep sismic's queue in its scheduled order.
+    """
+    return cast("list[tuple[float, Event]]", interpreter._internal_queue)
+
+
 def _next_system_event_time(
     interpreters: Iterable[Interpreter], current_time: float
 ) -> float | None:
@@ -212,14 +256,12 @@ def _next_system_event_time(
 def _queue_times(interpreter: Interpreter) -> tuple[float, ...]:
     """Return the scheduled times in the interpreter's two event queues.
 
-    Reads sismic's private ``_internal_queue`` and ``_external_queue``: the
-    interpreter exposes no public accessor for its pending event times.
+    The internal queue is read through ``_internal_queue``; the external queue
+    has no public accessor either and is read the same private way.
     """
-    times: list[float] = []
-    for name in ("_internal_queue", "_external_queue"):
-        queue = cast(
-            "Sequence[tuple[float, Event]]",
-            getattr(interpreter, name),
-        )
-        times.extend(time for time, _event in queue)
+    times = [time for time, _event in _internal_queue(interpreter)]
+    external = cast(
+        "Sequence[tuple[float, Event]]", interpreter._external_queue
+    )
+    times.extend(time for time, _event in external)
     return tuple(times)

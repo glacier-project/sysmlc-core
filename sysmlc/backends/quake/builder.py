@@ -13,6 +13,7 @@ from sismic.model import (
 )
 
 from sysmlc.backends.quake.codegen import (
+    TICK_METADATA_KEY,
     QuakeRenderNeeds,
     SismicCodeGen,
     math_import_lines,
@@ -266,17 +267,21 @@ class SismicBuilder:
             self._arming_by_source.setdefault(source, []).append(
                 f"{counter} = {counter} + 1"
             )
+        # The time-trigger event self-describes which state and counter its
+        # guard checks, so a runner can drop events the guard would ignore.
+        stamp = f"{TICK_METADATA_KEY}=('{source}', '{counter}')"
         if isinstance(trigger, AfterTrigger):
             self._arming_by_source[source].append(
-                f"send('{event_name}', n={counter}, delay={delay})"
+                f"send('{event_name}', n={counter}, delay={delay}, {stamp})"
             )
             return
         delta = f"_d_{ident}_t{ordinal}"
+        tick_send = f"send('{event_name}', n={counter}, delay={delta}, {stamp})"
         self._arming_by_source[source].extend(
             [
                 f"{delta} = ({delay}) - time",
                 f"if {delta} >= 0:",
-                f"    send('{event_name}', n={counter}, delay={delta})",
+                f"    {tick_send}",
             ]
         )
 

@@ -63,7 +63,8 @@ def test_relative_time_trigger_emits_delayed_event(
     assert timed.guard == "event.n == _n_idle"
     assert sc.state_for("idle").on_entry == (
         "_n_idle = _n_idle + 1\n"
-        f"send('_tick_idle_t1', n=_n_idle, delay={expected_delay})"
+        f"send('_tick_idle_t1', n=_n_idle, delay={expected_delay}, "
+        "_sysmlc_tick=('idle', '_n_idle'))"
     )
 
 
@@ -193,7 +194,8 @@ def test_absolute_time_trigger_emits_arming_delta(
         "_n_idle = _n_idle + 1\n"
         "_d_idle_t1 = (deadline) - time\n"
         "if _d_idle_t1 >= 0:\n"
-        "    send('_tick_idle_t1', n=_n_idle, delay=_d_idle_t1)"
+        "    send('_tick_idle_t1', n=_n_idle, delay=_d_idle_t1, "
+        "_sysmlc_tick=('idle', '_n_idle'))"
     )
 
 

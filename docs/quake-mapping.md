@@ -821,7 +821,7 @@ statechart:
     - name: idle
       on entry: |
         _n_idle = _n_idle + 1
-        send('_tick_idle_t1', n=_n_idle, delay=120.0)
+        send('_tick_idle_t1', n=_n_idle, delay=120.0, _sysmlc_tick=('idle', '_n_idle'))
       transitions:
       - {event: _tick_idle_t1, guard: event.n == _n_idle, target: running}
     - name: running
@@ -859,7 +859,7 @@ statechart:
     - name: idle
       on entry: |
         _n_idle = _n_idle + 1
-        send('_tick_idle_t1', n=_n_idle, delay=pickDuration)
+        send('_tick_idle_t1', n=_n_idle, delay=pickDuration, _sysmlc_tick=('idle', '_n_idle'))
       transitions:
       - {event: _tick_idle_t1, guard: event.n == _n_idle, target: running}
     - name: running
@@ -898,7 +898,7 @@ statechart:
     - name: idle
       on entry: |
         _n_idle = _n_idle + 1
-        send('_tick_idle_t1', n=_n_idle, delay=5.0)
+        send('_tick_idle_t1', n=_n_idle, delay=5.0, _sysmlc_tick=('idle', '_n_idle'))
       transitions:
       - {event: _tick_idle_t1, guard: event.n == _n_idle and (ready), target: running}
     - name: running
@@ -915,6 +915,13 @@ counter stamps every tick with the activation that armed it; a stale tick
 matches no guard, is consumed by an empty step, and is gone. Self-loops get
 periodic behavior for free: each re-entry bumps the counter and schedules a
 fresh tick, and every `execute()` call terminates.
+
+*Why the `_sysmlc_tick` metadata:* the time-trigger event also carries the
+`(source state, counter variable)` pair its guard checks, so a runner
+driving the shared discrete-event loop can apply the same staleness test to
+still-queued events and drop the stale ones early, instead of letting
+them hold the clock, distort the stop reason, or surface as empty steps.
+Vanilla sismic ignores the extra event parameter.
 
 *Why:* a time trigger is an *accepter* in SysML and now maps to a real sismic
 **event**, recovering the one-shot, consumed-on-delivery semantics. Only the
@@ -973,7 +980,7 @@ statechart:
         _n_idle = _n_idle + 1
         _d_idle_t1 = (deadline) - time
         if _d_idle_t1 >= 0:
-            send('_tick_idle_t1', n=_n_idle, delay=_d_idle_t1)
+            send('_tick_idle_t1', n=_n_idle, delay=_d_idle_t1, _sysmlc_tick=('idle', '_n_idle'))
       transitions:
       - {event: _tick_idle_t1, guard: event.n == _n_idle, target: running}
     - name: running
@@ -1528,7 +1535,7 @@ statechart:
     name: MachineAssignCall
     states:
     - name: a
-      on entry: "_n_a = _n_a + 1\nsend('_tick_a_t1', n=_n_a, delay=0.1)"
+      on entry: "_n_a = _n_a + 1\nsend('_tick_a_t1', n=_n_a, delay=0.1, _sysmlc_tick=('a', '_n_a'))"
       transitions:
       - action: x = max(x, 0.0)
         event: _tick_a_t1
