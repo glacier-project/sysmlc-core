@@ -57,13 +57,24 @@ class CCodeGen:
     as ``<context_var>-><a>.<b>``). When ``allow_context`` is False (rendering a
     context-struct initializer, which runs outside any function) a feature
     reference is rejected rather than mis-rendered.
+
+    When ``attribute_names`` is non-empty, a reference to a name outside that
+    set is rejected loudly (e.g. reading a signal payload like ``reading.value``
+    that has no context field), rather than emitting ``ctx->reading`` that only
+    fails at C-compile time. An empty set disables the check (used where the
+    valid names are not known to the caller).
     """
 
     def __init__(
-        self, *, context_var: str = "ctx", allow_context: bool = True
+        self,
+        *,
+        context_var: str = "ctx",
+        allow_context: bool = True,
+        attribute_names: frozenset[str] = frozenset(),
     ) -> None:
         self._ctx = context_var
         self._allow_context = allow_context
+        self._attribute_names = attribute_names
 
     def render_expression(self, expr: syside.Expression) -> str:
         """Translate ``expr`` to C source (no enclosing parentheses)."""
@@ -135,6 +146,13 @@ class CCodeGen:
             raise CCodeGenError(
                 f"reference to {ref.name!r} in a context initializer is "
                 "unsupported",
+                node=expr,
+            )
+        if self._attribute_names and ref.name not in self._attribute_names:
+            raise CCodeGenError(
+                f"reference to {ref.name!r} is not a machine attribute; "
+                "reading signal payloads / non-attribute features is "
+                "unsupported by statix yet.",
                 node=expr,
             )
         return f"{self._ctx}->{ref.name}"
