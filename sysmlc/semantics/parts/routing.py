@@ -116,6 +116,7 @@ def port_signal_routes(
             wire(ib, pb, ia, pa, signal)
         _warn_unwired(ia, pa, fa, fb, pb)
         _warn_unwired(ib, pb, fb, fa, pa)
+    _warn_unrouted_sends(faces, routes)
     return tuple(routes)
 
 
@@ -137,3 +138,30 @@ def _warn_unwired(
             signal,
             port,
         )
+
+
+def _warn_unrouted_sends(
+    faces: dict[str, MachineInterface],
+    routes: list[PortSignalRoute],
+) -> None:
+    """Warn when a part's port-addressed send matches no route.
+
+    Covers both an unconnected sender port and a connected peer that never
+    accepts the signal; a bare ``send`` (no ``via`` port) stays local to its
+    machine and is not checked.
+    """
+    routed = {
+        (route.source, route.source_port, route.signal) for route in routes
+    }
+    for inst in sorted(faces):
+        sent_via = faces[inst].sent_via
+        for port in sorted(p for p in sent_via if p is not None):
+            for signal in sorted(sent_via[port]):
+                if (inst, port, signal) not in routed:
+                    logger.warning(
+                        "part %r sends %r via %r but no connected peer "
+                        "accepts it; the signal is never delivered",
+                        inst,
+                        signal,
+                        port,
+                    )
