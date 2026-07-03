@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from sismic.clock import SimulatedClock
+from sismic.exceptions import SismicError
 from sismic.interpreter import Interpreter
 
 from sysmlc.backends.quake.builder import build_statechart
@@ -16,6 +17,7 @@ from sysmlc.backends.quake.coordinator import (
     run_to_quiescence,
 )
 from sysmlc.backends.quake.parts import build_part_system
+from sysmlc.errors import ExecutionError
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -88,15 +90,22 @@ def run_state_def(
         The run report (trace, final configuration, clock time, stop reason).
 
     Raises:
+        UnsupportedConstructError: If the model uses a construct the quake
+            backend does not support.
+        ExecutionError: If sismic rejects the model at runtime (an
+            unevaluable guard or action, or nondeterministic transitions).
         ValueError: If ``max_steps`` is less than one.
     """
     name = state_def_qn.split("::")[-1]
     clock = SimulatedClock()
     statechart = build_statechart(model, state_def_qn, external=external)
-    interpreters = {name: Interpreter(statechart, clock=clock)}
-    trace, stop_reason = run_to_quiescence(
-        interpreters, clock, max_steps=max_steps, until=until
-    )
+    try:
+        interpreters = {name: Interpreter(statechart, clock=clock)}
+        trace, stop_reason = run_to_quiescence(
+            interpreters, clock, max_steps=max_steps, until=until
+        )
+    except SismicError as error:
+        raise ExecutionError(str(error)) from error
     return _report(interpreters, clock, trace, stop_reason)
 
 
@@ -124,12 +133,18 @@ def run_part_system(
         The run report (trace, final configurations, clock time, stop reason).
 
     Raises:
+        UnsupportedConstructError: If the model uses a construct the quake
+            backend does not support.
+        ExecutionError: If sismic rejects the model at runtime (an
+            unevaluable guard or action, or nondeterministic transitions).
         ValueError: If ``max_steps`` is less than one.
     """
-    coordinator = PartSystemCoordinator(
-        build_part_system(model, usage_qn, external=external)
-    )
-    trace, stop_reason = coordinator.run(max_steps=max_steps, until=until)
+    system = build_part_system(model, usage_qn, external=external)
+    try:
+        coordinator = PartSystemCoordinator(system)
+        trace, stop_reason = coordinator.run(max_steps=max_steps, until=until)
+    except SismicError as error:
+        raise ExecutionError(str(error)) from error
     return _report(
         coordinator.interpreters, coordinator.clock, trace, stop_reason
     )

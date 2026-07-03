@@ -2,16 +2,17 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import pytest
+
 from sysmlc.backends.quake.coordinator import StopReason
 from sysmlc.backends.quake.runner import run_part_system, run_state_def
+from sysmlc.errors import ExecutionError
 from sysmlc.sysml.loading import load_model
 from tests import _load_inline_model
 from tests.backends.test_sm_examples import SM_EXAMPLES_DIR
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-    import pytest
 
 FIX = SM_EXAMPLES_DIR / "part01-two-parts"
 RAMP = SM_EXAMPLES_DIR / "sm15-external"
@@ -120,6 +121,7 @@ def test_run_state_def_advances_clock_to_the_time_bound(
     assert report.clock_time == 2.5
 
 
+@pytest.mark.usefixtures("fresh_external_modules")
 def test_run_state_def_with_external_module(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -139,6 +141,7 @@ def test_run_state_def_with_external_module(
     assert report.trace
 
 
+@pytest.mark.usefixtures("fresh_external_modules")
 def test_run_part_system_with_external_module(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -152,3 +155,71 @@ def test_run_part_system_with_external_module(
 
     assert report.stop_reason is StopReason.TIME_BOUND
     assert report.trace
+
+
+NONDETERMINISTIC_MODEL = """
+package RunNondet {
+    private import ScalarValues::*;
+
+    state def Machine {
+        attribute x : Integer := 1;
+        entry; then idle;
+        state idle;
+        state left;
+        state right;
+        transition first idle if x > 0 then left;
+        transition first idle if x < 2 then right;
+    }
+}
+"""
+
+INCOMPLETE_GUARD_MODEL = """
+package RunIncomplete {
+    private import ScalarValues::*;
+
+    state def Machine {
+        attribute threshold : Integer;
+        entry; then waiting;
+        state waiting;
+        transition first waiting if threshold > 0 then done;
+    }
+}
+"""
+
+INCOMPLETE_PART_MODEL = """
+package PartIncomplete {
+    private import ScalarValues::*;
+
+    state def Behavior {
+        attribute threshold : Integer;
+        entry; then waiting;
+        state waiting;
+        transition first waiting if threshold > 0 then done;
+    }
+    part def Machine { exhibit state : Behavior; }
+    part sys { part m : Machine; }
+}
+"""
+
+
+def test_run_state_def_wraps_nondeterminism(tmp_path: Path) -> None:
+    # Both guards are true at once; quake deliberately preserves the
+    # nondeterminism and sismic rejects it at runtime.
+    model = _load_inline_model(tmp_path, NONDETERMINISTIC_MODEL)
+
+    with pytest.raises(ExecutionError, match=r"[Nn]on-determinis"):
+        run_state_def(model, "RunNondet::Machine")
+
+
+def test_run_state_def_wraps_evaluation_errors(tmp_path: Path) -> None:
+    model = _load_inline_model(tmp_path, INCOMPLETE_GUARD_MODEL)
+
+    with pytest.raises(ExecutionError, match="not defined"):
+        run_state_def(model, "RunIncomplete::Machine")
+
+
+def test_run_part_system_wraps_evaluation_errors(tmp_path: Path) -> None:
+    model = _load_inline_model(tmp_path, INCOMPLETE_PART_MODEL)
+
+    with pytest.raises(ExecutionError, match="not defined"):
+        run_part_system(model, "PartIncomplete::sys")

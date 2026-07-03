@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -679,6 +680,7 @@ def test_quake_run_until_bounds_a_nonterminating_model(
     assert "status=reached time bound" in out
 
 
+@pytest.mark.usefixtures("fresh_external_modules")
 def test_quake_run_state_def_with_python(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -699,6 +701,7 @@ def test_quake_run_state_def_with_python(
     assert "status=reached time bound" in capsys.readouterr().out
 
 
+@pytest.mark.usefixtures("fresh_external_modules")
 def test_quake_run_part_system_with_python(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -717,3 +720,97 @@ def test_quake_run_part_system_with_python(
 
     assert rc == 0
     assert "status=reached time bound" in capsys.readouterr().out
+
+
+NONDETERMINISTIC_MODEL = """\
+package Nondet {
+    private import ScalarValues::*;
+    state def Machine {
+        attribute x : Integer := 1;
+        entry; then idle;
+        state idle;
+        state left;
+        state right;
+        transition first idle if x > 0 then left;
+        transition first idle if x < 2 then right;
+    }
+}
+"""
+
+
+def test_quake_run_reports_nondeterminism_cleanly(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    model_dir = tmp_path / "model"
+    model_dir.mkdir()
+    (model_dir / "m.sysml").write_text(NONDETERMINISTIC_MODEL)
+
+    rc = main(["quake", "run", str(model_dir)])
+
+    assert rc == 1
+    assert "on-determinis" in capsys.readouterr().err
+
+
+def test_quake_run_with_missing_python_file_fails_cleanly(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    rc = main(
+        [
+            "quake",
+            "run",
+            str(SM01_DIR),
+            "-e",
+            "SM01::Machine",
+            "--python",
+            "/nonexistent/typo.py",
+        ]
+    )
+
+    assert rc == 1
+    assert "typo.py" in capsys.readouterr().err
+
+
+def test_quake_run_with_invalid_python_file_fails_cleanly(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    bad = tmp_path / "bad.py"
+    bad.write_text("def broken(:\n")
+
+    rc = main(
+        [
+            "quake",
+            "run",
+            str(SM01_DIR),
+            "-e",
+            "SM01::Machine",
+            "--python",
+            str(bad),
+        ]
+    )
+
+    assert rc == 1
+    assert "bad.py" in capsys.readouterr().err
+
+
+def test_quake_run_unregisters_failed_python_module(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    boom = tmp_path / "boom.py"
+    boom.write_text("def f():\n    return 1\nraise RuntimeError('exploded')\n")
+
+    rc = main(
+        [
+            "quake",
+            "run",
+            str(SM01_DIR),
+            "-e",
+            "SM01::Machine",
+            "--python",
+            str(boom),
+        ]
+    )
+
+    assert rc == 1
+    assert "exploded" in capsys.readouterr().err
+    # The broken half-executed module must not stay importable.
+    assert "boom" not in sys.modules

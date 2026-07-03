@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import syside
-from sismic.exceptions import CodeEvaluationError
 
 from sysmlc.backends import Backend, OutputOptions, discover_backends
 from sysmlc.errors import SysmlcError
@@ -44,8 +43,22 @@ def _parse_external(python_path: Path) -> tuple[str, frozenset[str]]:
 
     Only top-level synchronous ``def``s are eligible; an ``async def`` cannot
     back a synchronous reaction call.
+
+    Raises:
+        CliError: If the file cannot be read or is not valid Python.
     """
-    tree = ast.parse(python_path.read_text())
+    try:
+        source = python_path.read_text()
+    except OSError as error:
+        raise CliError(
+            f"cannot read --python file {python_path}: {error}"
+        ) from error
+    try:
+        tree = ast.parse(source, filename=str(python_path))
+    except SyntaxError as error:
+        raise CliError(
+            f"--python file {python_path} is not valid Python: {error}"
+        ) from error
     names = frozenset(
         node.name for node in tree.body if isinstance(node, ast.FunctionDef)
     )
@@ -61,6 +74,7 @@ def _load_external_module(python_path: Path) -> None:
 
     Raises:
         ValueError: If the path is not an importable Python module.
+        CliError: If executing the module's top level raises.
     """
     stem = python_path.stem
     spec = importlib.util.spec_from_file_location(stem, python_path)
@@ -68,7 +82,15 @@ def _load_external_module(python_path: Path) -> None:
         raise ValueError(f"cannot import external module from {python_path}")
     module = importlib.util.module_from_spec(spec)
     sys.modules[stem] = module
-    spec.loader.exec_module(module)
+    try:
+        spec.loader.exec_module(module)
+    except Exception as error:
+        # Mirror the import system: a failed import must not leave the
+        # broken half-executed module importable.
+        del sys.modules[stem]
+        raise CliError(
+            f"--python file {python_path} failed to execute: {error}"
+        ) from error
 
 
 def _build_parser(backends: dict[str, Backend]) -> argparse.ArgumentParser:
@@ -462,16 +484,13 @@ def _cmd_run(args: argparse.Namespace) -> int:
         external = _parse_external(python_path)
         _load_external_module(python_path)
 
-    try:
-        report = hook(
-            model,
-            element_qn,
-            max_steps=args.max_steps,
-            until=args.until,
-            external=external,
-        )
-    except CodeEvaluationError as error:
-        raise CliError(str(error)) from error
+    report = hook(
+        model,
+        element_qn,
+        max_steps=args.max_steps,
+        until=args.until,
+        external=external,
+    )
     print(f"Ran {element_qn}:")
     print(report.render())
     if report.hit_step_cap:
