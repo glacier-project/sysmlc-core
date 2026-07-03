@@ -8,13 +8,7 @@ from typing import TYPE_CHECKING
 from sysmlc.backends.quake.builder import build_statechart
 from sysmlc.errors import UnsupportedConstructError
 from sysmlc.semantics.parts.graph import PartGraph, part_graph
-from sysmlc.semantics.parts.routing import (
-    PortSignalRoute,
-    port_signal_routes,
-    validate_connections,
-    validate_via_ports,
-)
-from sysmlc.semantics.statemachine.interface import machine_interface
+from sysmlc.semantics.parts.routing import PortSignalRoute, validated_routes
 
 if TYPE_CHECKING:
     import syside
@@ -60,10 +54,6 @@ def build_part_system(
             one state, or a connection fails routing validation.
     """
     graph = part_graph(model, usage_qn)
-    if not graph.parts:
-        raise UnsupportedConstructError(
-            f"part usage {usage_qn!r} composes no parts"
-        )
 
     # Keyed by usage name, so a repeated name would silently drop a machine.
     seen_usage_names: set[str] = set()
@@ -84,13 +74,7 @@ def build_part_system(
                 "exactly one exhibit per part"
             )
 
-    parts = {node.usage_name: node for node in graph.parts}
-    faces = {
-        node.usage_name: machine_interface(model, node.behaviors[0][1])
-        for node in graph.parts
-    }
-    validate_via_ports(graph.parts, faces)
-    validate_connections(graph, parts)
+    _faces, routes = validated_routes(model, graph, graph.parts)
 
     built_behaviors: dict[str, Statechart] = {}
     statecharts: dict[str, Statechart] = {}
@@ -106,5 +90,5 @@ def build_part_system(
         name=graph.name,
         graph=graph,
         statecharts=statecharts,
-        routes=port_signal_routes(graph, faces),
+        routes=routes,
     )

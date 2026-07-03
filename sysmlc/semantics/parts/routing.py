@@ -7,10 +7,15 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from sysmlc.errors import UnsupportedConstructError
+from sysmlc.semantics.statemachine.interface import (
+    MachineInterface,
+    machine_interface,
+)
 
 if TYPE_CHECKING:
+    import syside
+
     from sysmlc.semantics.parts.graph import PartGraph, PartNode
-    from sysmlc.semantics.statemachine.interface import MachineInterface
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +31,54 @@ class PortSignalRoute:
     target_port: str
 
 
-def validate_via_ports(
+def validated_routes(
+    model: syside.Model,
+    graph: PartGraph,
+    nodes: tuple[PartNode, ...],
+) -> tuple[dict[str, MachineInterface], tuple[PortSignalRoute, ...]]:
+    """Build each node's machine interface, validate it, and route the graph.
+
+    The single entry point to routing: interface building, ``via``-port and
+    connection validation, and route computation run in one sequence, so no
+    caller can compute routes from an unvalidated interface.
+
+    Args:
+        model: Loaded syside model containing the part system.
+        graph: The part graph whose connections are validated and routed.
+        nodes: The part nodes whose interfaces participate in routing; each
+            must exhibit exactly one behavior.
+
+    Returns:
+        Each routed node's machine interface keyed by usage name, and the
+        port-addressed signal routes.
+
+    Raises:
+        UnsupportedConstructError: If a behavior sends or accepts via an
+            undeclared port, a connection names an unknown part or an
+            undeclared port, a signal travels both ways over one connection,
+            or one ``(target, signal)`` input has two sources.
+    """
+    for node in nodes:
+        # Interface building reads behaviors[0]; on a multi-exhibit node
+        # that would silently route against one arbitrary exhibit.
+        assert len(node.behaviors) == 1, (
+            f"part {node.usage_name!r} exhibits {len(node.behaviors)} "
+            "behaviors; callers must pass single-exhibit nodes"
+        )
+    parts = {node.usage_name: node for node in nodes}
+    # The name-keyed collapse must be lossless: a repeated usage name
+    # would silently drop a node and route only part of the system.
+    assert len(parts) == len(nodes), "part usage names are not unique"
+    faces = {
+        node.usage_name: machine_interface(model, node.behaviors[0][1])
+        for node in nodes
+    }
+    _validate_via_ports(nodes, faces)
+    _validate_connections(graph, parts)
+    return faces, _port_signal_routes(graph, faces)
+
+
+def _validate_via_ports(
     nodes: tuple[PartNode, ...],
     faces: dict[str, MachineInterface],
 ) -> None:
@@ -44,7 +96,7 @@ def validate_via_ports(
                 )
 
 
-def validate_connections(graph: PartGraph, parts: dict[str, PartNode]) -> None:
+def _validate_connections(graph: PartGraph, parts: dict[str, PartNode]) -> None:
     """Reject a ``connect`` naming an unknown part or undeclared port."""
     for (ia, pa), (ib, pb) in graph.connections:
         for inst, port in ((ia, pa), (ib, pb)):
@@ -61,7 +113,7 @@ def validate_connections(graph: PartGraph, parts: dict[str, PartNode]) -> None:
                 )
 
 
-def port_signal_routes(
+def _port_signal_routes(
     graph: PartGraph, faces: dict[str, MachineInterface]
 ) -> tuple[PortSignalRoute, ...]:
     """Build port-addressed routing edges for matched send/accept signals."""

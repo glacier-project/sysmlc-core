@@ -42,7 +42,14 @@ class PartGraph:
 
 
 def part_graph(model: syside.Model, usage_qn: str) -> PartGraph:
-    """Extract the part graph rooted at the top-level usage ``usage_qn``."""
+    """Extract the part graph rooted at the top-level usage ``usage_qn``.
+
+    Raises:
+        ValueError: If ``usage_qn`` does not name a part usage in the model.
+        UnsupportedConstructError: If the usage composes no parts, or a
+            composed part or connection has a shape the extractor does
+            not support.
+    """
     system = _resolve_part_usage(model, usage_qn)
     model_defs = {
         str(sd.qualified_name)
@@ -61,6 +68,10 @@ def part_graph(model: syside.Model, usage_qn: str) -> PartGraph:
             connections.append(_connection(feature))
         elif isinstance(feature, syside.PartUsage):
             parts.append(_part_node(feature, model_defs))
+    if not parts:
+        raise UnsupportedConstructError(
+            f"part usage {usage_qn!r} composes no parts"
+        )
     return PartGraph(
         name=usage_qn.split("::")[-1],
         parts=tuple(parts),
