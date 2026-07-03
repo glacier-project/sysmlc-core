@@ -1,21 +1,20 @@
-/*
- * sc/sc_machine.h - Shared statechart dispatch, instantiated per machine.
- *
- * A generated <prefix>.c defines its static const tables, a static
- * <prefix>_guard_eval and <prefix>_action_exec, then sets the SC_MACHINE_*
- * macros and includes this header ONCE. That instantiates the machine's public
- * API (<prefix>_init/_dispatch/_post/_get_state) with the dispatch algorithm
- * below, calling the file-local static guard/action directly -- no function
- * pointers, one audited algorithm shared by every generated machine.
- *
- * Required macros (the generated unit defines them before including):
- *   SC_MACHINE_PREFIX  the machine prefix token, e.g. sm01_machine
- *   SC_MACHINE_DEF     the static const sc_machine_t, e.g. sm01_machine_machine
- *   SC_MACHINE_GUARD   the static guard evaluator, e.g. sm01_machine_guard_eval
- *   SC_MACHINE_ACTION  the static action executor, e.g. sm01_machine_action_exec
- *
- * No include guard on purpose. Do not include this header directly.
- */
+/// @file sc_machine.h
+/// @brief Shared statechart dispatch template, instantiated per machine.
+///
+/// A generated <prefix>.c defines its static const tables, a static
+/// <prefix>_guard_eval and <prefix>_action_exec, then sets the SC_MACHINE_*
+/// macros and includes this header once. That instantiates the machine's public
+/// API (<prefix>_init/_dispatch/_post/_get_state) with the dispatch algorithm
+/// below, calling the file-local static guard/action directly -- no function
+/// pointers, one audited algorithm shared by every generated machine.
+///
+/// Required macros:
+/// - SC_MACHINE_PREFIX: the machine prefix token, e.g. sm01_machine.
+/// - SC_MACHINE_DEF: the static const sc_machine_t.
+/// - SC_MACHINE_GUARD: the static guard evaluator.
+/// - SC_MACHINE_ACTION: the static action executor.
+///
+/// No include guard on purpose. Do not include this header directly.
 #if !defined(SC_MACHINE_PREFIX) || !defined(SC_MACHINE_DEF) || \
     !defined(SC_MACHINE_GUARD) || !defined(SC_MACHINE_ACTION)
 #error "sc/sc_machine.h: define SC_MACHINE_PREFIX/_DEF/_GUARD/_ACTION first"
@@ -29,7 +28,11 @@
 #define SC__CTX SC__CAT(SC_MACHINE_PREFIX, _context_t)
 #define SC__FN(suffix) SC__CAT(SC_MACHINE_PREFIX, suffix)
 
-/* Runs a state's entry or exit action if it has one. */
+/// @brief Run a state's entry or exit action if it has one.
+/// @param sm Statechart instance.
+/// @param action Action id to execute, or SC_ACTION_NONE.
+/// @param event Event associated with the action.
+/// @return SC_STATUS_OK on success, or an action error status.
 static sc_status_t SC__FN(_run_state_action)(SC__T *sm, sc_action_id_t action,
                                              const sc_event_t *event)
 {
@@ -39,7 +42,13 @@ static sc_status_t SC__FN(_run_state_action)(SC__T *sm, sc_action_id_t action,
     return SC_MACHINE_ACTION(action, &sm->runtime, event);
 }
 
-/* First enabled row matching (state, event_id); index or -1. */
+/// @brief Find the first enabled transition matching a state/event pair.
+/// @param machine Immutable machine definition.
+/// @param state Source state id to match.
+/// @param event_id Event id to match.
+/// @param sm Statechart instance used by guard evaluation.
+/// @param event Event used by guard evaluation.
+/// @return Transition table index, or -1 when none is enabled.
 static int32_t SC__FN(_find_transition)(const sc_machine_t *machine,
                                         sc_state_id_t state, sc_event_id_t event_id,
                                         const SC__T *sm, const sc_event_t *event)
@@ -63,7 +72,11 @@ static int32_t SC__FN(_find_transition)(const sc_machine_t *machine,
     return -1;
 }
 
-/* One transition: exit(source) -> effect -> entry(target); moves state. */
+/// @brief Take one transition and update the current state.
+/// @param sm Statechart instance.
+/// @param t Transition row to fire.
+/// @param event Event associated with the transition.
+/// @return SC_STATUS_OK on success, or an action error status.
 static sc_status_t SC__FN(_take_transition)(SC__T *sm, const sc_transition_t *t,
                                             const sc_event_t *event)
 {
@@ -84,7 +97,9 @@ static sc_status_t SC__FN(_take_transition)(SC__T *sm, const sc_transition_t *t,
         sm, machine->states[t->target].entry_action, event);
 }
 
-/* Fires completion transitions until none is enabled (bounded). */
+/// @brief Fire completion transitions until none is enabled, bounded.
+/// @param sm Statechart instance.
+/// @return SC_STATUS_OK when quiescent, or SC_STATUS_STEP_LIMIT on exhaustion.
 static sc_status_t SC__FN(_run_completion)(SC__T *sm)
 {
     const sc_machine_t *machine = sm->runtime.machine;
@@ -106,6 +121,10 @@ static sc_status_t SC__FN(_run_completion)(SC__T *sm)
     return SC_STATUS_STEP_LIMIT;
 }
 
+/// @brief Initialize a statechart instance and settle completion transitions.
+/// @param sm Statechart instance to initialize.
+/// @param ctx Caller-owned generated context.
+/// @return SC_STATUS_OK on success, or an error status.
 sc_status_t SC__FN(_init)(SC__T *sm, SC__CTX *ctx)
 {
     sc_status_t status;
@@ -127,6 +146,10 @@ sc_status_t SC__FN(_init)(SC__T *sm, SC__CTX *ctx)
     return SC__FN(_run_completion)(sm);
 }
 
+/// @brief Dispatch one event into a statechart instance.
+/// @param sm Statechart instance receiving the event.
+/// @param event Event to dispatch.
+/// @return SC_STATUS_OK if a transition fired, SC_STATUS_NO_TRANSITION if none matched, or an error status.
 sc_status_t SC__FN(_dispatch)(SC__T *sm, const sc_event_t *event)
 {
     const sc_machine_t *machine;
@@ -152,6 +175,10 @@ sc_status_t SC__FN(_dispatch)(SC__T *sm, const sc_event_t *event)
     return SC__FN(_run_completion)(sm);
 }
 
+/// @brief Dispatch one no-payload event by id.
+/// @param sm Statechart instance receiving the event.
+/// @param event_id Event identifier to dispatch.
+/// @return SC_STATUS_OK if a transition fired, SC_STATUS_NO_TRANSITION if none matched, or an error status.
 sc_status_t SC__FN(_post)(SC__T *sm, sc_event_id_t event_id)
 {
     sc_event_t event;
@@ -162,6 +189,9 @@ sc_status_t SC__FN(_post)(SC__T *sm, sc_event_id_t event_id)
     return SC__FN(_dispatch)(sm, &event);
 }
 
+/// @brief Return the current active state id.
+/// @param sm Statechart instance to inspect.
+/// @return Active state id, or SC_STATE_INVALID before initialization.
 sc_state_id_t SC__FN(_get_state)(const SC__T *sm)
 {
     sc_state_id_t state = SC_STATE_INVALID;
