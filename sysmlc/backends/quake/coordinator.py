@@ -76,8 +76,9 @@ class PartSystemCoordinator:
 
         Args:
             max_steps: Safety cap on total macro steps.
-            until: Simulated-time upper bound; stop before advancing the
-                shared clock past it. ``None`` runs to quiescence.
+            until: Simulated-time upper bound; events at exactly ``until``
+                still run, and a bounded stop leaves the clock at ``until``.
+                ``None`` runs to quiescence.
 
         Returns:
             The coordinated macro-step trace and the reason the run stopped.
@@ -92,8 +93,13 @@ class PartSystemCoordinator:
     def _route_for(self, source: str) -> Callable[..., None]:
         """Return a route closure bound to one source part instance."""
 
-        def route(signal: str, port: str, **payload: Any) -> None:
-            """Deliver ``signal`` from ``port`` to its routed targets."""
+        def route(signal: str, port: str, /, **payload: Any) -> None:
+            """Deliver ``signal`` from ``port`` to its routed targets.
+
+            The two parameters are positional-only so a payload attribute
+            named ``signal`` or ``port`` passes through ``payload`` instead
+            of clashing with them.
+            """
             for edge in self._routes.get((source, port, signal), ()):
                 self._interpreters[edge.target].queue(signal, **payload)
 
@@ -119,9 +125,9 @@ def run_to_quiescence(
         interpreters: Interpreters keyed by name, all sharing ``clock``.
         clock: The shared logical clock, advanced to each next event time.
         max_steps: Safety cap on total macro steps.
-        until: Simulated-time upper bound; stop before advancing ``clock``
-            past it, so events at exactly ``until`` still run. ``None`` runs
-            to quiescence.
+        until: Simulated-time upper bound; events at exactly ``until``
+            still run, and a bounded stop leaves the clock at ``until``.
+            ``None`` runs to quiescence.
 
     Returns:
         The coordinated macro-step trace and the reason the run stopped.
@@ -138,13 +144,16 @@ def run_to_quiescence(
         while True:
             progressed = False
             for name, interpreter in interpreters.items():
+                # A final machine never runs again.
+                if interpreter.final:
+                    continue
                 step = interpreter.execute_once()
                 if step is None:
                     continue
                 trace.append(CoordinatedStep(name, step))
                 progressed = True
                 # Cap hit: keep the trace so far instead of raising.
-                if len(trace) > max_steps:
+                if len(trace) >= max_steps:
                     capped = True
                     break
             if capped or not progressed:
@@ -158,6 +167,9 @@ def run_to_quiescence(
         if next_time is None:
             return tuple(trace), StopReason.QUIESCENT
         if until is not None and next_time > until:
+            # Leave the clock at the bound.
+            if until > clock.time:
+                clock.time = until
             return tuple(trace), StopReason.TIME_BOUND
         # Advance the clock to the next event, then settle again.
         clock.time = next_time

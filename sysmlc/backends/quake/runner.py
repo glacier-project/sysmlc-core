@@ -78,8 +78,9 @@ def run_state_def(
         model: Loaded syside model.
         state_def_qn: Qualified name of the ``state def`` to run.
         max_steps: Safety cap on total macro steps.
-        until: Simulated-time upper bound; stop before advancing the clock
-            past it. ``None`` runs to quiescence.
+        until: Simulated-time upper bound; events at exactly ``until``
+            still run, and a bounded stop leaves the clock at ``until``.
+            ``None`` runs to quiescence.
         external: Optional ``(module_stem, function_names)`` pair for
             external calc-def backing.
 
@@ -113,8 +114,9 @@ def run_part_system(
         model: Loaded syside model.
         usage_qn: Qualified name of the top-level part usage to run.
         max_steps: Safety cap on total macro steps.
-        until: Simulated-time upper bound; stop before advancing the clock
-            past it. ``None`` runs to quiescence.
+        until: Simulated-time upper bound; events at exactly ``until``
+            still run, and a bounded stop leaves the clock at ``until``.
+            ``None`` runs to quiescence.
         external: Optional ``(module_stem, function_names)`` pair for
             external calc-def backing.
 

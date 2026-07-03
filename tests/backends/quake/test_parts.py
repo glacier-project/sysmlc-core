@@ -4,7 +4,10 @@ from pathlib import Path
 
 import pytest
 
-from sysmlc.backends.quake.coordinator import PartSystemCoordinator
+from sysmlc.backends.quake.coordinator import (
+    PartSystemCoordinator,
+    StopReason,
+)
 from sysmlc.backends.quake.parts import QuakePartSystem, build_part_system
 from sysmlc.errors import UnsupportedConstructError
 from sysmlc.sysml.loading import load_model
@@ -196,3 +199,118 @@ def test_duplicate_usage_names_are_rejected(tmp_path: Path) -> None:
 
     with pytest.raises(UnsupportedConstructError, match="uniquely named"):
         build_part_system(model, "PartAnon::sys")
+
+
+PAYLOAD_COLLISION_MODEL = """
+package PartPayload {
+    private import ScalarValues::*;
+
+    item def Data {
+        attribute signal : Integer;
+    }
+
+    state def SenderBehavior {
+        attribute current : Integer := 7;
+        port outPort;
+        entry; then ready;
+        state ready;
+        transition first ready
+            do send new Data(current) via outPort
+            then done;
+    }
+    state def ReceiverBehavior {
+        port rxPort;
+        entry; then waiting;
+        state waiting;
+        transition first waiting accept Data via rxPort then done;
+    }
+
+    part def Sender { port outPort; exhibit state : SenderBehavior; }
+    part def Receiver { port rxPort; exhibit state : ReceiverBehavior; }
+
+    part sys {
+        part tx : Sender;
+        part rx : Receiver;
+        connect tx.outPort to rx.rxPort;
+    }
+}
+"""
+
+
+def test_route_delivers_payload_named_like_router_params(
+    tmp_path: Path,
+) -> None:
+    # The Data payload attribute is named "signal", clashing with the
+    # router closure's own first parameter name.
+    model = _load_inline_model(tmp_path, PAYLOAD_COLLISION_MODEL)
+    coordinator = PartSystemCoordinator(
+        build_part_system(model, "PartPayload::sys")
+    )
+
+    trace, stop_reason = coordinator.run(max_steps=20)
+
+    consumed = [
+        (entry.instance, entry.step.event.name)
+        for entry in trace
+        if entry.step.event is not None
+    ]
+    assert ("rx", "Data") in consumed
+    assert stop_reason is StopReason.FINAL
+
+
+STALE_TIMER_MODEL = """
+package PartStale {
+    private import SI::*;
+
+    item def Go;
+
+    state def DriverBehavior {
+        port outPort;
+        entry; then kick;
+        state kick;
+        state running;
+        transition first kick
+            do send new Go() via outPort
+            then running;
+        transition first running accept after 6 [s] then done;
+    }
+    state def SleeperBehavior {
+        port rxPort;
+        entry; then armed;
+        state armed;
+        state stopped;
+        transition first armed accept after 5 [s] then stopped;
+        transition first armed accept Go via rxPort then done;
+    }
+
+    part def Driver { port outPort; exhibit state : DriverBehavior; }
+    part def Sleeper { port rxPort; exhibit state : SleeperBehavior; }
+
+    part sys {
+        part driver : Driver;
+        part sleeper : Sleeper;
+        connect driver.outPort to sleeper.rxPort;
+    }
+}
+"""
+
+
+def test_final_machine_is_not_polled_again(tmp_path: Path) -> None:
+    # The sleeper terminates at t=0 with its 5s timer still queued (sismic
+    # never cancels delayed events); the driver keeps the system running
+    # until t=6, past that stale timer.
+    model = _load_inline_model(tmp_path, STALE_TIMER_MODEL)
+    coordinator = PartSystemCoordinator(
+        build_part_system(model, "PartStale::sys")
+    )
+
+    trace, stop_reason = coordinator.run(max_steps=50)
+
+    assert stop_reason is StopReason.FINAL
+    assert coordinator.clock.time == 6.0
+    sleeper_steps_after_zero = [
+        entry
+        for entry in trace
+        if entry.instance == "sleeper" and entry.step.time > 0
+    ]
+    assert sleeper_steps_after_zero == []

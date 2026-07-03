@@ -92,8 +92,9 @@ def test_run_part_system_keeps_trace_at_step_cap() -> None:
     report = run_part_system(load_model(FIX), "Part01::pingSystem", max_steps=1)
 
     assert report.hit_step_cap is True
-    # The trace up to the cap is preserved.
-    assert report.trace
+    # The trace up to the cap is preserved, and the cap is exact: no
+    # extra macro step runs beyond it.
+    assert len(report.trace) == 1
 
 
 def test_run_state_def_stops_at_time_bound(tmp_path: Path) -> None:
@@ -104,6 +105,19 @@ def test_run_state_def_stops_at_time_bound(tmp_path: Path) -> None:
     assert report.stop_reason is StopReason.TIME_BOUND
     assert report.clock_time == 3.0
     assert report.all_final is False
+
+
+def test_run_state_def_advances_clock_to_the_time_bound(
+    tmp_path: Path,
+) -> None:
+    # The bound falls between the ticks at 2 and 3: nothing runs there,
+    # but the clock still reports the full simulated span.
+    model = _load_inline_model(tmp_path, LOOP_MODEL)
+
+    report = run_state_def(model, "RunLoop::Machine", until=2.5)
+
+    assert report.stop_reason is StopReason.TIME_BOUND
+    assert report.clock_time == 2.5
 
 
 def test_run_state_def_with_external_module(
