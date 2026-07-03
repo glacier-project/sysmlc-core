@@ -6,26 +6,26 @@
 
 #include "sm02/machine.h"
 
-/* Static state and transition tables. */
-static const sc_state_def_t sm02_machine_states[] = {
+/* Static state and transition tables (file-local). */
+static const sc_state_def_t states[] = {
     {SC_ACTION_NONE, SC_ACTION_NONE},
     {SC_ACTION_NONE, SC_ACTION_NONE},
 };
 
-static const sc_transition_t sm02_machine_transitions[] = {
+static const sc_transition_t transitions[] = {
     {SM02_MACHINE_STATE_IDLE, SM02_MACHINE_EVENT_TICK, SC_GUARD_NONE, SC_ACTION_NONE, SM02_MACHINE_STATE_RUNNING},
 };
 
-static const sc_machine_t sm02_machine_machine = {
-    sm02_machine_transitions,
-    sm02_machine_states,
-    (uint16_t)(sizeof(sm02_machine_transitions) / sizeof(sm02_machine_transitions[0])),
+static const sc_machine_t machine_def = {
+    transitions,
+    states,
+    (uint16_t)(sizeof(transitions) / sizeof(transitions[0])),
     SM02_MACHINE_STATE_COUNT,
     SM02_MACHINE_STATE_IDLE,
 };
 
 /* Generated guard/action dispatch. */
-static bool sm02_machine_guard_eval(sc_guard_id_t guard_id, const sc_runtime_t *runtime, const sc_event_t *event)
+static bool guard_eval(sc_guard_id_t guard_id, const sc_runtime_t *runtime, const sc_event_t *event)
 {
     (void)runtime;
     (void)event;
@@ -33,7 +33,7 @@ static bool sm02_machine_guard_eval(sc_guard_id_t guard_id, const sc_runtime_t *
     return false;
 }
 
-static sc_status_t sm02_machine_action_exec(sc_action_id_t action_id, sc_runtime_t *runtime, const sc_event_t *event)
+static sc_status_t action_exec(sc_action_id_t action_id, sc_runtime_t *runtime, const sc_event_t *event)
 {
     (void)runtime;
     (void)event;
@@ -79,7 +79,7 @@ const char *sm02_machine_event_name(sc_event_id_t event)
 
 /* Instantiate the shared dispatch for this machine. */
 #define SC_MACHINE_PREFIX sm02_machine
-#define SC_MACHINE_DEF sm02_machine_machine
-#define SC_MACHINE_GUARD sm02_machine_guard_eval
-#define SC_MACHINE_ACTION sm02_machine_action_exec
+#define SC_MACHINE_DEF machine_def
+#define SC_MACHINE_GUARD guard_eval
+#define SC_MACHINE_ACTION action_exec
 #include "sc/sc_machine.h"

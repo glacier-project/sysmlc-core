@@ -39,9 +39,16 @@ _DEFAULT_QUEUE_CAPACITY = 8
 
 
 def _c_identifier(name: str) -> str:
-    """Sanitize a SysML name into a lowercase C identifier."""
-    ident = re.sub(r"[^0-9a-zA-Z_]", "_", name).lower()
-    return ident or "machine"
+    """Sanitize a SysML name into a lowercase snake_case C identifier.
+
+    CamelCase word boundaries become underscores, so ``MachineExitDecrement``
+    reads as ``machine_exit_decrement`` rather than ``machineexitdecrement``.
+    """
+    ident = re.sub(r"(.)([A-Z][a-z]+)", r"\1_\2", name)
+    ident = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", ident)
+    ident = re.sub(r"[^0-9a-zA-Z_]", "_", ident)
+    ident = re.sub(r"_+", "_", ident).strip("_")
+    return ident.lower() or "machine"
 
 
 def _c_prefix(qualified_name: str) -> str:

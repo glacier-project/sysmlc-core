@@ -1,4 +1,5 @@
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -8,7 +9,9 @@ from sysmlc.backends.statix.backend import StatixBackend
 pytestmark = pytest.mark.statix
 
 
-def test_multiple_statecharts_link_into_one_project(sm_models, tmp_path):
+def test_multiple_statecharts_link_into_one_project(
+    sm_models: dict, tmp_path: Path
+) -> None:
     # SM01 declares three state defs; build them all into one project.
     project = StatixBackend().build_model(sm_models["sm01"])
     assert len(project.programs) == 3

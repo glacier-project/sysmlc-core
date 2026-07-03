@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 import pytest
 from sismic.interpreter import Interpreter
 
@@ -16,7 +18,12 @@ CASES = [
 
 
 @pytest.mark.parametrize("stem,qn", CASES)
-def test_final_state_matches_sismic(sm_models, statix_run, stem, qn):
+def test_final_state_matches_sismic(
+    sm_models: dict,
+    statix_run: Callable,
+    stem: str,
+    qn: str,
+) -> None:
     # Sismic reference (quake): settle on init, read the active leaf.
     interpreter = Interpreter(build_statechart(sm_models[stem], qn))
     interpreter.execute()
@@ -26,6 +33,6 @@ def test_final_state_matches_sismic(sm_models, statix_run, stem, qn):
     program = build_statix(sm_models[stem], qn)
     statix_leaf = statix_run(program)
 
-    assert statix_leaf == sismic_leaf, (
-        f"{stem}: statix {statix_leaf!r} != sismic {sismic_leaf!r}"
-    )
+    assert (
+        statix_leaf == sismic_leaf
+    ), f"{stem}: statix {statix_leaf!r} != sismic {sismic_leaf!r}"

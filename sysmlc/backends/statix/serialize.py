@@ -1,27 +1,22 @@
 from __future__ import annotations
 
-import re
-
+from sysmlc.backends.statix.builder import _c_identifier
 from sysmlc.backends.statix.program import COMPLETION_EVENT, CProgram, CProject
 
 _FIRST_STATE_ID = 0
 _FIRST_NONZERO_ID = 1
 
 
-def _sanitize(name: str) -> str:
-    """Lowercase C-identifier form of a SysML name."""
-    return re.sub(r"[^0-9a-zA-Z_]", "_", name).lower() or "chart"
-
-
 def _paths(program: CProgram) -> tuple[str, str]:
     """Return ``(package_dir, file_stem)`` for a program's output paths.
 
     ``SM01::Machine`` becomes ``("sm01", "machine")``. A nested package
-    ``A::B::Machine`` becomes ``("a_b", "machine")``. Symbols keep
-    ``program.prefix``.
+    ``A::B::Machine`` becomes ``("a_b", "machine")``. Derived with the same
+    snake_case sanitizer that builds ``program.prefix``, so paths and symbols
+    stay in lockstep.
     """
     package, _, stem = program.qualified_name.rpartition("::")
-    return _sanitize(package), _sanitize(stem)
+    return _c_identifier(package), _c_identifier(stem)
 
 
 def _const(prefix: str, kind: str, name: str) -> str:
@@ -232,8 +227,8 @@ def emit_source(program: CProgram) -> str:
         _banner(f"{pkg_dir}/{stem}.c", program.qualified_name),
         f'#include "{pkg_dir}/{stem}.h"',
         "",
-        "/* Static state and transition tables. */",
-        f"static const sc_state_def_t {p}_states[] = {{",
+        "/* Static state and transition tables (file-local). */",
+        "static const sc_state_def_t states[] = {",
     ]
     for s in program.states:
         entry = (
@@ -250,7 +245,7 @@ def emit_source(program: CProgram) -> str:
     parts += [
         "};",
         "",
-        f"static const sc_transition_t {p}_transitions[] = {{",
+        "static const sc_transition_t transitions[] = {",
     ]
     for t in program.transitions:
         source = _const(p, "STATE", t.source)
@@ -268,20 +263,17 @@ def emit_source(program: CProgram) -> str:
     parts += [
         "};",
         "",
-        f"static const sc_machine_t {p}_machine = {{",
-        f"    {p}_transitions,",
-        f"    {p}_states,",
-        (
-            f"    (uint16_t)(sizeof({p}_transitions) / "
-            f"sizeof({p}_transitions[0])),"
-        ),
+        "static const sc_machine_t machine_def = {",
+        "    transitions,",
+        "    states,",
+        "    (uint16_t)(sizeof(transitions) / sizeof(transitions[0])),",
         f"    {p.upper()}_STATE_COUNT,",
         f"    {_const(p, 'STATE', program.initial)},",
         "};",
         "",
         "/* Generated guard/action dispatch. */",
         (
-            f"static bool {p}_guard_eval(sc_guard_id_t guard_id, "
+            "static bool guard_eval(sc_guard_id_t guard_id, "
             "const sc_runtime_t *runtime, const sc_event_t *event)"
         ),
         "{",
@@ -310,7 +302,7 @@ def emit_source(program: CProgram) -> str:
         "}",
         "",
         (
-            f"static sc_status_t {p}_action_exec("
+            "static sc_status_t action_exec("
             "sc_action_id_t action_id, sc_runtime_t *runtime, "
             "const sc_event_t *event)"
         ),
@@ -381,9 +373,9 @@ def emit_source(program: CProgram) -> str:
         "",
         "/* Instantiate the shared dispatch for this machine. */",
         f"#define SC_MACHINE_PREFIX {p}",
-        f"#define SC_MACHINE_DEF {p}_machine",
-        f"#define SC_MACHINE_GUARD {p}_guard_eval",
-        f"#define SC_MACHINE_ACTION {p}_action_exec",
+        "#define SC_MACHINE_DEF machine_def",
+        "#define SC_MACHINE_GUARD guard_eval",
+        "#define SC_MACHINE_ACTION action_exec",
         '#include "sc/sc_machine.h"',
     ]
     return "\n".join(parts) + "\n"
