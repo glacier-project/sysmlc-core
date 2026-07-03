@@ -72,6 +72,7 @@ class StatixBackend(Backend):
         written: list[Path] = []
         for name, content in emit_project_files(project).items():
             path = out / name
+            path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content)
             written.append(path)
         written += self._copy_runtime(out)
@@ -81,12 +82,15 @@ class StatixBackend(Backend):
         """Copy the bundled runtime kernel into the output project."""
         runtime = resources.files("sysmlc.backends.statix") / "runtime"
         copied: list[Path] = []
-        for sub in ("include/sc", "src"):
-            (out / sub).mkdir(parents=True, exist_ok=True)
-            src_dir = runtime / sub
+        for src_sub, dest_sub in (
+            ("include/sc", "include/sc"),
+            ("src", "src/sc"),
+        ):
+            (out / dest_sub).mkdir(parents=True, exist_ok=True)
+            src_dir = runtime / src_sub
             for entry in src_dir.iterdir():
                 if entry.name.endswith((".h", ".c")):
-                    dest = out / sub / entry.name
+                    dest = out / dest_sub / entry.name
                     dest.write_text(entry.read_text())
                     copied.append(dest)
         return copied

@@ -1,9 +1,27 @@
 from __future__ import annotations
 
+import re
+
 from sysmlc.backends.statix.program import COMPLETION_EVENT, CProgram, CProject
 
 _FIRST_STATE_ID = 0
 _FIRST_NONZERO_ID = 1
+
+
+def _sanitize(name: str) -> str:
+    """Lowercase C-identifier form of a SysML name."""
+    return re.sub(r"[^0-9a-zA-Z_]", "_", name).lower() or "chart"
+
+
+def _paths(program: CProgram) -> tuple[str, str]:
+    """Return ``(package_dir, file_stem)`` for a program's output paths.
+
+    ``SM01::Machine`` becomes ``("sm01", "machine")``. A nested package
+    ``A::B::Machine`` becomes ``("a_b", "machine")``. Symbols keep
+    ``program.prefix``.
+    """
+    package, _, stem = program.qualified_name.rpartition("::")
+    return _sanitize(package), _sanitize(stem)
 
 
 def _const(prefix: str, kind: str, name: str) -> str:
@@ -81,6 +99,7 @@ def emit_context_initializer(program: CProgram) -> str:
 def emit_header(program: CProgram) -> str:
     """Render the generated public statechart header."""
     p = program.prefix
+    pkg_dir, stem = _paths(program)
     guard = f"{p.upper()}_H"
     state_docs = {
         _const(p, "STATE", s.name): f"State '{s.name}'" for s in program.states
@@ -100,7 +119,7 @@ def emit_header(program: CProgram) -> str:
         f"#ifndef {guard}",
         f"#define {guard}",
         "",
-        _banner(f"{p}.h", program.qualified_name),
+        _banner(f"{pkg_dir}/{stem}.h", program.qualified_name),
         '#include "sc/sc_runtime.h"',
         "",
         "#ifdef __cplusplus",
@@ -208,9 +227,10 @@ def emit_header(program: CProgram) -> str:
 def emit_source(program: CProgram) -> str:
     """Render the generated statechart implementation."""
     p = program.prefix
+    pkg_dir, stem = _paths(program)
     parts = [
-        _banner(f"{p}.c", program.qualified_name),
-        f'#include "{p}.h"',
+        _banner(f"{pkg_dir}/{stem}.c", program.qualified_name),
+        f'#include "{pkg_dir}/{stem}.h"',
         "",
         "/* Static state and transition tables. */",
         f"static const sc_state_def_t {p}_states[] = {{",
@@ -372,9 +392,10 @@ def emit_source(program: CProgram) -> str:
 def emit_runner(program: CProgram) -> str:
     """Render a minimal hosted-C runner for smoke execution on a PC."""
     p = program.prefix
+    pkg_dir, stem = _paths(program)
     parts = [
-        _banner(f"{p}_runner.c", program.qualified_name),
-        f'#include "{p}.h"',
+        _banner(f"{pkg_dir}/{stem}_runner.c", program.qualified_name),
+        f'#include "{pkg_dir}/{stem}.h"',
         "",
         "#include <stdio.h>",
         "#include <string.h>",
@@ -440,18 +461,19 @@ def emit_runner(program: CProgram) -> str:
 
 
 def emit_cmakelists(project: CProject) -> str:
-    """Render CMake building the runtime, statecharts, and runners."""
-    lib_sources = "\n".join(f"  {p.prefix}.c" for p in project.programs)
+    """Render a CMakeLists.txt building runtime, statecharts, and runners."""
+    lib_sources = "\n".join(
+        f"  src/{d}/{s}.c"
+        for d, s in (_paths(p) for p in project.programs)
+    )
     runners = []
     for program in project.programs:
-        p = program.prefix
+        pkg_dir, stem = _paths(program)
         runners.append(
-            "\n".join(
-                [
-                    f"add_executable({p}_runner {p}_runner.c)",
-                    f"target_link_libraries({p}_runner statix_statecharts)",
-                ]
-            )
+            f"add_executable({program.prefix}_runner "
+            f"host/{pkg_dir}/{stem}_runner.c)\n"
+            f"target_link_libraries({program.prefix}_runner "
+            "statix_statecharts)"
         )
     return (
         "cmake_minimum_required(VERSION 3.16)\n"
@@ -460,12 +482,11 @@ def emit_cmakelists(project: CProject) -> str:
         "set(CMAKE_C_STANDARD_REQUIRED ON)\n\n"
         "add_compile_options(-Wall -Wextra -Wpedantic -Wconversion"
         " -Wsign-conversion -Wdouble-promotion -Werror)\n\n"
-        "include_directories(${CMAKE_CURRENT_SOURCE_DIR})\n"
         "include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)\n\n"
         "add_library(statix_runtime STATIC\n"
-        "  src/sc_status.c\n"
-        "  src/sc_event_queue.c\n"
-        "  src/sc_runtime.c)\n\n"
+        "  src/sc/sc_status.c\n"
+        "  src/sc/sc_event_queue.c\n"
+        "  src/sc/sc_runtime.c)\n\n"
         "add_library(statix_statecharts STATIC\n"
         f"{lib_sources})\n"
         "target_link_libraries(statix_statecharts statix_runtime)\n"
@@ -476,13 +497,13 @@ def emit_cmakelists(project: CProject) -> str:
 
 
 def emit_project_files(project: CProject) -> dict[str, str]:
-    """Return {filename: content} for the generated C project."""
+    """Return {relative-output-path: content} for the generated C project."""
     files: dict[str, str] = {}
     for program in project.programs:
-        p = program.prefix
-        files[f"{p}.h"] = emit_header(program)
-        files[f"{p}.c"] = emit_source(program)
-        files[f"{p}_runner.c"] = emit_runner(program)
+        pkg_dir, stem = _paths(program)
+        files[f"include/{pkg_dir}/{stem}.h"] = emit_header(program)
+        files[f"src/{pkg_dir}/{stem}.c"] = emit_source(program)
+        files[f"host/{pkg_dir}/{stem}_runner.c"] = emit_runner(program)
     files["CMakeLists.txt"] = emit_cmakelists(project)
     return files
 
@@ -500,9 +521,10 @@ def to_c_preview(artifact: CProgram | CProject) -> str:
     files = emit_project_files(project)
     order: list[str] = []
     for program in project.programs:
+        pkg_dir, stem = _paths(program)
         order += [
-            f"{program.prefix}.h",
-            f"{program.prefix}.c",
-            f"{program.prefix}_runner.c",
+            f"include/{pkg_dir}/{stem}.h",
+            f"src/{pkg_dir}/{stem}.c",
+            f"host/{pkg_dir}/{stem}_runner.c",
         ]
     return "\n".join(f"/* ==== {name} ==== */\n{files[name]}" for name in order)
