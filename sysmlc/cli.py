@@ -241,6 +241,29 @@ def _cmd_build(args: argparse.Namespace) -> int:
     """Run a ``<backend> build`` command."""
     backend: Backend = args._backend
     model = load_model(args.model)
+    build_model: Callable[[syside.Model], object] | None = getattr(
+        backend, "build_model", None
+    )
+    if getattr(args, "element", None) is None and build_model is not None:
+        if getattr(args, "values", None) is not None:
+            raise CliError(
+                f"backend {backend.name!r} whole-model builds do not support "
+                "--values yet"
+            )
+        if getattr(args, "python", None) is not None:
+            raise CliError(
+                f"backend {backend.name!r} whole-model builds do not support "
+                "--python"
+            )
+        target_options = _target_options(args, backend)
+        if target_options:
+            raise CliError(
+                f"backend {backend.name!r} whole-model builds do not support "
+                "--timeout/--fast"
+            )
+        artifact = build_model(model)
+        return _write_artifact(args, backend, "model", artifact, None)
+
     element_qn, kind = _select_element(model, args.element)
     target_options = _target_options(args, backend)
     if target_options and kind != "part":

@@ -1,9 +1,10 @@
 # statix mapping: SysML → C
 
-`statix` compiles a **flat** SysML v2 state machine into a self-contained,
+`statix` compiles SysML v2 state definitions into a self-contained,
 static-memory, [*Power of 10*](statix/power_of_10_compliance.md)-compliant C
-project: generated tables + generated guard/action/context code + a bundled
-runtime kernel. This page documents, construct by construct, how a SysML state
+project: one generated `.h`/`.c` unit per statechart, generated
+guard/action/context code, a shared dispatch template, and a bundled runtime
+kernel. This page documents, construct by construct, how a SysML state
 definition maps to C — and what is rejected.
 
 It mirrors [`quake-mapping.md`](quake-mapping.md) (→ Sismic) and
@@ -17,22 +18,42 @@ sysmlc statix build models/sm-examples/sm01-helloworld -e SM01::Machine -o out/
 cmake -S out -B out/build && cmake --build out/build
 ```
 
+Omit `-e` to build every `state def` in the model into one project:
+
+```bash
+sysmlc statix build models/sm-examples/sm01-helloworld -o out/
+```
+
 ## 1. The big picture
 
-A `state def` becomes a generated C project with a stable file layout, where
-`<prefix>` is the state def's simple name, lowercased:
+A `state def` becomes one generated C unit with a stable file layout, where
+`<prefix>` is the state def's qualified name sanitized to C identifier form
+(`SM01::Machine` → `sm01_machine`). A whole-model build emits one such unit per
+state definition.
 
-| File | Contents |
-|------|----------|
-| `<prefix>_statechart_ids.h` | `enum`s: state / event / guard / action ids |
-| `<prefix>_statechart_config.h` | machine declaration + queue capacity |
-| `<prefix>_statechart_config.c` | per-state entry/exit table, transition table, `sc_machine_t` |
-| `<prefix>_context.h` | the generated `<prefix>_context_t` (attributes) |
-| `<prefix>_actions.c` | generated `sc_guard_eval` / `sc_action_exec` |
-| `CMakeLists.txt` | builds the runtime + generated units |
-| `include/sc/*.h`, `src/*.c` | the bundled runtime kernel |
+| File                        | Contents                                                                                                   |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `<prefix>.h`                | public API, state/event/guard/action ids, context type, instance type                                      |
+| `<prefix>.c`                | static tables, static guard/action switches, `context_init`, name helpers, dispatch-template instantiation |
+| `<prefix>_runner.c`         | host-only smoke runner (`stdio`, argv events, state trace)                                                 |
+| `include/sc/sc_machine.h`   | shared dispatch template instantiated per statechart                                                       |
+| `include/sc/*.h`, `src/*.c` | bundled machine-agnostic runtime support                                                                   |
+| `CMakeLists.txt`            | builds the runtime, generated statechart library, and runners                                              |
 
 Generation is **deterministic**: the same model yields byte-identical C.
+
+The public API is fully prefixed and safe to link with other generated
+statecharts:
+
+```c
+void <prefix>_context_init(<prefix>_context_t *ctx);
+sc_status_t <prefix>_init(<prefix>_t *sm, <prefix>_context_t *ctx);
+sc_status_t <prefix>_dispatch(<prefix>_t *sm, const sc_event_t *event);
+sc_status_t <prefix>_post(<prefix>_t *sm, sc_event_id_t event_id);
+sc_state_id_t <prefix>_get_state(const <prefix>_t *sm);
+const char *<prefix>_state_name(sc_state_id_t state);
+const char *<prefix>_event_name(sc_event_id_t event);
+```
 
 ## 2. States
 
@@ -49,8 +70,9 @@ rejected (see §9).
 ## 3. Initial state and completion (eventless) transitions
 
 `entry; then idle` selects `idle` as the initial state; it becomes the
-`sc_machine_t.initial_state`. On `sc_runtime_init`, the runtime enters it, runs
-its entry action, then settles completion transitions.
+`sc_machine_t.initial_state`. On `<prefix>_init`, the generated dispatch
+instantiation enters it, runs its entry action, then settles completion
+transitions.
 
 A transition with **no trigger** (`transition first idle then running`) is an
 eventless / *completion* transition. It carries the reserved
@@ -69,7 +91,8 @@ their settled state without an external event.
 
 `accept E [via port]` is a **signal trigger**: `E` becomes an `enum` event id
 (`<PREFIX>_EVENT_E`, numbered from 1), and the transition matches that id in
-`sc_runtime_dispatch`. A named binding (`accept reading : E`) is accepted only
+`<prefix>_dispatch` / `<prefix>_post`. A named binding (`accept reading : E`) is
+accepted only
 when the payload data is never read; **reading payload data** (`reading.value`)
 is rejected — it belongs to the deferred send/RTC family (§9).
 
@@ -78,19 +101,19 @@ is rejected — it belongs to the deferred send/RTC family (§9).
 ## 5. Guards
 
 A transition guard (`if <expr>`) becomes a `<PREFIX>_GUARD_*` id whose body is
-the **lowered C boolean expression**, returned from the generated
-`sc_guard_eval`. Supported expression forms:
+the **lowered C boolean expression**, returned from the generated static
+`<prefix>_guard_eval`. Supported expression forms:
 
-| SysML | C |
-|-------|---|
-| `true` / `false` | `true` / `false` |
-| integer / real literal | `0`, `1.0`, … |
-| attribute reference `x` | `ctx->x` |
-| chained reference `pt.x` | `ctx->pt.x` |
-| `not a`, `-x` | `!a`, `-x` |
-| `a and b`, `a or b` | `a && b`, `a || b` |
-| `== != < <= > >=` | same |
-| `+ - * /` | same (precedence preserved) |
+| SysML                    | C                           |
+| ------------------------ | --------------------------- |
+| `true` / `false`         | `true` / `false`            |
+| integer / real literal   | `0`, `1.0`, …               |
+| attribute reference `x`  | `ctx->x`                    |
+| chained reference `pt.x` | `ctx->pt.x`                 |
+| `not a`, `-x`            | `!a`, `-x`                  |
+| `a and b`, `a or b`      | `a && b`, \`a               |
+| `== != < <= > >=`        | same                        |
+| `+ - * /`                | same (precedence preserved) |
 
 A reference to anything that is not a machine attribute is rejected at
 generation (loud), not silently mis-rendered.
@@ -98,8 +121,9 @@ generation (loud), not silently mis-rendered.
 ## 6. Actions (entry / exit / transition effects)
 
 State entry/exit actions and transition effects become `<PREFIX>_ACTION_*` ids
-whose bodies are lowered C statements in the generated `sc_action_exec`. Only
-`assign` is supported today; each `assign target := expr` becomes
+whose bodies are lowered C statements in the generated static
+`<prefix>_action_exec`. Only `assign` is supported today; each
+`assign target := expr` becomes
 `ctx->target = <expr>;`. Firing order follows the Sismic/SCXML reference:
 `exit(source) → transition effect → entry(target)`.
 
@@ -108,8 +132,9 @@ whose bodies are lowered C statements in the generated `sc_action_exec`. Only
 ## 7. Attributes and the context struct
 
 Machine attributes become fields of the generated `<prefix>_context_t`, passed
-to the runtime as `user_data`. Guards and actions cast it once and read/write
-`ctx->field`.
+to `<prefix>_init` and then stored as runtime `user_data`. Guards and actions
+cast it once and read/write `ctx->field`. `<prefix>_context_init` seeds model
+defaults before initialization.
 
 - **scalar** attributes → a struct field with the mapped C type (§8);
 - **composite attribute defs** (a structured `attribute def`) → a generated
@@ -121,11 +146,11 @@ Attribute initial values are lowered to C initializers (`.counter = 0`,
 
 ## 8. Type mapping
 
-| SysML | C |
-|-------|---|
-| `Boolean` | `bool` |
-| `Integer` | `int32_t` |
-| `Real` | `double` *(provisional)* |
+| SysML                     | C                         |
+| ------------------------- | ------------------------- |
+| `Boolean`                 | `bool`                    |
+| `Integer`                 | `int32_t`                 |
+| `Real`                    | `double` *(provisional)*  |
 | composite `attribute def` | generated nested `struct` |
 
 **`Real → double` is provisional.** It is the faithful choice for iteration 1,
@@ -143,17 +168,17 @@ statix **never silently drops** a construct: anything outside the supported flat
 subset raises `UnsupportedConstructError` with a clear message. Rejected in
 iteration 1:
 
-| Construct | Status |
-|-----------|--------|
-| composite / parallel / history states, deep entry | rejected (flat only) |
-| `after` / `at` / `when` triggers | rejected (no timers/change events yet) |
-| `send` effects, reading `accept` payload data | rejected (send/RTC family) |
-| `then done` completion targets | rejected (no final-state model yet) |
-| machine-level (state def) entry/do/exit actions | rejected (put on states) |
-| non-inline / referenced `do` activities | rejected |
-| asserted constraints | rejected |
-| `String` / non-scalar, non-composite attributes | rejected |
-| external / library function calls in expressions | rejected |
+| Construct                                         | Status                                 |
+| ------------------------------------------------- | -------------------------------------- |
+| composite / parallel / history states, deep entry | rejected (flat only)                   |
+| `after` / `at` / `when` triggers                  | rejected (no timers/change events yet) |
+| `send` effects, reading `accept` payload data     | rejected (send/RTC family)             |
+| `then done` completion targets                    | rejected (no final-state model yet)    |
+| machine-level (state def) entry/do/exit actions   | rejected (put on states)               |
+| non-inline / referenced `do` activities           | rejected                               |
+| asserted constraints                              | rejected                               |
+| `String` / non-scalar, non-composite attributes   | rejected                               |
+| external / library function calls in expressions  | rejected                               |
 
 ## 10. Forward notes (not settled)
 

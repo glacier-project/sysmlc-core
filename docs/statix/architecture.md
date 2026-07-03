@@ -1,6 +1,6 @@
 # Architecture
 
-`statix` is a sysmlc backend: it turns a flat SysML v2 state machine into a
+`statix` is a sysmlc backend: it turns SysML v2 state definitions into a
 self-contained, static-memory C project. It separates the system into layers
 with a clear boundary between the shared sysmlc front-end and the C it emits.
 
@@ -20,36 +20,32 @@ with a clear boundary between the shared sysmlc front-end and the C it emits.
         └───────────────────────────┬───────────────────────────────────┘
                                      │ generates + copies runtime
         ┌───────────────────────────▼───────────────────────────────────┐
-        │ 2. Generated C project  (per machine)                          │
-        │    *_ids.h              enums / integer ids                    │
-        │    *_config.{h,c}       static const state + transition tables │
-        │    *_context.h          the generated application context      │
-        │    *_actions.c          generated guard/action dispatch        │
-        │    CMakeLists.txt       builds the runtime + generated units   │
+        │ 2. Generated C project                                          │
+        │    <prefix>.h/.c       one readable unit per statechart         │
+        │    <prefix>_runner.c   host-only smoke runner                   │
+        │    CMakeLists.txt      runtime + generated units + runners      │
         └───────────────────────────┬───────────────────────────────────┘
                                      │ #include + link
         ┌───────────────────────────▼───────────────────────────────────┐
         │ 1. C runtime kernel (sc_runtime, bundled)                      │
-        │    generic, machine-agnostic, static-memory dispatcher         │
+        │    machine-agnostic runtime + dispatch template                │
         └───────────────────────────────────────────────────────────────┘
 ```
 
 ## 1. C runtime kernel (`sc_runtime`)
 
 A small, **machine-agnostic** C99 library, shipped as package data and copied
-into every generated project. It knows how to *execute* a machine but contains
-no knowledge of any particular machine.
+into every generated project. It defines the shared runtime vocabulary and
+portable support code, but contains no knowledge of any particular machine and
+does not call generated guard/action code.
 
 Responsibilities:
 
-- Hold the current state of a runtime instance (`sc_runtime_t`).
-- On init, enter the initial state, run its entry action, and settle any
-  eventless (completion) transitions (`sc_runtime_init`).
-- Dispatch an event: find the first enabled transition for
-  `(current_state, event)`, run `exit(source) -> effect -> entry(target)`, then
-  settle completion transitions (`sc_runtime_dispatch`).
-- Bound the completion micro-step by `SC_MAX_RTC_STEPS` and surface a guarded
-  eventless cycle as `SC_STATUS_STEP_LIMIT` rather than looping forever.
+- Hold common state for a runtime instance (`sc_runtime_t`), owned by the
+  generated `<prefix>_t` instance.
+- Bind a runtime instance to a generated immutable `sc_machine_t` and caller-owned
+  context.
+- Expose machine-agnostic helpers such as current-state access.
 - Provide a fixed-size FIFO event queue over caller storage
   (`sc_event_queue_*`).
 - Define the shared vocabulary: fixed-width ids (`sc_types.h`), status codes
@@ -62,42 +58,52 @@ pointers, or contain any machine-specific `switch`. See
 ### The no-function-pointer dispatch contract
 
 A safety-critical runtime must avoid function pointers, but it must still call
-machine-specific guards and actions. statix resolves this by **link-time
-binding** rather than runtime indirection:
+machine-specific guards and actions. statix resolves this with **per-statechart
+dispatch orchestration** rather than runtime indirection:
 
-- The kernel declares `sc_guard_eval()` and `sc_action_exec()` in
-  `sc_runtime.h` but does not define them.
-- The generated `*_actions.c` defines them as a single bounded `switch` over
-  integer ids.
-- The linker connects the two.
+- The shared runtime never declares or calls global `sc_guard_eval()` /
+  `sc_action_exec()` hooks.
+- Each generated `<prefix>.c` defines `static` guard/action switches and
+  includes `sc/sc_machine.h` after setting four `SC_MACHINE_*` macros.
+- `sc/sc_machine.h` is the single audited dispatch algorithm. It is instantiated
+  once per generated unit and calls the file-local static guard/action switches
+  directly.
+- The public API is fully prefixed (`<prefix>_init`, `<prefix>_dispatch`,
+  `<prefix>_post`, `<prefix>_get_state`), so several generated machines link
+  cleanly into one firmware image.
 
-The cost is one set of guard/action functions per linked program — the normal
-situation for firmware. The benefit is that *all* control flow is statically
-analyzable: there is no indirect call anywhere.
+The cost is a small dispatch template instantiated per generated statechart. The
+benefit is that the algorithm lives in one C artifact while *all* control flow
+remains statically analyzable: there is no indirect call anywhere, and no
+generated global symbols collide.
 
 ## 2. Generated C project
 
-Per-machine C produced by the backend's `serialize.py`. The output is
-deterministic — the same model always yields byte-identical C, so generated
-files diff cleanly.
+Per-statechart C produced by the backend's `serialize.py`. The output is
+deterministic — the same model always yields byte-identical C, so generated files
+diff cleanly.
 
-- **`*_ids.h`** — `enum`s assigning a stable integer id to every state, event,
-  guard, and action.
-- **`*_config.{h,c}`** — a `static const sc_state_def_t[]` per-state entry/exit
-  table and a `static const sc_transition_t[]` transition table, plus the
-  `sc_machine_t` that points at them. No code, just data. Eventless transitions
-  carry the reserved `SC_EVENT_COMPLETION` event id.
-- **`*_context.h`** — the generated `<prefix>_context_t` struct: one field per
-  machine attribute (composite attribute defs become nested structs), passed as
-  the runtime's `user_data`.
-- **`*_actions.c`** — the **fully generated** `sc_guard_eval` / `sc_action_exec`
-  dispatch. Unlike a hand-stub library, the guard/action bodies are lowered
-  directly from the SysML guard/effect/entry/exit expressions, so the model is
-  the single source of truth. (Non-assignment hardware side-effects — GPIO and
-  the like — are future work; see the send/external-call family in
-  [statix-mapping.md](../statix-mapping.md).)
-- **`CMakeLists.txt`** — builds the bundled runtime plus the generated units
-  into one static library.
+- **`<prefix>.h`** — generated public interface: ids, context structs, instance
+  type, and documented API. Public declarations use Doxygen `/// @brief`,
+  `@param`, and `@return` comments.
+- **`<prefix>.c`** — static state/transition tables, generated context defaults,
+  generated guard/action switches, state/event name helpers, and the
+  `SC_MACHINE_*` glue that instantiates `sc/sc_machine.h`. Eventless transitions
+  carry the reserved `SC_EVENT_COMPLETION` event id. Guard/action bodies are
+  lowered directly from the SysML guard/effect/entry/exit expressions, so the
+  model is the single source of truth.
+- **`include/sc/sc_machine.h`** — shared, header-only dispatch template. It
+  owns the flat dispatch algorithm (`init`, `dispatch`, `post`, `get_state`)
+  and is included once per generated statechart unit.
+- **`<prefix>_runner.c`** — host-only smoke runner: initialize the machine, feed
+  no-payload event ids from command-line arguments, and print a state trace. It
+  may use hosted C facilities such as `<stdio.h>`; it is not part of the board
+  runtime.
+- **`CMakeLists.txt`** — builds the bundled runtime, every generated statechart
+  unit, a combined static library, and one host runner executable per machine.
+
+`sysmlc statix build <model> -o out/` emits one `<prefix>.h/.c` pair per
+`state def` in the model. `-e <QN>` remains the focused single-statechart build.
 
 ## 3. statix backend (`sysmlc/backends/statix`)
 
@@ -112,8 +118,9 @@ serializer renders it to C.
 - **`codegen.py`** — a precedence-driven emitter that lowers guard/effect/
   attribute expression nodes to C, with attribute references resolved against
   the generated context struct.
-- **`program.py`** — the frozen `CProgram` dataclasses (states, events, guards,
-  actions, transitions, context) — the neutral model before text.
+- **`program.py`** — the frozen `CProgram` / `CProject` dataclasses (states,
+  events, guards, actions, transitions, context) — the neutral C model before
+  text.
 - **`serialize.py`** — renders `CProgram` to the generated C files and the
   CMake project.
 
@@ -128,12 +135,12 @@ use.
 ## Data flow (runtime)
 
 ```
-sc_runtime_init ─► enter initial state
-                     │ run entry(initial)
-                     │ settle completion transitions (bounded by SC_MAX_RTC_STEPS)
-                     ▼
+<prefix>_init ─► sc_runtime_bind
+                   │ run entry(initial)
+                   │ settle completion transitions (bounded by SC_MAX_RTC_STEPS)
+                   ▼
 caller pushes sc_event_t ─► sc_event_queue (static storage)
-caller pops  sc_event_t  ─► sc_runtime_dispatch
+caller pops  sc_event_t  ─► <prefix>_dispatch
                               │ scan transition table (bounded loop)
                               │   match (current_state, event.id), check guard
                               │   run exit(source) -> effect -> entry(target)

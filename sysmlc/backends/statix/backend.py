@@ -4,10 +4,11 @@ from importlib import resources
 from typing import TYPE_CHECKING, override
 
 from sysmlc.backends.base import Backend, OutputOptions
-from sysmlc.backends.statix.builder import build_statix
-from sysmlc.backends.statix.program import CProgram
-from sysmlc.backends.statix.serialize import emit_files, to_c_preview
+from sysmlc.backends.statix.builder import build_statix, build_statix_project
+from sysmlc.backends.statix.program import CProgram, CProject
+from sysmlc.backends.statix.serialize import emit_project_files, to_c_preview
 from sysmlc.errors import SerializationError
+from sysmlc.sysml.queries import state_definitions
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -33,11 +34,21 @@ class StatixBackend(Backend):
         """Build the flat C statechart program for the state definition."""
         return build_statix(model, element_qn)
 
+    def build_model(self, model: syside.Model) -> CProject:
+        """Build every state definition in ``model`` into one C project."""
+        qns = tuple(
+            str(state_def.qualified_name)
+            for state_def in state_definitions(model)
+        )
+        if not qns:
+            raise SerializationError("the model contains no state definition")
+        return build_statix_project(model, qns)
+
     @override
     def serialize(self, artifact: object, fmt: str) -> str:
         """Serialize the built program to concatenated C (``c`` format)."""
-        if not isinstance(artifact, CProgram):
-            raise SerializationError("expected a CProgram artifact")
+        if not isinstance(artifact, (CProgram, CProject)):
+            raise SerializationError("expected a CProgram or CProject artifact")
         if fmt == "c":
             return to_c_preview(artifact)
         raise SerializationError(f"unsupported format: {fmt!r}")
@@ -50,13 +61,18 @@ class StatixBackend(Backend):
         generated ``.h``/``.c`` files, a ``CMakeLists.txt``, and a copy of the
         runtime ``include/`` and ``src/`` trees.
         """
-        if not isinstance(artifact, CProgram):
-            raise SerializationError("expected a CProgram artifact")
+        if isinstance(artifact, CProgram):
+            project = CProject(programs=(artifact,))
+        elif isinstance(artifact, CProject):
+            project = artifact
+        else:
+            raise SerializationError("expected a CProgram or CProject artifact")
         out = options.output_dir
         out.mkdir(parents=True, exist_ok=True)
         written: list[Path] = []
-        for name, content in emit_files(artifact).items():
+        for name, content in emit_project_files(project).items():
             path = out / name
+            path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content)
             written.append(path)
         written += self._copy_runtime(out)
@@ -66,12 +82,15 @@ class StatixBackend(Backend):
         """Copy the bundled runtime kernel into the output project."""
         runtime = resources.files("sysmlc.backends.statix") / "runtime"
         copied: list[Path] = []
-        for sub in ("include/sc", "src"):
-            (out / sub).mkdir(parents=True, exist_ok=True)
-            src_dir = runtime / sub
+        for src_sub, dest_sub in (
+            ("include/sc", "include/sc"),
+            ("src", "src/sc"),
+        ):
+            (out / dest_sub).mkdir(parents=True, exist_ok=True)
+            src_dir = runtime / src_sub
             for entry in src_dir.iterdir():
                 if entry.name.endswith((".h", ".c")):
-                    dest = out / sub / entry.name
+                    dest = out / dest_sub / entry.name
                     dest.write_text(entry.read_text())
                     copied.append(dest)
         return copied
@@ -79,6 +98,8 @@ class StatixBackend(Backend):
     @override
     def summary(self, artifact: object) -> str:
         """Return a one-line description of the built program."""
+        if isinstance(artifact, CProject):
+            return f"C project: {len(artifact.programs)} statecharts"
         if not isinstance(artifact, CProgram):
             return self.name
         return (

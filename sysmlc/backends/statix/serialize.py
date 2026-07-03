@@ -1,24 +1,31 @@
 from __future__ import annotations
 
-from sysmlc.backends.statix.program import COMPLETION_EVENT, CProgram
+import re
+
+from sysmlc.backends.statix.program import COMPLETION_EVENT, CProgram, CProject
 
 _FIRST_STATE_ID = 0
 _FIRST_NONZERO_ID = 1
 
 
+def _sanitize(name: str) -> str:
+    """Lowercase C-identifier form of a SysML name."""
+    return re.sub(r"[^0-9a-zA-Z_]", "_", name).lower() or "chart"
+
+
+def _paths(program: CProgram) -> tuple[str, str]:
+    """Return ``(package_dir, file_stem)`` for a program's output paths.
+
+    ``SM01::Machine`` becomes ``("sm01", "machine")``. A nested package
+    ``A::B::Machine`` becomes ``("a_b", "machine")``. Symbols keep
+    ``program.prefix``.
+    """
+    package, _, stem = program.qualified_name.rpartition("::")
+    return _sanitize(package), _sanitize(stem)
+
+
 def _const(prefix: str, kind: str, name: str) -> str:
     return f"{prefix.upper()}_{kind}_{name.upper()}"
-
-
-def _enum_block(base: str, entries: list[tuple[str, int]]) -> str:
-    if not entries:
-        return "/* (none defined in this model) */\n"
-    lines = [f"typedef enum {base}_e {{"]
-    for i, (const_name, value) in enumerate(entries):
-        comma = "," if i + 1 < len(entries) else ""
-        lines.append(f"    {const_name} = {value}{comma}")
-    lines.append(f"}} {base}_t;\n")
-    return "\n".join(lines)
 
 
 def _banner(filename: str, name: str) -> str:
@@ -29,66 +36,46 @@ def _banner(filename: str, name: str) -> str:
     )
 
 
-def emit_ids_h(program: CProgram) -> str:
-    """Render the state/event/guard/action id enums header."""
-    p = program.prefix
-    guard = f"{p.upper()}_STATECHART_IDS_H"
-    states = [
-        (_const(p, "STATE", s.name), _FIRST_STATE_ID + i)
+def _enum_block(
+    base: str, entries: list[tuple[str, int]], *, docs: dict[str, str]
+) -> str:
+    if not entries:
+        return "/* (none defined in this model) */\n"
+    lines = [f"typedef enum {base}_e {{"]
+    for i, (const_name, value) in enumerate(entries):
+        comma = "," if i + 1 < len(entries) else ""
+        doc = docs.get(const_name, const_name)
+        lines.append(f"    {const_name} = {value}{comma} ///< @brief {doc}.")
+    lines.append(f"}} {base}_t;\n")
+    return "\n".join(lines)
+
+
+def _state_entries(program: CProgram) -> list[tuple[str, int]]:
+    return [
+        (_const(program.prefix, "STATE", s.name), _FIRST_STATE_ID + i)
         for i, s in enumerate(program.states)
     ]
-    events = [
-        (_const(p, "EVENT", e), _FIRST_NONZERO_ID + i)
+
+
+def _event_entries(program: CProgram) -> list[tuple[str, int]]:
+    return [
+        (_const(program.prefix, "EVENT", e), _FIRST_NONZERO_ID + i)
         for i, e in enumerate(program.events)
     ]
-    guards = [
-        (_const(p, "GUARD", g.name), _FIRST_NONZERO_ID + i)
+
+
+def _guard_entries(program: CProgram) -> list[tuple[str, int]]:
+    return [
+        (_const(program.prefix, "GUARD", g.name), _FIRST_NONZERO_ID + i)
         for i, g in enumerate(program.guards)
     ]
-    actions = [
-        (_const(p, "ACTION", a.name), _FIRST_NONZERO_ID + i)
+
+
+def _action_entries(program: CProgram) -> list[tuple[str, int]]:
+    return [
+        (_const(program.prefix, "ACTION", a.name), _FIRST_NONZERO_ID + i)
         for i, a in enumerate(program.actions)
     ]
-    parts = [
-        f"#ifndef {guard}",
-        f"#define {guard}",
-        "",
-        _banner(f"{p}_statechart_ids.h", program.name),
-        "/* States */",
-        _enum_block(f"{p}_state", states),
-        f"#define {p.upper()}_STATE_COUNT {len(states)}u",
-        "",
-        "/* Events */",
-        _enum_block(f"{p}_event", events),
-        "/* Guards */",
-        _enum_block(f"{p}_guard", guards),
-        "/* Actions */",
-        _enum_block(f"{p}_action", actions),
-        f"#endif /* {guard} */",
-    ]
-    return "\n".join(parts) + "\n"
-
-
-def emit_config_h(program: CProgram) -> str:
-    """Render the machine-declaration + queue-capacity config header."""
-    p = program.prefix
-    guard = f"{p.upper()}_STATECHART_CONFIG_H"
-    parts = [
-        f"#ifndef {guard}",
-        f"#define {guard}",
-        "",
-        _banner(f"{p}_statechart_config.h", program.name),
-        '#include "sc/sc_runtime.h"',
-        "",
-        f'#include "{p}_statechart_ids.h"',
-        "",
-        f"#define {p.upper()}_QUEUE_CAPACITY {program.queue_capacity}u",
-        "",
-        f"extern const sc_machine_t {p}_statechart_machine;",
-        "",
-        f"#endif /* {guard} */",
-    ]
-    return "\n".join(parts) + "\n"
 
 
 def _event_token(program: CProgram, event: str) -> str:
@@ -97,14 +84,155 @@ def _event_token(program: CProgram, event: str) -> str:
     return _const(program.prefix, "EVENT", event)
 
 
-def emit_config_c(program: CProgram) -> str:
-    """Render the per-state table, transition table, and machine literal."""
+def _context_initializer(program: CProgram) -> str:
+    if not program.context.fields:
+        return "{0}"
+    parts = ", ".join(f".{f.name} = {f.init}" for f in program.context.fields)
+    return "{" + parts + "}"
+
+
+def emit_context_initializer(program: CProgram) -> str:
+    """Return a C initializer literal for the generated context struct."""
+    return _context_initializer(program)
+
+
+def emit_header(program: CProgram) -> str:
+    """Render the generated public statechart header."""
     p = program.prefix
+    pkg_dir, stem = _paths(program)
+    guard = f"{p.upper()}_H"
+    state_docs = {
+        _const(p, "STATE", s.name): f"State '{s.name}'" for s in program.states
+    }
+    event_docs = {
+        _const(p, "EVENT", e): f"Signal event '{e}'" for e in program.events
+    }
+    guard_docs = {
+        _const(p, "GUARD", g.name): f"Generated guard '{g.name}'"
+        for g in program.guards
+    }
+    action_docs = {
+        _const(p, "ACTION", a.name): f"Generated action '{a.name}'"
+        for a in program.actions
+    }
     parts = [
-        _banner(f"{p}_statechart_config.c", program.name),
-        f'#include "{p}_statechart_config.h"',
+        f"#ifndef {guard}",
+        f"#define {guard}",
         "",
-        "/* Per-state entry/exit action table (indexed by state id). */",
+        _banner(f"{pkg_dir}/{stem}.h", program.qualified_name),
+        '#include "sc/sc_runtime.h"',
+        "",
+        "#ifdef __cplusplus",
+        'extern "C" {',
+        "#endif",
+        "",
+        "/// @brief Generated state identifiers.",
+        _enum_block(f"{p}_state", _state_entries(program), docs=state_docs),
+        f"#define {p.upper()}_STATE_COUNT {len(program.states)}u",
+        "",
+        "/// @brief Generated signal event identifiers.",
+        _enum_block(f"{p}_event", _event_entries(program), docs=event_docs),
+        "/// @brief Generated guard identifiers.",
+        _enum_block(f"{p}_guard", _guard_entries(program), docs=guard_docs),
+        "/// @brief Generated action identifiers.",
+        _enum_block(f"{p}_action", _action_entries(program), docs=action_docs),
+        "",
+        f"#define {p.upper()}_QUEUE_CAPACITY {program.queue_capacity}u",
+        "",
+    ]
+    for struct in program.context.structs:
+        parts.append(f"/// @brief Generated nested context type {struct.name}.")
+        parts.append("typedef struct {")
+        for field in struct.fields:
+            parts.append(f"    {field.c_type} {field.name};")
+        parts.append(f"}} {struct.name};")
+        parts.append("")
+    parts.append(f"/// @brief Generated context for {program.qualified_name}.")
+    parts.append(f"typedef struct {p}_context_s {{")
+    for field in program.context.fields:
+        parts.append(f"    {field.c_type} {field.name};")
+    if not program.context.fields:
+        parts.append(
+            "    uint8_t _unused; ///< @brief Placeholder for empty context."
+        )
+    parts.append(f"}} {p}_context_t;")
+    parts += [
+        "",
+        f"/// @brief Runtime instance for {program.qualified_name}.",
+        f"typedef struct {p}_s {{",
+        "    sc_runtime_t runtime;",
+        f"}} {p}_t;",
+        "",
+        (
+            "/// @brief Initialize a generated context object with model "
+            "default values."
+        ),
+        "/// @param ctx Context object to initialize.",
+        f"void {p}_context_init({p}_context_t *ctx);",
+        "",
+        (
+            "/// @brief Initialize a statechart instance and enter its initial "
+            "state."
+        ),
+        "/// @param sm Statechart instance to initialize.",
+        "/// @param ctx Context object owned by the caller.",
+        "/// @return SC_STATUS_OK on success, or an error status.",
+        f"sc_status_t {p}_init({p}_t *sm, {p}_context_t *ctx);",
+        "",
+        "/// @brief Dispatch one event into the statechart.",
+        "/// @param sm Statechart instance receiving the event.",
+        "/// @param event Event to dispatch.",
+        (
+            "/// @return SC_STATUS_OK if a transition fired, "
+            "SC_STATUS_NO_TRANSITION if none matched, or an error status."
+        ),
+        f"sc_status_t {p}_dispatch({p}_t *sm, const sc_event_t *event);",
+        "",
+        "/// @brief Dispatch one no-payload event by id.",
+        "/// @param sm Statechart instance receiving the event.",
+        "/// @param event_id Event identifier to dispatch.",
+        (
+            "/// @return SC_STATUS_OK if a transition fired, "
+            "SC_STATUS_NO_TRANSITION if none matched, or an error status."
+        ),
+        f"sc_status_t {p}_post({p}_t *sm, sc_event_id_t event_id);",
+        "",
+        "/// @brief Return the currently active state.",
+        "/// @param sm Statechart instance to inspect.",
+        (
+            "/// @return Active state id, or SC_STATE_INVALID before "
+            "initialization."
+        ),
+        f"sc_state_id_t {p}_get_state(const {p}_t *sm);",
+        "",
+        "/// @brief Return a stable name for a generated state id.",
+        "/// @param state State identifier to name.",
+        "/// @return Static non-NULL state name.",
+        f"const char *{p}_state_name(sc_state_id_t state);",
+        "",
+        "/// @brief Return a stable name for a generated event id.",
+        "/// @param event Event identifier to name.",
+        "/// @return Static non-NULL event name.",
+        f"const char *{p}_event_name(sc_event_id_t event);",
+        "",
+        "#ifdef __cplusplus",
+        "}",
+        "#endif",
+        "",
+        f"#endif /* {guard} */",
+    ]
+    return "\n".join(parts) + "\n"
+
+
+def emit_source(program: CProgram) -> str:
+    """Render the generated statechart implementation."""
+    p = program.prefix
+    pkg_dir, stem = _paths(program)
+    parts = [
+        _banner(f"{pkg_dir}/{stem}.c", program.qualified_name),
+        f'#include "{pkg_dir}/{stem}.h"',
+        "",
+        "/* Static state and transition tables. */",
         f"static const sc_state_def_t {p}_states[] = {{",
     ]
     for s in program.states:
@@ -122,7 +250,6 @@ def emit_config_c(program: CProgram) -> str:
     parts += [
         "};",
         "",
-        "/* Transition rows: {source, event, guard, action, target}. */",
         f"static const sc_transition_t {p}_transitions[] = {{",
     ]
     for t in program.transitions:
@@ -141,76 +268,30 @@ def emit_config_c(program: CProgram) -> str:
     parts += [
         "};",
         "",
-        f"const sc_machine_t {p}_statechart_machine = {{",
+        f"static const sc_machine_t {p}_machine = {{",
         f"    {p}_transitions,",
         f"    {p}_states,",
-        f"    (uint16_t)(sizeof({p}_transitions) / "
-        f"sizeof({p}_transitions[0])),",
+        (
+            f"    (uint16_t)(sizeof({p}_transitions) / "
+            f"sizeof({p}_transitions[0])),"
+        ),
         f"    {p.upper()}_STATE_COUNT,",
         f"    {_const(p, 'STATE', program.initial)},",
         "};",
-    ]
-    return "\n".join(parts) + "\n"
-
-
-def emit_context_h(program: CProgram) -> str:
-    """Render the generated context struct (and any nested structs)."""
-    p = program.prefix
-    guard = f"{p.upper()}_CONTEXT_H"
-    parts = [
-        f"#ifndef {guard}",
-        f"#define {guard}",
         "",
-        _banner(f"{p}_context.h", program.name),
-        '#include "sc/sc_types.h"',
-        "",
-    ]
-    for struct in program.context.structs:
-        parts.append("typedef struct {")
-        for field in struct.fields:
-            parts.append(f"    {field.c_type} {field.name};")
-        parts.append(f"}} {struct.name};")
-        parts.append("")
-    parts.append(f"typedef struct {p}_context_s {{")
-    for field in program.context.fields:
-        parts.append(f"    {field.c_type} {field.name};")
-    if not program.context.fields:
-        parts.append("    uint8_t _unused; /* no attributes in this model */")
-    parts.append(f"}} {p}_context_t;")
-    parts += ["", f"#endif /* {guard} */"]
-    return "\n".join(parts) + "\n"
-
-
-def emit_context_initializer(program: CProgram) -> str:
-    """A C initializer literal for the context struct (used by a demo main).
-
-    Returns the bare type name when the machine has no attributes, so the
-    caller can zero-initialize with ``{0}``.
-    """
-    p = program.prefix
-    if not program.context.fields:
-        return f"{p}_context_t"
-    parts = ", ".join(f".{f.name} = {f.init}" for f in program.context.fields)
-    return "{" + parts + "}"
-
-
-def emit_actions_c(program: CProgram) -> str:
-    """Render the fully-generated guard/action dispatch functions."""
-    p = program.prefix
-    parts = [
-        _banner(f"{p}_actions.c", program.name),
-        f'#include "{p}_statechart_ids.h"',
-        f'#include "{p}_context.h"',
-        '#include "sc/sc_runtime.h"',
-        "",
-        "bool sc_guard_eval(sc_guard_id_t guard_id, const sc_runtime_t "
-        "*runtime, const sc_event_t *event)",
+        "/* Generated guard/action dispatch. */",
+        (
+            f"static bool {p}_guard_eval(sc_guard_id_t guard_id, "
+            "const sc_runtime_t *runtime, const sc_event_t *event)"
+        ),
         "{",
     ]
     if program.guards:
         parts += [
-            f"    const {p}_context_t *ctx = "
-            f"(const {p}_context_t *)runtime->user_data;",
+            (
+                f"    const {p}_context_t *ctx = "
+                f"(const {p}_context_t *)runtime->user_data;"
+            ),
             "    (void)event;",
             "    switch (guard_id) {",
         ]
@@ -228,8 +309,11 @@ def emit_actions_c(program: CProgram) -> str:
     parts += [
         "}",
         "",
-        "sc_status_t sc_action_exec(sc_action_id_t action_id, sc_runtime_t "
-        "*runtime, const sc_event_t *event)",
+        (
+            f"static sc_status_t {p}_action_exec("
+            "sc_action_id_t action_id, sc_runtime_t *runtime, "
+            "const sc_event_t *event)"
+        ),
         "{",
     ]
     if program.actions:
@@ -252,51 +336,194 @@ def emit_actions_c(program: CProgram) -> str:
             "    (void)action_id;",
             "    return SC_STATUS_OK;",
         ]
-    parts += ["}"]
+    parts += [
+        "}",
+        "",
+        f"void {p}_context_init({p}_context_t *ctx)",
+        "{",
+        "    if (ctx == NULL) {",
+        "        return;",
+        "    }",
+        f"    *ctx = ({p}_context_t){_context_initializer(program)};",
+        "}",
+        "",
+        f"const char *{p}_state_name(sc_state_id_t state)",
+        "{",
+        "    switch (state) {",
+    ]
+    for s in program.states:
+        parts.append(f"    case {_const(p, 'STATE', s.name)}:")
+        parts.append(f'        return "{s.name}";')
+    parts += [
+        "    case SC_STATE_INVALID:",
+        '        return "SC_STATE_INVALID";',
+        "    default:",
+        '        return "SC_STATE_UNKNOWN";',
+        "    }",
+        "}",
+        "",
+        f"const char *{p}_event_name(sc_event_id_t event)",
+        "{",
+        "    switch (event) {",
+    ]
+    for e in program.events:
+        parts.append(f"    case {_const(p, 'EVENT', e)}:")
+        parts.append(f'        return "{e}";')
+    parts += [
+        "    case SC_EVENT_COMPLETION:",
+        '        return "SC_EVENT_COMPLETION";',
+        "    case SC_EVENT_INVALID:",
+        '        return "SC_EVENT_INVALID";',
+        "    default:",
+        '        return "SC_EVENT_UNKNOWN";',
+        "    }",
+        "}",
+        "",
+        "/* Instantiate the shared dispatch for this machine. */",
+        f"#define SC_MACHINE_PREFIX {p}",
+        f"#define SC_MACHINE_DEF {p}_machine",
+        f"#define SC_MACHINE_GUARD {p}_guard_eval",
+        f"#define SC_MACHINE_ACTION {p}_action_exec",
+        '#include "sc/sc_machine.h"',
+    ]
     return "\n".join(parts) + "\n"
 
 
-def emit_cmakelists(program: CProgram) -> str:
-    """Render a CMakeLists.txt building the runtime + generated units."""
+def emit_runner(program: CProgram) -> str:
+    """Render a minimal hosted-C runner for smoke execution on a PC."""
     p = program.prefix
+    pkg_dir, stem = _paths(program)
+    parts = [
+        _banner(f"{pkg_dir}/{stem}_runner.c", program.qualified_name),
+        f'#include "{pkg_dir}/{stem}.h"',
+        "",
+        "#include <stdio.h>",
+        "#include <string.h>",
+        "",
+        (
+            f"static bool {p}_event_from_name("
+            "const char *name, sc_event_id_t *event_id)"
+        ),
+        "{",
+        "    if ((name == NULL) || (event_id == NULL)) {",
+        "        return false;",
+        "    }",
+    ]
+    for e in program.events:
+        parts += [
+            f'    if (strcmp(name, "{e}") == 0) {{',
+            f"        *event_id = {_const(p, 'EVENT', e)};",
+            "        return true;",
+            "    }",
+        ]
+    parts += [
+        "    return false;",
+        "}",
+        "",
+        "int main(int argc, char **argv)",
+        "{",
+        f"    {p}_context_t ctx;",
+        f"    {p}_t sm;",
+        "    sc_status_t status;",
+        "    int i;",
+        "",
+        f"    {p}_context_init(&ctx);",
+        f"    status = {p}_init(&sm, &ctx);",
+        '    (void)printf("init status=%s state=%s\\n", sc_status_str(status),',
+        f"                 {p}_state_name({p}_get_state(&sm)));",
+        "    if (status != SC_STATUS_OK) {",
+        "        return 1;",
+        "    }",
+        "",
+        "    for (i = 1; i < argc; ++i) {",
+        "        sc_event_id_t event_id = SC_EVENT_INVALID;",
+        f"        if (!{p}_event_from_name(argv[i], &event_id)) {{",
+        '            (void)fprintf(stderr, "unknown event: %s\\n", argv[i]);',
+        "            return 2;",
+        "        }",
+        f"        status = {p}_post(&sm, event_id);",
+        '        (void)printf("event %s status=%s state=%s\\n", argv[i],',
+        (
+            f"                     sc_status_str(status), "
+            f"{p}_state_name({p}_get_state(&sm)));"
+        ),
+        (
+            "        if ((status != SC_STATUS_OK) && "
+            "(status != SC_STATUS_NO_TRANSITION)) {"
+        ),
+        "            return 1;",
+        "        }",
+        "    }",
+        "    return 0;",
+        "}",
+    ]
+    return "\n".join(parts) + "\n"
+
+
+def emit_cmakelists(project: CProject) -> str:
+    """Render a CMakeLists.txt building runtime, statecharts, and runners."""
+    lib_sources = "\n".join(
+        f"  src/{d}/{s}.c" for d, s in (_paths(p) for p in project.programs)
+    )
+    runners = []
+    for program in project.programs:
+        pkg_dir, stem = _paths(program)
+        runners.append(
+            f"add_executable({program.prefix}_runner "
+            f"host/{pkg_dir}/{stem}_runner.c)\n"
+            f"target_link_libraries({program.prefix}_runner "
+            "statix_statecharts)"
+        )
     return (
         "cmake_minimum_required(VERSION 3.16)\n"
-        f"project({p}_statechart C)\n\n"
+        "project(statix_statecharts C)\n\n"
         "set(CMAKE_C_STANDARD 99)\n"
         "set(CMAKE_C_STANDARD_REQUIRED ON)\n\n"
         "add_compile_options(-Wall -Wextra -Wpedantic -Wconversion"
         " -Wsign-conversion -Wdouble-promotion -Werror)\n\n"
         "include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)\n\n"
-        f"add_library({p}_statechart STATIC\n"
-        "  src/sc_status.c\n"
-        "  src/sc_event_queue.c\n"
-        "  src/sc_runtime.c\n"
-        f"  {p}_statechart_config.c\n"
-        f"  {p}_actions.c)\n"
+        "add_library(statix_runtime STATIC\n"
+        "  src/sc/sc_status.c\n"
+        "  src/sc/sc_event_queue.c\n"
+        "  src/sc/sc_runtime.c)\n\n"
+        "add_library(statix_statecharts STATIC\n"
+        f"{lib_sources})\n"
+        "target_link_libraries(statix_statecharts statix_runtime)\n"
+        + ("\n" if project.programs else "")
+        + "\n\n".join(runners)
+        + ("\n" if runners else "")
     )
 
 
+def emit_project_files(project: CProject) -> dict[str, str]:
+    """Return {relative-output-path: content} for the generated C project."""
+    files: dict[str, str] = {}
+    for program in project.programs:
+        pkg_dir, stem = _paths(program)
+        files[f"include/{pkg_dir}/{stem}.h"] = emit_header(program)
+        files[f"src/{pkg_dir}/{stem}.c"] = emit_source(program)
+        files[f"host/{pkg_dir}/{stem}_runner.c"] = emit_runner(program)
+    files["CMakeLists.txt"] = emit_cmakelists(project)
+    return files
+
+
 def emit_files(program: CProgram) -> dict[str, str]:
-    """Return {filename: content} for the generated C project."""
-    p = program.prefix
-    return {
-        f"{p}_statechart_ids.h": emit_ids_h(program),
-        f"{p}_statechart_config.h": emit_config_h(program),
-        f"{p}_statechart_config.c": emit_config_c(program),
-        f"{p}_context.h": emit_context_h(program),
-        f"{p}_actions.c": emit_actions_c(program),
-        "CMakeLists.txt": emit_cmakelists(program),
-    }
+    """Return {filename: content} for a single generated statechart project."""
+    return emit_project_files(CProject(programs=(program,)))
 
 
-def to_c_preview(program: CProgram) -> str:
+def to_c_preview(artifact: CProgram | CProject) -> str:
     """Concatenate generated units in a stable order (for ``-f c`` preview)."""
-    files = emit_files(program)
-    order = [
-        f"{program.prefix}_statechart_ids.h",
-        f"{program.prefix}_context.h",
-        f"{program.prefix}_statechart_config.h",
-        f"{program.prefix}_statechart_config.c",
-        f"{program.prefix}_actions.c",
-    ]
+    project = (
+        artifact if isinstance(artifact, CProject) else CProject((artifact,))
+    )
+    files = emit_project_files(project)
+    order: list[str] = []
+    for program in project.programs:
+        pkg_dir, stem = _paths(program)
+        order += [
+            f"include/{pkg_dir}/{stem}.h",
+            f"src/{pkg_dir}/{stem}.c",
+            f"host/{pkg_dir}/{stem}_runner.c",
+        ]
     return "\n".join(f"/* ==== {name} ==== */\n{files[name]}" for name in order)

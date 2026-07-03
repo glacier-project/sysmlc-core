@@ -52,8 +52,8 @@ def test_composite_struct_and_chain(sm_models):
     # nested structs registered inner-first (Inner before Box)
     struct_names = [s.name for s in program.context.structs]
     assert struct_names.index(
-        "machinechainnested_inner_t"
-    ) < struct_names.index("machinechainnested_box_t")
+        "sm05_machinechainnested_inner_t"
+    ) < struct_names.index("sm05_machinechainnested_box_t")
     guard = program.guards[0]
     assert guard.expr == "ctx->box.inner.z > 0.0"
 

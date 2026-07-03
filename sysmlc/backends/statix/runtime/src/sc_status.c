@@ -1,12 +1,14 @@
-/*
- * sc_status.c - Human-readable names for status codes.
- *
- * A bounded switch keeps this free of function pointers and trivially
- * analyzable. The default case ensures the function is total.
- */
+/// @file sc_status.c
+/// @brief Human-readable names for status codes.
+///
+/// A bounded switch keeps this free of function pointers and trivially
+/// analyzable. The default case ensures the function is total.
 
 #include "sc/sc_status.h"
 
+/// @brief Return a static, never-NULL, human-readable name for a status code.
+/// @param status Status code to name.
+/// @return Static non-NULL status name.
 const char *sc_status_str(sc_status_t status)
 {
     switch (status) {

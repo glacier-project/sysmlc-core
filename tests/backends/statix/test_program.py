@@ -11,7 +11,8 @@ from sysmlc.backends.statix.program import (
 def test_cprogram_holds_a_flat_machine():
     program = CProgram(
         name="Machine",
-        prefix="machine",
+        qualified_name="SM01::Machine",
+        prefix="sm01_machine",
         states=(
             CState("idle", entry_action_id=None, exit_action_id=None),
             CState("running", entry_action_id=None, exit_action_id=None),

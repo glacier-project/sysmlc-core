@@ -80,6 +80,7 @@ class CProgram:
     """A complete flat C statechart artifact, before serialization."""
 
     name: str
+    qualified_name: str
     prefix: str
     states: tuple[CState, ...]
     events: tuple[str, ...]
@@ -89,3 +90,10 @@ class CProgram:
     context: CContext
     queue_capacity: int
     initial: str
+
+
+@dataclass(frozen=True)
+class CProject:
+    """One generated statix project containing one or more statecharts."""
+
+    programs: tuple[CProgram, ...]
