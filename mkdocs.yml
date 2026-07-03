@@ -34,6 +34,7 @@ nav:
 - API Reference: api.md
 - statix:
   - Mapping (SysML → C): statix-mapping.md
+  - Roadmap: statix/roadmap.md
   - Architecture: statix/architecture.md
   - Power of 10 compliance: statix/power_of_10_compliance.md
   - Coding standard: statix/coding_standard.md
