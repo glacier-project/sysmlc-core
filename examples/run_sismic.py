@@ -14,7 +14,7 @@ from sismic.interpreter import Interpreter
 
 from sysmlc import configure_logging
 from sysmlc.backends.quake import build_statechart
-from sysmlc.backends.quake.coordinator import run_to_quiescence
+from sysmlc.backends.quake.coordinator import StopReason, run_to_quiescence
 from sysmlc.errors import UnsupportedConstructError
 from sysmlc.logging import PACKAGE_LOGGER_NAME
 from sysmlc.sysml.loading import load_model
@@ -229,9 +229,9 @@ def run_one(model: syside.Model, state_def_qn: str) -> None:
     scheduled event, so a time-triggered machine settles on its own and a
     machine with no timer settles at t=0. Prints the statechart structure,
     the macro-step trace, and state/transition coverage. A machine that
-    cannot be built (an unsupported construct), cannot be evaluated (an
-    incomplete model), or that never settles (exceeding the macro-step cap)
-    is reported and skipped.
+    cannot be built (an unsupported construct) or cannot be evaluated (an
+    incomplete model) is reported and skipped; one that never settles is
+    cut off at the macro-step cap and reported with its trace so far.
 
     Args:
         model: Loaded syside model.
@@ -248,23 +248,23 @@ def run_one(model: syside.Model, state_def_qn: str) -> None:
     print_structure(statechart)
 
     clock = SimulatedClock()
-    interpreter = Interpreter(statechart, clock=clock)
-    print(f"  Initial configuration: {sorted(interpreter.configuration)}")
-
-    logger.info("Executing via the shared discrete-event loop")
     name = state_def_qn.split("::")[-1]
+    logger.info("Executing via the shared discrete-event loop")
     try:
-        trace, _ = run_to_quiescence({name: interpreter}, clock)
+        # The constructor already runs the preamble, so an incomplete
+        # model can fail here as well as during execution.
+        interpreter = Interpreter(statechart, clock=clock)
+        print(f"  Initial configuration: {sorted(interpreter.configuration)}")
+        trace, stop_reason = run_to_quiescence({name: interpreter}, clock)
     except CodeEvaluationError as error:
         logger.warning("Execution skipped: %s", error)
-        return
-    except RuntimeError as error:
-        logger.warning("Execution stopped: %s", error)
         return
     steps = [coordinated.step for coordinated in trace]
 
     print(f"  Final configuration:   {sorted(interpreter.configuration)}")
-    if interpreter.final:
+    if stop_reason is StopReason.STEP_CAP:
+        logger.warning("Stopped at the macro-step safety cap before settling")
+    elif interpreter.final:
         logger.info("Reached a final configuration")
     else:
         logger.info("Quiescent without reaching a final configuration")

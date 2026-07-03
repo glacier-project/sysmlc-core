@@ -33,6 +33,10 @@ class RunReport:
         trace: The macro-step trace, each step annotated with the instance
             that ran it. A single machine's steps carry its own name.
         configurations: Final active-state configuration per instance name.
+        finals: Whether each instance ended in a final configuration, keyed
+            by instance name. An instance can be neither final nor active:
+            one starved by the step cap never entered its initial state, so
+            its configuration is empty too.
         clock_time: The logical time the shared clock reached.
         stop_reason: Why the run stopped (all final, quiescent, time bound,
             or the step cap).
@@ -40,6 +44,7 @@ class RunReport:
 
     trace: tuple[CoordinatedStep, ...]
     configurations: dict[str, list[str]]
+    finals: dict[str, bool]
     clock_time: float
     stop_reason: StopReason
 
@@ -60,7 +65,12 @@ class RunReport:
         lines.append("final configuration:")
         for name in sorted(self.configurations):
             config = self.configurations[name]
-            shown = ", ".join(config) if config else "(final)"
+            if self.finals[name]:
+                shown = "(final)"
+            elif config:
+                shown = ", ".join(config)
+            else:
+                shown = "(never ran)"
             lines.append(f"  {name}: {shown}")
         lines.append(f"clock={self.clock_time} status={self.stop_reason.value}")
         return "\n".join(lines)
@@ -161,6 +171,10 @@ def _report(
         trace=trace,
         configurations={
             name: sorted(interpreter.configuration)
+            for name, interpreter in interpreters.items()
+        },
+        finals={
+            name: interpreter.final
             for name, interpreter in interpreters.items()
         },
         clock_time=clock.time,

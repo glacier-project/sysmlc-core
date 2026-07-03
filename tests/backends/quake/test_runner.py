@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 FIX = SM_EXAMPLES_DIR / "part01-two-parts"
+MUX = SM_EXAMPLES_DIR / "part-mux"
 RAMP = SM_EXAMPLES_DIR / "sm15-external"
 PART_EXTERNAL = SM_EXAMPLES_DIR / "part-external"
 
@@ -87,6 +88,23 @@ def test_run_state_def_settles_at_zero_without_a_timer(
 
     assert report.clock_time == 0.0
     assert report.all_final is True
+
+
+def test_render_distinguishes_never_started_from_final() -> None:
+    # With a one-step budget on a three-part system, at least one machine
+    # is starved before its first step; an uninitialized interpreter has
+    # an empty configuration, which must not read as terminated.
+    report = run_part_system(load_model(MUX), "PartMux::mux", max_steps=1)
+
+    rendered = report.render()
+    assert "(never ran)" in rendered
+    assert "(final)" not in rendered
+
+
+def test_render_marks_final_machines() -> None:
+    report = run_part_system(load_model(FIX), "Part01::pingSystem")
+
+    assert "tb: (final)" in report.render()
 
 
 def test_run_part_system_keeps_trace_at_step_cap() -> None:
