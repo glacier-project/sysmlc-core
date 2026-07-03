@@ -34,10 +34,17 @@ sysmlc = "sysmlc.cli:main"
 quake = "sysmlc.backends.quake.backend:QuakeBackend"
 rosetta = "sysmlc.backends.rosetta.backend:RosettaBackend"
 frostifier = "sysmlc.backends.frostifier.backend:FrostifierBackend"
+statix = "sysmlc.backends.statix.backend:StatixBackend"
 
 [build-system]
 requires = ["hatchling>=1.27,<2"]
 build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["sysmlc"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"sysmlc/backends/statix/runtime" = "sysmlc/backends/statix/runtime"
 
 [tool.ruff]
 # Google style uses 80 chars
@@ -96,7 +103,8 @@ skip-magic-trailing-comma = false
 line-ending = "auto"
 
 [tool.pytest.ini_options]
-addopts = "-m 'not lf'"
+addopts = "-m 'not lf and not statix'"
 markers = [
     "lf: compile and run generated Lingua Franca programs (requires lfc + Java)",
+    "statix: compile and run generated C statechart projects (requires a C compiler + CMake)",
 ]

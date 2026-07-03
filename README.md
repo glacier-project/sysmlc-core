@@ -19,6 +19,7 @@ One shared front-end feeds a family of product-named back-ends, one per target:
 | `quake`      | sismic statecharts                                                  | **in progress** |
 | `rosetta`    | [Lingua Franca](https://www.lf-lang.org/) reactors                  | **in progress** |
 | `frostifier` | [Frost](https://github.com/glacier-project/frost) plant simulations | planned         |
+| `statix`     | static-memory C for microcontrollers                                | **in progress** |
 
 ## Prerequisites
 
@@ -97,6 +98,18 @@ works with any backend):
 sysmlc rosetta build models/showcase/thermostat \
   -e Thermostat::ThermostatBehavior \
   --values models/showcase/thermostat/values.yaml -o out/
+```
+
+Compile a flat SysML state machine to a self-contained, static-memory C project
+with the **statix** backend (generated tables + guards/actions/context + a
+bundled Power-of-10 runtime kernel).
+The supported flat subset is the `sm01`–`sm07` examples; the full
+construct-by-construct mapping and rejection list is in `docs/statix-mapping.md`:
+
+```bash
+sysmlc statix build models/sm-examples/sm01-helloworld -e SM01::Machine -o out/
+# out/ is a self-contained C project:
+cmake -S out -B out/build && cmake --build out/build
 ```
 
 To explore a plant model's structure and OPC-UA metadata (the `ice-lab` model):
