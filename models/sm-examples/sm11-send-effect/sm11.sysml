@@ -127,6 +127,26 @@ package SM11 {
             then fired;
     }
 
+    // The whole payload occurrence can be referenced on its own, not only
+    // through a field.
+    state def MachineReadablePayloadWhole {
+        attribute current : Real := 0.9;
+        item captured : Measurement;
+        port commPort;
+        entry;
+            then idle;
+        state idle;
+        state armed;
+        state fired;
+        transition first idle
+            do send new Measurement(current) to commPort
+            then armed;
+        transition first armed
+            accept reading : Measurement via commPort
+            do assign captured := reading
+            then fired;
+    }
+
     // A mixed effect body: an assignment and a send, in declaration order.
     state def MachineMixed {
         attribute count : Integer := 0;

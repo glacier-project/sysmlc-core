@@ -200,6 +200,23 @@ class SismicCodeGen(PythonCodeGen):
         return f"send({delimiter}{event_name}{delimiter})"
 
     @override
+    def _emit_feature_reference(
+        self, expr: syside.FeatureReferenceExpression
+    ) -> str:
+        """Emit a bare reference, applying transition-local aliases.
+
+        A reference to the whole payload binding (``accept r : Reading`` then
+        an effect using ``r`` on its own) renders as sismic's runtime
+        ``event``, mirroring the field-access rewrite ``r.value`` ->
+        ``event.value``.
+        """
+        ref = expr.referent
+        alias = None if ref is None else self._feature_alias(ref)
+        if alias is not None:
+            return alias
+        return super()._emit_feature_reference(expr)
+
+    @override
     def _emit_feature_chain(self, expr: syside.FeatureChainExpression) -> str:
         """Emit a chained reference, applying transition-local aliases."""
         operands = expr.operands.collect()

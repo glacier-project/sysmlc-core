@@ -86,6 +86,14 @@ def test_accept_payload_chain_uses_event_root(
     assert transition.guard == "event.sample.value > 0.5"
 
 
+def test_accept_payload_whole_uses_event(
+    model: syside.Model,
+) -> None:
+    """A bare reference to the whole payload binding emits ``event``."""
+    sc = build_statechart(model, "SM11::MachineReadablePayloadWhole")
+    assert _action_of(sc, "armed", "fired") == "captured = event"
+
+
 def test_mixed_effect_emits_assign_then_send(model: syside.Model) -> None:
     """A mixed effect body emits the assign and the send, in order."""
     sc = build_statechart(model, "SM11::MachineMixed")
