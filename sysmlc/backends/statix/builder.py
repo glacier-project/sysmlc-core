@@ -246,9 +246,7 @@ class StatixBuilder:
         parent = None if fact.parent == root_name else fact.parent
         return CState(
             name=name,
-            entry_action_id=self._action_for(
-                fact.entry_action, f"{stem}_entry"
-            ),
+            entry_action_id=self._entry_action_id(fact, stem),
             exit_action_id=self._action_for(fact.exit_action, f"{stem}_exit"),
             parent=parent,
             initial_child=fact.initial_substate,
@@ -314,12 +312,10 @@ class StatixBuilder:
             self._guards.append(CGuard(name=name, expr=rendered))
         return self._guard_names[rendered]
 
-    def _action_for(
-        self, action: syside.ActionUsage | None, id_hint: str
+    def _register_action(
+        self, statements: tuple[str, ...], id_hint: str
     ) -> str | None:
-        statements = tuple(
-            self._gen.render_action(a) for a in actions.inline_actions(action)
-        )
+        """Register a CAction from statements; return its id or None."""
         if not statements:
             return None
         name = id_hint
@@ -330,6 +326,34 @@ class StatixBuilder:
         self._used_action_names.add(name)
         self._actions.append(CAction(name=name, statements=statements))
         return name
+
+    def _action_for(
+        self, action: syside.ActionUsage | None, id_hint: str
+    ) -> str | None:
+        statements = tuple(
+            self._gen.render_action(a) for a in actions.inline_actions(action)
+        )
+        return self._register_action(statements, id_hint)
+
+    def _entry_action_id(self, fact: StateFact, stem: str) -> str | None:
+        """Build state entry action, fusing one-shot inline ``do`` after it.
+
+        SysML ``do`` has no separate runtime slot; like quake, statix runs it
+        once at entry by appending its statements after the entry statements. A
+        ``do`` that references another action or holds non-``assign``/``send``
+        bodies is rejected; ``do send`` is rejected downstream by the codegen.
+        """
+        statements = [
+            self._gen.render_action(a)
+            for a in actions.inline_actions(fact.entry_action)
+        ]
+        if fact.do_action is not None:
+            actions.require_inline_one_shot(fact.do_action)
+            statements += [
+                self._gen.render_action(a)
+                for a in actions.inline_actions(fact.do_action)
+            ]
+        return self._register_action(tuple(statements), f"{stem}_entry")
 
 
 def build_statix(model: syside.Model, state_def_qn: str) -> CProgram:

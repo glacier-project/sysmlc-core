@@ -1,7 +1,7 @@
 import pytest
 
 from sysmlc.backends.statix.builder import build_statix
-from sysmlc.backends.statix.program import COMPLETION_EVENT
+from sysmlc.backends.statix.program import COMPLETION_EVENT, CProgram
 from sysmlc.errors import UnsupportedConstructError
 
 
@@ -150,3 +150,91 @@ def test_two_done_shares_one_final(sm_models: dict) -> None:
 def test_parallel_done_is_rejected(sm_models: dict) -> None:
     with pytest.raises(UnsupportedConstructError):
         build_statix(sm_models["sm10"], "SM10::MachineParallelDone")
+
+
+def _entry_statements(program: CProgram, state_name: str) -> tuple[str, ...]:
+    """The statements of a state's entry action, or () if it has none."""
+    state = next(s for s in program.states if s.name == state_name)
+    if state.entry_action_id is None:
+        return ()
+    action = next(a for a in program.actions if a.name == state.entry_action_id)
+    return action.statements
+
+
+def test_do_action_fused_into_entry(sm_models: dict) -> None:
+    program = build_statix(sm_models["sm12"], "SM12::MachineDoAssign")
+    assert _entry_statements(program, "working") == (
+        "ctx->progress = ctx->progress + 1;",
+    )
+
+
+def test_do_multi_keeps_declaration_order(sm_models: dict) -> None:
+    program = build_statix(sm_models["sm12"], "SM12::MachineDoMulti")
+    assert _entry_statements(program, "working") == (
+        "ctx->a = 1;",
+        "ctx->b = ctx->a + 2;",
+    )
+
+
+def test_do_shorthand_fused_into_entry(sm_models: dict) -> None:
+    program = build_statix(sm_models["sm12"], "SM12::MachineDoShorthand")
+    assert _entry_statements(program, "working") == (
+        "ctx->progress = ctx->progress + 1;",
+    )
+
+
+def test_entry_runs_before_do(sm_models: dict) -> None:
+    program = build_statix(sm_models["sm12"], "SM12::MachineEntryThenDo")
+    assert _entry_statements(program, "working") == (
+        "ctx->log = 1;",
+        "ctx->log = ctx->log + 10;",
+    )
+
+
+def test_do_on_composite_fuses_into_its_entry(sm_models: dict) -> None:
+    program = build_statix(sm_models["sm12"], "SM12::MachineCompositeDo")
+    assert _entry_statements(program, "working") == (
+        "ctx->progress = ctx->progress + 1;",
+    )
+
+
+def test_empty_do_is_a_noop(sm_models: dict) -> None:
+    program = build_statix(sm_models["sm12"], "SM12::MachineEmptyDo")
+    working = next(s for s in program.states if s.name == "working")
+    assert working.entry_action_id is None
+
+
+def test_named_empty_do_is_a_noop(sm_models: dict) -> None:
+    program = build_statix(sm_models["sm12"], "SM12::MachineNamedEmptyDo")
+    working = next(s for s in program.states if s.name == "working")
+    assert working.entry_action_id is None
+
+
+def test_root_empty_do_is_a_noop(sm_models: dict) -> None:
+    program = build_statix(sm_models["sm12"], "SM12::MachineRootEmptyDo")
+    assert all(s.entry_action_id is None for s in program.states)
+
+
+def test_do_send_is_rejected(sm_models: dict) -> None:
+    with pytest.raises(UnsupportedConstructError):
+        build_statix(sm_models["sm12"], "SM12::MachineDoSend")
+
+
+def test_do_send_shorthand_is_rejected(sm_models: dict) -> None:
+    with pytest.raises(UnsupportedConstructError):
+        build_statix(sm_models["sm12"], "SM12::MachineDoSendShorthand")
+
+
+def test_machine_level_do_is_rejected(sm_models: dict) -> None:
+    with pytest.raises(UnsupportedConstructError):
+        build_statix(sm_models["sm12"], "SM12::MachineRootDo")
+
+
+def test_machine_level_entry_then_do_is_rejected(sm_models: dict) -> None:
+    with pytest.raises(UnsupportedConstructError):
+        build_statix(sm_models["sm12"], "SM12::MachineRootEntryThenDo")
+
+
+def test_parallel_do_is_rejected(sm_models: dict) -> None:
+    with pytest.raises(UnsupportedConstructError):
+        build_statix(sm_models["sm12"], "SM12::MachineParallelDo")

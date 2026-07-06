@@ -128,7 +128,9 @@ State entry/exit actions and transition effects become `<PREFIX>_ACTION_*` ids
 whose bodies are lowered C statements in the generated static
 `<prefix>_action_exec`. Only `assign` is supported today; each
 `assign target := expr` becomes
-`ctx->target = <expr>;`. Firing order follows the Sismic/SCXML reference:
+`ctx->target = <expr>;`. A state's inline `do` activity runs **once** at
+entry — its `assign` statements are appended after the entry action's, in
+declaration order. Firing order follows the Sismic/SCXML reference:
 `exit(source) → transition effect → entry(target)`.
 
 `send` effects are rejected (§9).
@@ -172,16 +174,16 @@ statix **never silently drops** a construct: anything outside the supported flat
 subset raises `UnsupportedConstructError` with a clear message. Rejected in
 iteration 1:
 
-| Construct                                        | Status                                 |
-| ------------------------------------------------ | -------------------------------------- |
-| parallel / history states                        | rejected (composite/leaf supported)    |
-| `after` / `at` / `when` triggers                 | rejected (no timers/change events yet) |
-| `send` effects, reading `accept` payload data    | rejected (send/RTC family)             |
-| machine-level (state def) entry/do/exit actions  | rejected (put on states)               |
-| non-inline / referenced `do` activities          | rejected                               |
-| asserted constraints                             | rejected                               |
-| `String` / non-scalar, non-composite attributes  | rejected                               |
-| external / library function calls in expressions | rejected                               |
+| Construct                                                | Status                                 |
+| -------------------------------------------------------- | -------------------------------------- |
+| parallel / history states                                | rejected (composite/leaf supported)    |
+| `after` / `at` / `when` triggers                         | rejected (no timers/change events yet) |
+| `send` effects, `do send`, reading `accept` payload data | rejected (send/RTC family)             |
+| machine-level (state def) entry/do/exit actions          | rejected (put on states)               |
+| non-inline / referenced `do` activities                  | rejected                               |
+| asserted constraints                                     | rejected                               |
+| `String` / non-scalar, non-composite attributes          | rejected                               |
+| external / library function calls in expressions         | rejected                               |
 
 ## 10. Forward notes (not settled)
 
