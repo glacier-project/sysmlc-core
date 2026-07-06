@@ -1,0 +1,19 @@
+cmake_minimum_required(VERSION 3.16)
+project(statix_statecharts C)
+
+set(CMAKE_C_STANDARD 99)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+
+add_compile_options(-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wdouble-promotion -Werror)
+
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+add_library(statix_runtime STATIC
+  src/sc/sc_status.c
+  src/sc/sc_event_queue.c
+  src/sc/sc_runtime.c)
+
+add_library(statix_statecharts STATIC
+{{ lib_sources }})
+target_link_libraries(statix_statecharts statix_runtime)
+{{ runners_tail -}}

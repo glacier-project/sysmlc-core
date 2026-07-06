@@ -1023,6 +1023,7 @@ name = "sysmlc"
 version = "0.0.0"
 source = { editable = "." }
 dependencies = [
+    { name = "jinja2" },
     { name = "pyyaml" },
     { name = "sismic" },
     { name = "syside" },
@@ -1045,6 +1046,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "jinja2", specifier = ">=3.1,<4" },
     { name = "lizard", marker = "extra == 'dev'", specifier = ">=1.21.2,<2" },
     { name = "mkdocs", marker = "extra == 'dev'", specifier = ">=1.6.1,<2" },
     { name = "mkdocs-material", marker = "extra == 'dev'", specifier = ">=9.6.20,<10" },
