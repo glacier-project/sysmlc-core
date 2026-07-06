@@ -75,3 +75,31 @@ def test_composite_state_name_is_dotted(sm_models: dict) -> None:
     config = files[f"src/{d}/{s}.c"]
     # The display name returned by state_name matches Sismic's dotted path.
     assert 'return "running::warming";' in config
+
+
+def test_final_state_row_and_prototype(sm_models: dict) -> None:
+    files, d, s = _files_for(sm_models["sm10"], "SM10::MachineRootDone")
+    config = files[f"src/{d}/{s}.c"]
+    header = files[f"include/{d}/{s}.h"]
+    # The synthesized `done` row is top-level absorbing: is_final = true.
+    assert (
+        "{SC_ACTION_NONE, SC_ACTION_NONE, SC_STATE_INVALID, "
+        "SC_STATE_INVALID, true}," in config
+    )
+    # Normal leaves stay is_final = false.
+    assert (
+        "{SC_ACTION_NONE, SC_ACTION_NONE, SC_STATE_INVALID, "
+        "SC_STATE_INVALID, false}," in config
+    )
+    assert "bool sm10_machine_root_done_is_final(" in header
+
+
+def test_nested_final_row_scoped(sm_models: dict) -> None:
+    files, d, s = _files_for(sm_models["sm10"], "SM10::MachineNestedDone")
+    config = files[f"src/{d}/{s}.c"]
+    # running::done sits under running and is final.
+    assert (
+        "SM10_MACHINE_NESTED_DONE_STATE_RUNNING, SC_STATE_INVALID, true},"
+        in config
+    )
+    assert 'return "running::done";' in config
