@@ -33,6 +33,6 @@ def test_final_state_matches_sismic(
     program = build_statix(sm_models[stem], qn)
     statix_leaf = statix_run(program)
 
-    assert (
-        statix_leaf == sismic_leaf
-    ), f"{stem}: statix {statix_leaf!r} != sismic {sismic_leaf!r}"
+    assert statix_leaf == sismic_leaf, (
+        f"{stem}: statix {statix_leaf!r} != sismic {sismic_leaf!r}"
+    )

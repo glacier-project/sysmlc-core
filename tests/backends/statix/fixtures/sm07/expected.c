@@ -8,8 +8,8 @@
 
 /* Static state and transition tables (file-local). */
 static const sc_state_def_t states[] = {
-    {SC_ACTION_NONE, SM07_MACHINE_FIRING_ORDER_ACTION_A_EXIT},
-    {SM07_MACHINE_FIRING_ORDER_ACTION_B_ENTRY, SC_ACTION_NONE},
+    {SC_ACTION_NONE, SM07_MACHINE_FIRING_ORDER_ACTION_A_EXIT, SC_STATE_INVALID, SC_STATE_INVALID},
+    {SM07_MACHINE_FIRING_ORDER_ACTION_B_ENTRY, SC_ACTION_NONE, SC_STATE_INVALID, SC_STATE_INVALID},
 };
 
 static const sc_transition_t transitions[] = {
@@ -22,6 +22,7 @@ static const sc_machine_t machine_def = {
     (uint16_t)(sizeof(transitions) / sizeof(transitions[0])),
     SM07_MACHINE_FIRING_ORDER_STATE_COUNT,
     SM07_MACHINE_FIRING_ORDER_STATE_A,
+    (sc_state_id_t)1u,
 };
 
 /* Generated guard/action dispatch. */

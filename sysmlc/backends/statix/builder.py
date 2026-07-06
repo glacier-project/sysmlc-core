@@ -151,6 +151,7 @@ class StatixBuilder:
             raise UnsupportedConstructError(
                 "the machine declares no initial state."
             )
+        max_depth = max((s.name.count("::") + 1 for s in states), default=1)
         return CProgram(
             name=self._name,
             qualified_name=self._qualified_name,
@@ -163,6 +164,7 @@ class StatixBuilder:
             context=context,
             queue_capacity=_DEFAULT_QUEUE_CAPACITY,
             initial=_simple(root.initial_substate),
+            max_depth=max_depth,
         )
 
     def _reject_machine_level_actions(self, root: StateFact) -> None:
@@ -246,6 +248,8 @@ class StatixBuilder:
                 fact.entry_action, f"{simple}_entry"
             ),
             exit_action_id=self._action_for(fact.exit_action, f"{simple}_exit"),
+            parent=None,
+            initial_child=None,
         )
 
     def _build_transition(self, t: TransitionFact) -> CTransition:

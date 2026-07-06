@@ -12,6 +12,8 @@ def test_sm01_settles_in_running(sm_models: dict, statix_run: Callable) -> None:
     assert statix_run(program) == "running"
 
 
-def test_sm07_firing_order_reaches_b(sm_models: dict, statix_run: Callable) -> None:
+def test_sm07_firing_order_reaches_b(
+    sm_models: dict, statix_run: Callable
+) -> None:
     program = build_statix(sm_models["sm07"], "SM07::MachineFiringOrder")
     assert statix_run(program) == "b"

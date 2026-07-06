@@ -33,6 +33,15 @@ extern "C" {
 #define SC_MAX_RTC_STEPS 64u
 #endif
 
+/// @brief Upper bound on hierarchy depth walked or entered in one step.
+///
+/// Bounds every parent/initial_child walk and sizes the fixed entry-path
+/// buffer in the dispatch template. Override at compile time with
+/// -DSC_MAX_DEPTH=N for an unusually deep chart.
+#ifndef SC_MAX_DEPTH
+#define SC_MAX_DEPTH 16u
+#endif
+
 /// @brief One row of a generated transition table.
 ///
 /// Represents `source -- event [guard] / action --> target`.
@@ -44,10 +53,12 @@ typedef struct sc_transition_s {
     sc_state_id_t target; ///< @brief Target state id.
 } sc_transition_t;
 
-/// @brief Generated per-state action table row, indexed by state id.
+/// @brief Generated per-state row, indexed by state id.
 typedef struct sc_state_def_s {
-    sc_action_id_t entry_action; ///< @brief Entry action id, or SC_ACTION_NONE.
-    sc_action_id_t exit_action; ///< @brief Exit action id, or SC_ACTION_NONE.
+    sc_action_id_t entry_action;  ///< @brief Entry action id, or SC_ACTION_NONE.
+    sc_action_id_t exit_action;   ///< @brief Exit action id, or SC_ACTION_NONE.
+    sc_state_id_t parent;         ///< @brief Enclosing state id, or SC_STATE_INVALID at top level.
+    sc_state_id_t initial_child;  ///< @brief Descend target if composite, else SC_STATE_INVALID.
 } sc_state_def_t;
 
 /// @brief Complete immutable machine definition generated as static const.
@@ -57,6 +68,7 @@ typedef struct sc_machine_s {
     uint16_t transition_count; ///< @brief Number of transition rows.
     sc_state_id_t state_count; ///< @brief Number of states.
     sc_state_id_t initial_state; ///< @brief Initial state id.
+    sc_state_id_t max_depth; ///< @brief Deepest root->leaf path in this chart.
 } sc_machine_t;
 
 /// @brief Common mutable runtime state embedded by generated instances.
