@@ -27,9 +27,7 @@ def model() -> syside.Model:
 
 
 FIXTURES_DIR = (
-    Path(__file__).resolve().parent
-    / "fixtures"
-    / "sm13-time-trigger-no-default"
+    Path(__file__).resolve().parent / "fixtures" / "no-default-duration"
 )
 
 
