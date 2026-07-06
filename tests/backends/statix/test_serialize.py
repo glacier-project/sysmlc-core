@@ -103,3 +103,12 @@ def test_nested_final_row_scoped(sm_models: dict) -> None:
         in config
     )
     assert 'return "running::done";' in config
+
+
+def test_entry_then_do_emits_both_statements_in_order(sm_models: dict) -> None:
+    files, d, s = _files_for(sm_models["sm12"], "SM12::MachineEntryThenDo")
+    config = files[f"src/{d}/{s}.c"]
+    # The working entry action runs the entry assign, then the do assign.
+    entry_idx = config.index("ctx->log = 1;")
+    do_idx = config.index("ctx->log = ctx->log + 10;")
+    assert entry_idx < do_idx, "entry statement must precede the do statement"

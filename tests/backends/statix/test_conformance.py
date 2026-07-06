@@ -93,3 +93,38 @@ def test_sm10_final_states_match_sismic(
         assert leaf == sismic_leaf, (
             f"{qn}: statix {leaf!r} != sismic {sismic_leaf!r}"
         )
+
+
+# do-action machines that settle deterministically on init. Every supported
+# variant reaches `finished`; MachineDoEnablesCompletion is the discriminating
+# case -- it only reaches `finished` if the do body ran at entry (setting the
+# `ready` flag the completion transition reads).
+SM12_CASES = [
+    "SM12::MachineDoAssign",
+    "SM12::MachineDoMulti",
+    "SM12::MachineDoShorthand",
+    "SM12::MachineEntryThenDo",
+    "SM12::MachineCompositeDo",
+    "SM12::MachineDoEnablesCompletion",
+    "SM12::MachineEmptyDo",
+    "SM12::MachineRootEmptyDo",
+    "SM12::MachineNamedEmptyDo",
+]
+
+
+@pytest.mark.parametrize("qn", SM12_CASES)
+def test_sm12_do_matches_sismic(
+    sm_models: dict,
+    statix_run: Callable,
+    qn: str,
+) -> None:
+    interpreter = Interpreter(build_statechart(sm_models["sm12"], qn))
+    interpreter.execute()
+    sismic_leaf = sorted(interpreter.configuration)[-1]
+
+    program = build_statix(sm_models["sm12"], qn)
+    statix_leaf = statix_run(program)
+
+    assert statix_leaf == sismic_leaf, (
+        f"{qn}: statix {statix_leaf!r} != sismic {sismic_leaf!r}"
+    )
