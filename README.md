@@ -44,7 +44,7 @@ Build and run a sismic statechart from one of the example state machines under
 `models/sm-examples/` (accepts `01`, `sm01`, or the full folder name):
 
 ```bash
-uv run python examples/run_sismic.py sm01
+uv run python examples/run_quake.py sm01
 ```
 
 Or use the API directly:

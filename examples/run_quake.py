@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from sismic.model import Statechart
     from sismic.model.steps import MacroStep
 
-logger = logging.getLogger(f"{PACKAGE_LOGGER_NAME}.run_sismic")
+logger = logging.getLogger(f"{PACKAGE_LOGGER_NAME}.run_quake")
 
 SM_EXAMPLES_DIR = (
     Path(__file__).resolve().parent.parent / "models" / "sm-examples"
