@@ -1,7 +1,8 @@
 import syside
 
 from sysmlc.backends.statix.builder import build_statix
-from sysmlc.backends.statix.serialize import _paths, emit_files
+from sysmlc.backends.statix.program import CProject
+from sysmlc.backends.statix.serialize import _paths, emit_cmakelists, emit_files
 
 
 def _files_for(model: syside.Model, qn: str) -> tuple[dict[str, str], str, str]:
@@ -112,3 +113,31 @@ def test_entry_then_do_emits_both_statements_in_order(sm_models: dict) -> None:
     entry_idx = config.index("ctx->log = 1;")
     do_idx = config.index("ctx->log = ctx->log + 10;")
     assert entry_idx < do_idx, "entry statement must precede the do statement"
+
+
+def test_cmakelists_is_byte_stable(sm_models: dict) -> None:
+    # Characterization: pins the exact CMakeLists bytes for a single-program
+    # project so the Jinja migration cannot drift them.
+    program = build_statix(sm_models["sm04"], "SM04::MachineEntryIncrement")
+    project = CProject(programs=(program,))
+    expected = (
+        "cmake_minimum_required(VERSION 3.16)\n"
+        "project(statix_statecharts C)\n\n"
+        "set(CMAKE_C_STANDARD 99)\n"
+        "set(CMAKE_C_STANDARD_REQUIRED ON)\n\n"
+        "add_compile_options(-Wall -Wextra -Wpedantic -Wconversion"
+        " -Wsign-conversion -Wdouble-promotion -Werror)\n\n"
+        "include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)\n\n"
+        "add_library(statix_runtime STATIC\n"
+        "  src/sc/sc_status.c\n"
+        "  src/sc/sc_event_queue.c\n"
+        "  src/sc/sc_runtime.c)\n\n"
+        "add_library(statix_statecharts STATIC\n"
+        "  src/sm04/machine_entry_increment.c)\n"
+        "target_link_libraries(statix_statecharts statix_runtime)\n\n"
+        "add_executable(sm04_machine_entry_increment_runner"
+        " host/sm04/machine_entry_increment_runner.c)\n"
+        "target_link_libraries(sm04_machine_entry_increment_runner"
+        " statix_statecharts)\n"
+    )
+    assert emit_cmakelists(project) == expected

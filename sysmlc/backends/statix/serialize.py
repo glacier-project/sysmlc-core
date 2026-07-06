@@ -493,8 +493,7 @@ def emit_runner(program: CProgram) -> str:
     return "\n".join(parts) + "\n"
 
 
-def emit_cmakelists(project: CProject) -> str:
-    """Render a CMakeLists.txt building runtime, statecharts, and runners."""
+def _cmakelists_view(project: CProject) -> dict[str, str]:
     lib_sources = "\n".join(
         f"  src/{d}/{s}.c" for d, s in (_paths(p) for p in project.programs)
     )
@@ -507,24 +506,18 @@ def emit_cmakelists(project: CProject) -> str:
             f"target_link_libraries({program.prefix}_runner "
             "statix_statecharts)"
         )
-    return (
-        "cmake_minimum_required(VERSION 3.16)\n"
-        "project(statix_statecharts C)\n\n"
-        "set(CMAKE_C_STANDARD 99)\n"
-        "set(CMAKE_C_STANDARD_REQUIRED ON)\n\n"
-        "add_compile_options(-Wall -Wextra -Wpedantic -Wconversion"
-        " -Wsign-conversion -Wdouble-promotion -Werror)\n\n"
-        "include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)\n\n"
-        "add_library(statix_runtime STATIC\n"
-        "  src/sc/sc_status.c\n"
-        "  src/sc/sc_event_queue.c\n"
-        "  src/sc/sc_runtime.c)\n\n"
-        "add_library(statix_statecharts STATIC\n"
-        f"{lib_sources})\n"
-        "target_link_libraries(statix_statecharts statix_runtime)\n"
-        + ("\n" if project.programs else "")
+    runners_tail = (
+        ("\n" if project.programs else "")
         + "\n\n".join(runners)
         + ("\n" if runners else "")
+    )
+    return {"lib_sources": lib_sources, "runners_tail": runners_tail}
+
+
+def emit_cmakelists(project: CProject) -> str:
+    """Render a CMakeLists.txt building runtime, statecharts, and runners."""
+    return _env.get_template("cmakelists.txt.j2").render(
+        **_cmakelists_view(project)
     )
 
 
