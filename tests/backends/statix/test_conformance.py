@@ -135,6 +135,7 @@ SM17_CASES = [
     ("SM17::MachineScoped", ()),
     ("SM17::MachineCounterLimit", ("Tick", "Tick")),
     ("SM17::MachineNegated", ("Tick",)),
+    ("SM17::MachineFunctionViolation", ("Tick",)),
 ]
 
 
