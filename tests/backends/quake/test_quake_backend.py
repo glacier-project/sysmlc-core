@@ -62,26 +62,17 @@ def test_serialize_rejects_unknown_format(
         backend.serialize(artifact, "json")
 
 
-def test_write_defaults_to_all_formats(
+def test_write_defaults_to_all_formats_creating_output_dir(
     backend: QuakeBackend, artifact: Statechart, tmp_path: Path
 ) -> None:
-    written = backend.write(artifact, OutputOptions(output_dir=tmp_path))
+    nested = tmp_path / "a" / "b"
+    written = backend.write(artifact, OutputOptions(output_dir=nested))
     assert sorted(p.name for p in written) == ["Machine.puml", "Machine.yaml"]
-    assert "statechart:" in (tmp_path / "Machine.yaml").read_text()
-    assert "@startuml" in (tmp_path / "Machine.puml").read_text()
+    assert "statechart:" in (nested / "Machine.yaml").read_text()
+    assert "@startuml" in (nested / "Machine.puml").read_text()
 
 
-def test_write_single_format(
-    backend: QuakeBackend, artifact: Statechart, tmp_path: Path
-) -> None:
-    written = backend.write(
-        artifact, OutputOptions(output_dir=tmp_path, formats=("yaml",))
-    )
-    assert [p.name for p in written] == ["Machine.yaml"]
-    assert not (tmp_path / "Machine.puml").exists()
-
-
-def test_write_basename_override(
+def test_write_single_format_with_basename_override(
     backend: QuakeBackend, artifact: Statechart, tmp_path: Path
 ) -> None:
     written = backend.write(
@@ -91,14 +82,7 @@ def test_write_basename_override(
         ),
     )
     assert [p.name for p in written] == ["custom.yaml"]
-
-
-def test_write_creates_missing_output_dir(
-    backend: QuakeBackend, artifact: Statechart, tmp_path: Path
-) -> None:
-    nested = tmp_path / "a" / "b"
-    backend.write(artifact, OutputOptions(output_dir=nested, formats=("yaml",)))
-    assert (nested / "Machine.yaml").is_file()
+    assert not (tmp_path / "custom.puml").exists()
 
 
 def test_write_part_system_emits_manifest_and_instance_statecharts(
