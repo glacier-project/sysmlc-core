@@ -151,6 +151,10 @@ chain. The first false active invariant makes the call return
 macro-step boundary, including on a no-transition dispatch). Constraints whose
 expression contains a function call are rejected (§9).
 
+## 6b. Library function calls
+
+Allowlisted `NumericalFunctions::abs/max/min` → `fabs`/`fmax`/`fmin` and `TrigFunctions::sin/cos/tan` → `sin`/`cos`/`tan`, all double-typed via `<math.h>` (linked with `-lm` when used). Real-only — a library result assigned to a non-Real attribute is rejected; external calc-defs and non-allowlist functions are rejected.
+
 ## 7. Attributes and the context struct
 
 Machine attributes become fields of the generated `<prefix>_context_t`, passed
@@ -198,7 +202,7 @@ iteration 1:
 | machine-level (state def) entry/do/exit actions          | rejected (put on states)               |
 | non-inline / referenced `do` activities                  | rejected                               |
 | `String` / non-scalar, non-composite attributes          | rejected                               |
-| external / library function calls in expressions         | rejected                               |
+| external / non-allowlist function calls in expressions | rejected (allowlisted library calls supported) |
 
 ## 10. Forward notes (not settled)
 
