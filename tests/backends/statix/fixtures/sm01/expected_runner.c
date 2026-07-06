@@ -26,8 +26,8 @@ int main(int argc, char **argv)
 
     sm01_machine_context_init(&ctx);
     status = sm01_machine_init(&sm, &ctx);
-    (void)printf("init status=%s state=%s\n", sc_status_str(status),
-                 sm01_machine_state_name(sm01_machine_get_state(&sm)));
+    (void)printf("init status=%s state=%s final=%d\n", sc_status_str(status),
+                 sm01_machine_state_name(sm01_machine_get_state(&sm)), (int)sm01_machine_is_final(&sm));
     if (status != SC_STATUS_OK) {
         return 1;
     }
@@ -39,8 +39,8 @@ int main(int argc, char **argv)
             return 2;
         }
         status = sm01_machine_post(&sm, event_id);
-        (void)printf("event %s status=%s state=%s\n", argv[i],
-                     sc_status_str(status), sm01_machine_state_name(sm01_machine_get_state(&sm)));
+        (void)printf("event %s status=%s state=%s final=%d\n", argv[i],
+                     sc_status_str(status), sm01_machine_state_name(sm01_machine_get_state(&sm)), (int)sm01_machine_is_final(&sm));
         if ((status != SC_STATUS_OK) && (status != SC_STATUS_NO_TRANSITION)) {
             return 1;
         }

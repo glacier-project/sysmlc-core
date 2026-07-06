@@ -165,10 +165,14 @@ rosetta.
 - **A Composite states** (landed) — table `parent`/`initial_child` columns
   walked by bounded LCA dispatch in `sc/sc_machine.h`; parallel and history
   remain out of scope.
-- **B `then done` / final** — a generated `FINAL`-kind state per scope; entering
-  it marks the enclosing composite complete and the completion micro-step fires
-  its eventless exit; at the root, "complete" is a settled/terminal status the
-  host loop observes. Parallel `then done` is a join (with I).
+- **B `then done` / final** (landed) — each `then done` synthesizes an absorbing
+  leaf final state per scope (`done` at root, `<scope>::done` nested), flagged by
+  an `is_final` state-table column (no dispatch change: Sismic fires eventless
+  composite transitions ungated + inner-first, which the existing completion
+  search already matches). Entering a nested final lets the enclosing composite's
+  completion transition fire on the next micro-step; a root-level final is
+  queryable as terminated via `<prefix>_is_final`. Parallel `then done` is a join
+  (deferred with I).
 - **C `do` (one-shot)** — append a state's inline `do` (`assign`/`send`)
   statements to its entry sequence (entry then do); non-inline `do` stays
   rejected. Mostly a builder change.
@@ -216,7 +220,7 @@ Conformance-gated, hierarchy before advanced features, untimed before timed.
   - Corpus: SM01 multi-`state def` project compiles, links, and runs
   - Runtime delta: prefixed public API; static guard/action; shared `sc/sc_machine.h` dispatch template
 - **Phase A: UML core (untimed)**
-  - Features: **composite (landed)**, then done/final, one-shot do, constraints, functions/extern
+  - Features: **composite (landed)**, **then done/final (landed)**, one-shot do, constraints, functions/extern
   - Corpus: sm08, sm10, sm12, sm14, sm17
   - Runtime delta: state tree + LCA dispatch + MAX_DEPTH; final states; invariant check + new status
 - **Phase B: Internal-event RTC**

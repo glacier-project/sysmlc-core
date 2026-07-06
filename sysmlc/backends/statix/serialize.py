@@ -200,6 +200,14 @@ def emit_header(program: CProgram) -> str:
         ),
         f"sc_state_id_t {p}_get_state(const {p}_t *sm);",
         "",
+        (
+            "/// @brief Whether the machine reached a root-level final state "
+            "(terminated)."
+        ),
+        "/// @param sm Statechart instance to inspect.",
+        "/// @return true if the active leaf is a root-scope final state.",
+        f"bool {p}_is_final(const {p}_t *sm);",
+        "",
         "/// @brief Return a stable name for a generated state id.",
         "/// @param state State identifier to name.",
         "/// @return Static non-NULL state name.",
@@ -251,7 +259,10 @@ def emit_source(program: CProgram) -> str:
             if s.initial_child is None
             else _const(p, "STATE", s.initial_child)
         )
-        parts.append(f"    {{{entry}, {exit_}, {parent}, {initial_child}}},")
+        is_final = "true" if s.is_final else "false"
+        parts.append(
+            f"    {{{entry}, {exit_}, {parent}, {initial_child}, {is_final}}},"
+        )
     parts += [
         "};",
         "",
@@ -432,8 +443,14 @@ def emit_runner(program: CProgram) -> str:
         "",
         f"    {p}_context_init(&ctx);",
         f"    status = {p}_init(&sm, &ctx);",
-        '    (void)printf("init status=%s state=%s\\n", sc_status_str(status),',
-        f"                 {p}_state_name({p}_get_state(&sm)));",
+        (
+            '    (void)printf("init status=%s state=%s final=%d\\n", '
+            "sc_status_str(status),"
+        ),
+        (
+            f"                 {p}_state_name({p}_get_state(&sm)), "
+            f"(int){p}_is_final(&sm));"
+        ),
         "    if (status != SC_STATUS_OK) {",
         "        return 1;",
         "    }",
@@ -445,10 +462,13 @@ def emit_runner(program: CProgram) -> str:
         "            return 2;",
         "        }",
         f"        status = {p}_post(&sm, event_id);",
-        '        (void)printf("event %s status=%s state=%s\\n", argv[i],',
+        (
+            '        (void)printf("event %s status=%s state=%s final=%d\\n", '
+            "argv[i],"
+        ),
         (
             f"                     sc_status_str(status), "
-            f"{p}_state_name({p}_get_state(&sm)));"
+            f"{p}_state_name({p}_get_state(&sm)), (int){p}_is_final(&sm));"
         ),
         (
             "        if ((status != SC_STATUS_OK) && "

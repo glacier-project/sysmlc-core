@@ -23,6 +23,7 @@ _WANTED = {
     "sm07",
     "sm08",
     "sm09",
+    "sm10",
     "sm11",
 }
 
@@ -38,37 +39,54 @@ def sm_models() -> dict[str, syside.Model]:
     return out
 
 
-@pytest.fixture
-def statix_run(
-    tmp_path: Path,
-) -> Callable[..., str]:
-    """Return a callable that builds, compiles, and runs a program.
+def _run_last_line(
+    tmp_path: Path, program: CProgram, events: tuple[str, ...]
+) -> str:
+    """Write, compile, and run a program; return runner's last stdout line."""
+    StatixBackend().write(program, OutputOptions(output_dir=tmp_path))
+    build = tmp_path / "build"
+    subprocess.run(
+        ["cmake", "-S", str(tmp_path), "-B", str(build)],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["cmake", "--build", str(build)],
+        check=True,
+        capture_output=True,
+    )
+    out = subprocess.run(
+        [str(build / f"{program.prefix}_runner"), *events],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return out.stdout.strip().splitlines()[-1]
 
-    The callable writes the generated project, compiles it via the generated
-    CMake (under the strict warning set), runs the generated host runner, and
-    returns the final state name printed by the runner.
-    """
+
+@pytest.fixture
+def statix_run(tmp_path: Path) -> Callable[..., str]:
+    """Build, compile, and run a program; return the final state name."""
 
     def _run(program: CProgram, events: tuple[str, ...] = ()) -> str:
-        StatixBackend().write(program, OutputOptions(output_dir=tmp_path))
-        build = tmp_path / "build"
-        subprocess.run(
-            ["cmake", "-S", str(tmp_path), "-B", str(build)],
-            check=True,
-            capture_output=True,
-        )
-        subprocess.run(
-            ["cmake", "--build", str(build)],
-            check=True,
-            capture_output=True,
-        )
-        out = subprocess.run(
-            [str(build / f"{program.prefix}_runner"), *events],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        last = out.stdout.strip().splitlines()[-1]
-        return last.rsplit("state=", maxsplit=1)[1].strip()
+        line = _run_last_line(tmp_path, program, events)
+        tail = line.rsplit("state=", maxsplit=1)[1].strip()
+        return tail.split()[0]
+
+    return _run
+
+
+@pytest.fixture
+def statix_run_final(tmp_path: Path) -> Callable[..., tuple[str, bool]]:
+    """Build, compile, run a program; return (final state name, is_final)."""
+
+    def _run(
+        program: CProgram, events: tuple[str, ...] = ()
+    ) -> tuple[str, bool]:
+        line = _run_last_line(tmp_path, program, events)
+        tokens = line.rsplit("state=", maxsplit=1)[1].strip().split()
+        leaf = tokens[0]
+        final = any(tok == "final=1" for tok in tokens[1:])
+        return leaf, final
 
     return _run

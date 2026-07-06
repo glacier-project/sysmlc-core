@@ -59,6 +59,7 @@ typedef struct sc_state_def_s {
     sc_action_id_t exit_action;   ///< @brief Exit action id, or SC_ACTION_NONE.
     sc_state_id_t parent;         ///< @brief Enclosing state id, or SC_STATE_INVALID at top level.
     sc_state_id_t initial_child;  ///< @brief Descend target if composite, else SC_STATE_INVALID.
+    bool is_final;                ///< @brief True for a synthesized `then done` final state.
 } sc_state_def_t;
 
 /// @brief Complete immutable machine definition generated as static const.

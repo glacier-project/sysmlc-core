@@ -63,3 +63,33 @@ def test_sm08_hierarchy_matches_sismic(
     assert statix_leaf == sismic_leaf, (
         f"{qn}: statix {statix_leaf!r} != sismic {sismic_leaf!r}"
     )
+
+
+SM10_CASES = [
+    "SM10::MachineRootDone",
+    "SM10::MachineNestedDone",
+    "SM10::MachineTwoDone",
+]
+
+
+@pytest.mark.parametrize("qn", SM10_CASES)
+def test_sm10_final_states_match_sismic(
+    sm_models: dict,
+    statix_run_final: Callable,
+    qn: str,
+) -> None:
+    interpreter = Interpreter(build_statechart(sm_models["sm10"], qn))
+    interpreter.execute()
+
+    program = build_statix(sm_models["sm10"], qn)
+    leaf, final = statix_run_final(program)
+
+    assert final == interpreter.final, (
+        f"{qn}: statix final={final} != sismic final={interpreter.final}"
+    )
+    if not interpreter.final:
+        # Still-alive machine (nested done): compare the innermost active leaf.
+        sismic_leaf = sorted(interpreter.configuration)[-1]
+        assert leaf == sismic_leaf, (
+            f"{qn}: statix {leaf!r} != sismic {sismic_leaf!r}"
+        )

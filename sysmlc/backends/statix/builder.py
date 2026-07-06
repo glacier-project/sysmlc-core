@@ -87,6 +87,7 @@ class StatixBuilder:
         self._used_action_names: set[str] = set()
         self._events: dict[str, None] = {}
         self._structs: dict[str, CStruct] = {}
+        self._finals: dict[str, CState] = {}
 
     # -- TargetBuilder protocol --
 
@@ -138,10 +139,11 @@ class StatixBuilder:
         self._gen = CCodeGen(
             attribute_names=frozenset(f.name for f in context.fields)
         )
-        states = tuple(self._build_state(f) for f in self._state_facts)
+        real_states = tuple(self._build_state(f) for f in self._state_facts)
         transitions = tuple(
             self._build_transition(t) for t in self._transition_facts
         )
+        states = real_states + tuple(self._finals.values())
         if root.initial_substate is None:
             raise UnsupportedConstructError(
                 "the machine declares no initial state."
@@ -252,12 +254,26 @@ class StatixBuilder:
             initial_child=fact.initial_substate,
         )
 
-    def _build_transition(self, t: TransitionFact) -> CTransition:
-        if isinstance(t.target, CompletionTarget):
-            raise UnsupportedConstructError(
-                "`then done` completion targets are not supported by statix "
-                "yet."
+    def _final_for(self, scope: str) -> str:
+        """Return the display name of the (deduped) final state for a scope.
+
+        Mirrors quake: root scope ``""`` synthesizes ``done`` (top-level, parent
+        None); a composite scope ``running`` synthesizes ``running::done`` under
+        it. Multiple ``then done`` in one scope share the single final.
+        """
+        name = "done" if scope == "" else f"{scope}::done"
+        if name not in self._finals:
+            self._finals[name] = CState(
+                name=name,
+                entry_action_id=None,
+                exit_action_id=None,
+                parent=None if scope == "" else scope,
+                initial_child=None,
+                is_final=True,
             )
+        return name
+
+    def _build_transition(self, t: TransitionFact) -> CTransition:
         event = self._event_of(t.trigger)
         guard = self._guard_for(t.guard)
         source = t.source
@@ -265,8 +281,11 @@ class StatixBuilder:
         action = self._action_for(
             t.effect, f"{_c_identifier(source)}_{label}_effect"
         )
-        assert not isinstance(t.target, CompletionTarget)
-        return CTransition(source, event, guard, action, t.target)
+        if isinstance(t.target, CompletionTarget):
+            target = self._final_for(t.target.scope)
+        else:
+            target = t.target
+        return CTransition(source, event, guard, action, target)
 
     def _event_of(self, trigger: object | None) -> str:
         if trigger is None:

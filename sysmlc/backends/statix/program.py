@@ -57,6 +57,7 @@ class CState:
     ``name`` is the root-relative dotted display path (``"running::hot"``);
     ``parent``/``initial_child`` are other states' display names, or ``None``
     for a top-level state / a leaf (serialized as ``SC_STATE_INVALID``).
+    ``is_final`` marks a synthesized ``then done`` final state.
     """
 
     name: str
@@ -64,6 +65,7 @@ class CState:
     exit_action_id: str | None
     parent: str | None = None
     initial_child: str | None = None
+    is_final: bool = False
 
 
 @dataclass(frozen=True)
