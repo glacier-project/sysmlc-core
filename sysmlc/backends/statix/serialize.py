@@ -1,7 +1,17 @@
 from __future__ import annotations
 
+from jinja2 import Environment, PackageLoader
+
 from sysmlc.backends.statix.builder import _c_identifier
 from sysmlc.backends.statix.program import COMPLETION_EVENT, CProgram, CProject
+
+_env = Environment(
+    loader=PackageLoader("sysmlc.backends.statix", "templates"),
+    autoescape=False,  # generating C, never HTML
+    trim_blocks=True,
+    lstrip_blocks=True,
+    keep_trailing_newline=True,
+)
 
 _FIRST_STATE_ID = 0
 _FIRST_NONZERO_ID = 1
