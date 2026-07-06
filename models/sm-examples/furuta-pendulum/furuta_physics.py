@@ -15,11 +15,12 @@ State convention (matches the LF reference):
   phi     - horizontal arm angle
   d_phi   - arm angular velocity
 
-This is the quake variant of the parent folder's `furuta_physics.py`. It
-differs in one respect: it defines `PendulumState` and `AngleReading` as local
-dataclasses instead of importing them from a generated `furutaSystem_types`
-companion. The quake backend runs the statechart in-process, so nothing
-generates that companion; owning the types keeps this module self-contained.
+This is the quake variant of the furuta_physics.py under
+`models/showcase/furuta-pendulum`. It differs in one respect: it defines
+`PendulumState` and `AngleReading` as local dataclasses instead of a generated
+`furutaSystem_types` companion. The quake backend runs the statechart
+in-process, so nothing generates that companion; owning the types keeps this
+module self-contained.
   `step` receives a `PendulumState` and returns a new `PendulumState`.
   The torque functions receive an `AngleReading`.
 Neither function mutates its input.
