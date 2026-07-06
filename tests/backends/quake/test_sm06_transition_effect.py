@@ -8,11 +8,10 @@ from sismic.interpreter import Interpreter
 
 from sysmlc.backends.quake import build_statechart
 from sysmlc.sysml.loading import load_model
-from tests.backends.quake.conftest import SM_EXAMPLES_BY_DIR
+from tests.backends.quake.conftest import SM_EXAMPLES_BY_DIR, transition_from
 
 if TYPE_CHECKING:
     import syside
-    from sismic.model import Statechart, Transition
 
 EXAMPLE = SM_EXAMPLES_BY_DIR["sm06-transition-effect"]
 
@@ -56,62 +55,30 @@ CASES: list[EffectCase] = [
 ]
 
 
-def _transition_from(statechart: Statechart, source: str) -> Transition:
-    """Return the single transition leaving ``source`` in ``statechart``."""
-    matches = [t for t in statechart.transitions if t.source == source]
-    assert len(matches) == 1, (
-        f"expected exactly one transition from {source!r}, found {len(matches)}"
-    )
-    return matches[0]
-
-
 @pytest.fixture(scope="module")
 def model() -> syside.Model:
     return load_model(EXAMPLE.model_dir)
 
 
-@pytest.fixture(
-    scope="module",
-    params=CASES,
-    ids=lambda c: c.state_def_qn.split("::", 1)[1],
+@pytest.mark.parametrize(
+    "case", CASES, ids=lambda case: case.state_def_qn.split("::", 1)[1]
 )
-def case(request: pytest.FixtureRequest) -> EffectCase:
-    """Yield every transition-effect shape sm06 exercises."""
-    param: EffectCase = request.param
-    return param
-
-
-def test_effect_transition_action_is_emitted(
+def test_effect_emitted_on_its_transition_only_and_mutates_context(
     model: syside.Model,
     case: EffectCase,
 ) -> None:
-    """The effect transition's ``action`` is the emitted assignment.
+    """The effect is emitted on its transition alone and runs on fire.
 
-    Per SysML v2 §7.18.3, a transition's effect action "is performed if
-    the transition usage is triggered".
+    Per SysML v2 §7.18.3, a transition's effect action "is performed
+    if the transition usage is triggered". Sibling transitions carry
+    no action.
     """
     sc = build_statechart(model, case.state_def_qn)
-    assert _transition_from(sc, EFFECT_SOURCE).action == case.expected_action
-
-
-def test_effect_targets_only_its_transition(
-    model: syside.Model,
-    case: EffectCase,
-) -> None:
-    """Only the effect transition carries an ``action``; siblings stay empty."""
-    sc = build_statechart(model, case.state_def_qn)
+    assert transition_from(sc, EFFECT_SOURCE).action == case.expected_action
     sources_with_action = {
         t.source for t in sc.transitions if t.action is not None
     }
     assert sources_with_action == {EFFECT_SOURCE}
-
-
-def test_effect_mutates_context(
-    model: syside.Model,
-    case: EffectCase,
-) -> None:
-    """Firing the effect mutates the context to the expected value."""
-    sc = build_statechart(model, case.state_def_qn)
     interpreter = Interpreter(sc)
     interpreter.execute()
     for name, value in case.expected_context.items():

@@ -27,7 +27,9 @@ class DoCase:
         expected_on_entry: The Python statement string the builder must
             place in ``carrier``'s ``on_entry`` slot, or ``None`` when the
             do action is empty.
-        expected_context: Attribute name -> value.
+        expected_context: Attribute name -> value after execution.
+            Empty when the do body mutates nothing; the runtime check
+            is then skipped.
     """
 
     state_def_qn: str
@@ -123,39 +125,30 @@ def model() -> syside.Model:
     return load_model(EXAMPLE.model_dir)
 
 
-@pytest.fixture(
-    scope="module",
-    params=CASES,
-    ids=lambda c: c.state_def_qn.split("::", 1)[1],
+@pytest.mark.parametrize(
+    "case", CASES, ids=lambda case: case.state_def_qn.split("::", 1)[1]
 )
-def case(request: pytest.FixtureRequest) -> DoCase:
-    """Yield every do-action shape sm12 exercises."""
-    param: DoCase = request.param
-    return param
-
-
-def test_do_action_emitted_into_on_entry(
+def test_do_action_emitted_into_on_entry_and_runs_once(
     model: syside.Model,
     case: DoCase,
 ) -> None:
-    """A state's ``do`` action body is emitted into the state's ``on_entry``."""
+    """A ``do`` body lands in its carrier's ``on_entry`` and runs once.
+
+    Only the carrier state gets an ``on_entry``. For cases whose body
+    mutates attributes, executing the statechart leaves the expected
+    values in the context; for the empty and send-only cases the
+    corpus-wide invariant in test_sm_common.py covers execution.
+    """
     sc = build_statechart(model, case.state_def_qn)
     assert sc.state_for(case.carrier).on_entry == case.expected_on_entry
     for state_name in sc.states:
         if state_name != case.carrier:
             assert sc.state_for(state_name).on_entry is None
-
-
-def test_do_action_runs_once_on_entry(
-    model: syside.Model,
-    case: DoCase,
-) -> None:
-    """Executing the statechart runs the do body and mutates context."""
-    sc = build_statechart(model, case.state_def_qn)
-    interpreter = Interpreter(sc)
-    interpreter.execute()
-    for name, value in case.expected_context.items():
-        assert interpreter.context[name] == value
+    if case.expected_context:
+        interpreter = Interpreter(sc)
+        interpreter.execute()
+        for name, value in case.expected_context.items():
+            assert interpreter.context[name] == value
 
 
 def test_do_action_completion_enables_eventless_transition(

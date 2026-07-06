@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     import syside
 
 FIXTURES_DIR = (
-    Path(__file__).resolve().parent / "fixtures" / "sm03-nested-preamble"
+    Path(__file__).resolve().parent / "fixtures" / "nested-preamble-scopes"
 )
 
 

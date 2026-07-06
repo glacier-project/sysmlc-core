@@ -81,41 +81,22 @@ def model() -> syside.Model:
     return load_model(EXAMPLE.model_dir)
 
 
-@pytest.fixture(
-    scope="module",
-    params=CASES,
-    ids=lambda c: c.state_def_qn.split("::", 1)[1],
+@pytest.mark.parametrize(
+    "case", CASES, ids=lambda case: case.state_def_qn.split("::", 1)[1]
 )
-def case(request: pytest.FixtureRequest) -> ChainCase:
-    """Yield every chained-reference shape sm05 exercises."""
-    param: ChainCase = request.param
-    return param
-
-
-def test_chain_reference_guard_is_emitted_python(
+def test_chained_reference_emitted_and_resolved_at_runtime(
     model: syside.Model,
     case: ChainCase,
 ) -> None:
-    """The guard is the emitted dotted Python for the chained reference."""
+    """A chained reference emits dotted Python that resolves when run.
+
+    The guard and the entry assignment carry the emitted dotted
+    source; the bound structured root plus the emitted chain reach the
+    expected values after execution.
+    """
     sc = build_statechart(model, case.state_def_qn)
     assert sc.transitions[0].guard == case.expected_guard
-
-
-def test_chain_reference_on_entry_is_emitted(
-    model: syside.Model,
-    case: ChainCase,
-) -> None:
-    """The substate's ``on_entry`` is the emitted assignment statement."""
-    sc = build_statechart(model, case.state_def_qn)
     assert sc.state_for(ACTION_STATE).on_entry == case.expected_on_entry
-
-
-def test_binding_and_execution_resolve_chain(
-    model: syside.Model,
-    case: ChainCase,
-) -> None:
-    """Bound structured root + emitted chain reach the expected values."""
-    sc = build_statechart(model, case.state_def_qn)
     interpreter = Interpreter(sc)
     interpreter.execute()
     for path, value in case.expected_context.items():

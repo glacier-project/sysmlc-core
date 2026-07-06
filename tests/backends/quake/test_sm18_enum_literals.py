@@ -8,29 +8,18 @@ from sismic.interpreter import Interpreter
 from sysmlc.backends.quake import build_statechart
 from sysmlc.sysml.loading import load_model
 from tests import _load_inline_model
-from tests.backends.quake.conftest import SM_EXAMPLES_BY_DIR, quake_preamble
+from tests.backends.quake.conftest import (
+    SM_EXAMPLES_BY_DIR,
+    quake_preamble,
+    transition_between,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     import syside
-    from sismic.model import Statechart, Transition
 
 EXAMPLE = SM_EXAMPLES_BY_DIR["sm18-enum-literals"]
-
-
-def _transition(sc: Statechart, source: str, target: str) -> Transition:
-    """The transition from ``source`` to ``target``."""
-    for transition in sc.transitions:
-        if transition.source == source and transition.target == target:
-            return transition
-    raise AssertionError(f"no transition {source} -> {target}")
-
-
-def _action_of(sc: Statechart, source: str, target: str) -> str | None:
-    """The action string of the transition from ``source`` to ``target``."""
-    action: str | None = _transition(sc, source, target).action
-    return action
 
 
 @pytest.fixture(scope="module")
@@ -47,13 +36,23 @@ def test_string_enum_default_projects_to_value(model: syside.Model) -> None:
 def test_string_enum_effect_projects_to_value(model: syside.Model) -> None:
     """A String-valued literal in an effect projects to its value."""
     sc = build_statechart(model, "SM18::MachineStringEnum")
-    assert _action_of(sc, "idle", "green") == 'c = "green"'
+    assert transition_between(sc, "idle", "green").action == 'c = "green"'
 
 
-def test_string_enum_guard_projects_to_value(model: syside.Model) -> None:
-    """A String-valued literal in a guard projects to its value."""
+def test_string_enum_guard_projects_and_gates_at_runtime(
+    model: syside.Model,
+) -> None:
+    """A String-valued literal in a guard projects and gates the fire.
+
+    The guard string carries the projected value; at runtime it lets
+    the machine reach ``matched`` once the effect wrote that value.
+    """
     sc = build_statechart(model, "SM18::MachineStringEnum")
-    assert _transition(sc, "green", "matched").guard == 'c == "green"'
+    assert transition_between(sc, "green", "matched").guard == 'c == "green"'
+    interpreter = Interpreter(sc)
+    interpreter.execute()
+    assert "matched" in interpreter.configuration
+    assert interpreter.context["c"] == "green"
 
 
 def test_real_enum_default_projects_to_float(model: syside.Model) -> None:
@@ -62,10 +61,19 @@ def test_real_enum_default_projects_to_float(model: syside.Model) -> None:
     assert sc.preamble == quake_preamble("g = 4.0")
 
 
-def test_real_enum_guard_projects_to_float(model: syside.Model) -> None:
-    """A Real-valued literal in a numeric guard projects to its float."""
+def test_real_enum_guard_projects_and_gates_at_runtime(
+    model: syside.Model,
+) -> None:
+    """A Real-valued literal in a numeric guard projects and gates.
+
+    The guard string carries the projected float; at runtime it lets
+    the machine reach ``passed``.
+    """
     sc = build_statechart(model, "SM18::MachineRealEnum")
-    assert _transition(sc, "grading", "passed").guard == "g >= 3.0"
+    assert transition_between(sc, "grading", "passed").guard == "g >= 3.0"
+    interpreter = Interpreter(sc)
+    interpreter.execute()
+    assert "passed" in interpreter.configuration
 
 
 def test_plain_enum_default_projects_to_name(model: syside.Model) -> None:
@@ -77,54 +85,38 @@ def test_plain_enum_default_projects_to_name(model: syside.Model) -> None:
 def test_plain_enum_effect_projects_to_name(model: syside.Model) -> None:
     """A plain symbolic literal in an effect projects to its name."""
     sc = build_statechart(model, "SM18::MachinePlainEnum")
-    assert _action_of(sc, "ready", "working") == 'm = "busy"'
+    assert transition_between(sc, "ready", "working").action == 'm = "busy"'
 
 
-def test_plain_enum_guard_projects_to_name(model: syside.Model) -> None:
-    """A plain symbolic literal in a guard projects to its name."""
-    sc = build_statechart(model, "SM18::MachinePlainEnum")
-    assert _transition(sc, "working", "checked").guard == 'm == "busy"'
-
-
-def test_enum_literal_send_payload_projects_to_value(
+def test_plain_enum_guard_projects_and_gates_at_runtime(
     model: syside.Model,
 ) -> None:
-    """A literal send payload argument projects to its declared value."""
-    sc = build_statechart(model, "SM18::MachineEnumPayload")
-    assert _action_of(sc, "idle", "armed") == 'send("Announce", color="yellow")'
+    """A plain symbolic literal in a guard projects and gates the fire.
 
-
-def test_string_enum_guard_gates_at_runtime(model: syside.Model) -> None:
-    """The projected String-enum guard actually gates the transition."""
-    sc = build_statechart(model, "SM18::MachineStringEnum")
-    interpreter = Interpreter(sc)
-    interpreter.execute()
-    assert "matched" in interpreter.configuration
-    assert interpreter.context["c"] == "green"
-
-
-def test_real_enum_guard_gates_at_runtime(model: syside.Model) -> None:
-    """The projected Real-enum guard actually gates the transition."""
-    sc = build_statechart(model, "SM18::MachineRealEnum")
-    interpreter = Interpreter(sc)
-    interpreter.execute()
-    assert "passed" in interpreter.configuration
-
-
-def test_plain_enum_guard_gates_at_runtime(model: syside.Model) -> None:
-    """The projected plain-enum guard actually gates the transition."""
+    The guard string carries the projected name; at runtime it lets
+    the machine reach ``checked`` once the effect wrote that name.
+    """
     sc = build_statechart(model, "SM18::MachinePlainEnum")
+    assert transition_between(sc, "working", "checked").guard == 'm == "busy"'
     interpreter = Interpreter(sc)
     interpreter.execute()
     assert "checked" in interpreter.configuration
     assert interpreter.context["m"] == "busy"
 
 
-def test_enum_payload_send_drives_accept_end_to_end(
+def test_enum_payload_send_projects_and_drives_accept(
     model: syside.Model,
 ) -> None:
-    """The enum-payload self-send drives the same-machine accept."""
+    """A literal send payload projects and self-delivers end to end.
+
+    The ``send()`` kwarg carries the projected declared value; the
+    enum-payload self-send drives the same-machine accept.
+    """
     sc = build_statechart(model, "SM18::MachineEnumPayload")
+    assert (
+        transition_between(sc, "idle", "armed").action
+        == 'send("Announce", color="yellow")'
+    )
     interpreter = Interpreter(sc)
     interpreter.execute()
     assert "fired" in interpreter.configuration
@@ -160,7 +152,7 @@ def test_computed_enum_value_is_parenthesized(tmp_path: Path) -> None:
     """
     model = _load_inline_model(tmp_path, COMPUTED_VALUE_MODEL)
     sc = build_statechart(model, "ComputedEnum::Machine")
-    guard = _transition(sc, "s1", "s2").guard
+    guard = transition_between(sc, "s1", "s2").guard
     assert guard == "x * (2.0 + 2.0) == 12.0"
     interpreter = Interpreter(sc)
     interpreter.execute()

@@ -96,55 +96,25 @@ def model() -> syside.Model:
     return load_model(EXAMPLE.model_dir)
 
 
-@pytest.fixture(
-    scope="module",
-    params=CASES,
-    ids=lambda c: c.state_def_qn.split("::", 1)[1],
+@pytest.mark.parametrize(
+    "case", CASES, ids=lambda case: case.state_def_qn.split("::", 1)[1]
 )
-def case(request: pytest.FixtureRequest) -> AssignCase:
-    """Yield every ``assign`` action shape sm04 exercises."""
-    param: AssignCase = request.param
-    return param
-
-
-def test_substate_on_entry_is_emitted_assignment(
+def test_assign_actions_emitted_into_slots_and_mutate_context(
     model: syside.Model,
     case: AssignCase,
 ) -> None:
-    """The substate's ``on_entry`` is the emitted assignment statement.
+    """Entry/exit assigns land in their slots and mutate the context.
 
     Per SysML v2 §7.18.1, an entry action "starts when the state is
-    activated"; §7.17.9 makes ``assign a := expr`` mutate ``a``.
+    activated" and an exit action "starts when the state is exited";
+    §7.17.9 makes ``assign a := expr`` set the attribute to the value
+    of its right-hand-side expression.
     """
     sc = build_statechart(model, case.state_def_qn)
     assert sc.state_for(ACTION_STATE).on_entry == case.expected_on_entry
-    assert sc.state_for(ACTION_FREE_STATE).on_entry is None
-
-
-def test_substate_on_exit_is_emitted_assignment(
-    model: syside.Model,
-    case: AssignCase,
-) -> None:
-    """The substate's ``on_exit`` is the emitted assignment statement.
-
-    Per SysML v2 §7.18.1, an exit action "starts when the state is
-    exited".
-    """
-    sc = build_statechart(model, case.state_def_qn)
     assert sc.state_for(ACTION_STATE).on_exit == case.expected_on_exit
+    assert sc.state_for(ACTION_FREE_STATE).on_entry is None
     assert sc.state_for(ACTION_FREE_STATE).on_exit is None
-
-
-def test_assignment_mutates_context(
-    model: syside.Model,
-    case: AssignCase,
-) -> None:
-    """Executing the statechart mutates the context to the expected value.
-
-    Per SysML v2 §7.17.9, an assignment action sets the attribute to the
-    value of its right-hand-side expression.
-    """
-    sc = build_statechart(model, case.state_def_qn)
     interpreter = Interpreter(sc)
     interpreter.execute()
     for name, value in case.expected_context.items():

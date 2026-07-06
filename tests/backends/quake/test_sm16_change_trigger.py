@@ -8,7 +8,12 @@ from sismic.interpreter import Interpreter
 
 from sysmlc.backends.quake import build_statechart
 from sysmlc.sysml.loading import load_model
-from tests.backends.quake.conftest import SM_EXAMPLES_BY_DIR, quake_preamble
+from tests.backends.quake.conftest import (
+    SM_EXAMPLES_BY_DIR,
+    quake_preamble,
+    transition_between,
+    transition_from,
+)
 
 if TYPE_CHECKING:
     import syside
@@ -21,40 +26,24 @@ def model() -> syside.Model:
     return load_model(EXAMPLE.model_dir)
 
 
-def test_bare_change_trigger_emits_armed_flag_transition(
+def test_bare_change_trigger_arms_flag_and_fires_at_the_rise(
     model: syside.Model,
 ) -> None:
-    """A bare `accept when` becomes one flag-guarded eventless transition."""
+    """A bare ``accept when`` arms at entry and fires at the first rise.
+
+    The builder encodes it as one flag-guarded eventless transition:
+    the flag is initialized false, set at entry, and conjoined with
+    the watched condition.
+    """
     sc = build_statechart(model, "SM16::MachineWhenBare")
     assert sc.preamble == quake_preamble("hot = False", "_w_idle_t1 = False")
     assert sc.state_for("idle").on_entry == "_w_idle_t1 = True"
     assert len(sc.transitions) == 2
-    when = next(t for t in sc.transitions if t.source == "idle")
+    when = transition_from(sc, "idle")
     assert when.target == "running"
     assert when.event is None
     assert when.guard == "_w_idle_t1 and (hot)"
     assert when.action is None
-
-
-def test_guarded_change_trigger_emits_real_and_consumer_pair(
-    model: syside.Model,
-) -> None:
-    """`accept when ... if g` adds a negative-priority consumer transition."""
-    sc = build_statechart(model, "SM16::MachineWhenGuard")
-    pair = [t for t in sc.transitions if t.source == "idle" and t.guard]
-    real = next(t for t in pair if t.target == "running")
-    consumer = next(t for t in pair if t.target is None)
-    assert real.guard == "_w_idle_t1 and (hot) and (enabled)"
-    assert real.priority == 0
-    assert consumer.priority < real.priority
-    assert consumer.internal
-    assert consumer.guard == "_w_idle_t1 and (hot)"
-    assert consumer.action == "_w_idle_t1 = False"
-
-
-def test_change_trigger_fires_at_the_rise(model: syside.Model) -> None:
-    """The transition fires at the first rise of the condition."""
-    sc = build_statechart(model, "SM16::MachineWhenBare")
     interp = Interpreter(sc)
     interp.execute()
     assert "idle" in interp.configuration
@@ -88,17 +77,29 @@ def test_guard_true_at_delivery_fires(model: syside.Model) -> None:
     assert interp.final
 
 
-def test_guard_false_at_delivery_consumes_the_occurrence(
+def test_guard_false_at_delivery_consumes_via_consumer_transition(
     model: syside.Model,
 ) -> None:
     """A false guard at delivery consumes the occurrence for good.
 
-    One observation is armed per activation: delivered while the guard is
-    false, it is disarmed by the consumer, and nothing may fire for the
-    rest of that activation, not even when the guard later becomes true or
-    the condition falls and rises again.
+    ``accept when ... if g`` emits a real transition plus a
+    negative-priority internal consumer that disarms the observation
+    flag. One observation is armed per activation: delivered while the
+    guard is false, it is disarmed by the consumer, and nothing may
+    fire for the rest of that activation, not even when the guard
+    later becomes true or the condition falls and rises again.
     """
     sc = build_statechart(model, "SM16::MachineWhenGuard")
+    real = transition_between(sc, "idle", "running")
+    consumer = next(
+        t for t in sc.transitions if t.source == "idle" and t.target is None
+    )
+    assert real.guard == "_w_idle_t1 and (hot) and (enabled)"
+    assert real.priority == 0
+    assert consumer.priority < real.priority
+    assert consumer.internal
+    assert consumer.guard == "_w_idle_t1 and (hot)"
+    assert consumer.action == "_w_idle_t1 = False"
     interp = Interpreter(sc)
     interp.execute()
     interp.context["enabled"] = False
