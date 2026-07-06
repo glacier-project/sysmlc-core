@@ -114,3 +114,39 @@ def test_rejects_parallel_state(sm_models: dict) -> None:
 def test_rejects_send_effect(sm_models: dict) -> None:
     with pytest.raises(UnsupportedConstructError):
         build_statix(sm_models["sm11"], "SM11::MachineSelfSend")
+
+
+def test_root_done_synthesizes_final(sm_models: dict) -> None:
+    program = build_statix(sm_models["sm10"], "SM10::MachineRootDone")
+    done = next(s for s in program.states if s.name == "done")
+    assert done.is_final
+    assert done.parent is None
+    assert done.initial_child is None
+    # The `running then done` transition targets the final.
+    assert any(
+        t.source == "running" and t.target == "done"
+        for t in program.transitions
+    )
+
+
+def test_nested_done_scoped_final(sm_models: dict) -> None:
+    program = build_statix(sm_models["sm10"], "SM10::MachineNestedDone")
+    done = next(s for s in program.states if s.name == "running::done")
+    assert done.is_final
+    assert done.parent == "running"
+    assert any(
+        t.source == "running::hot" and t.target == "running::done"
+        for t in program.transitions
+    )
+
+
+def test_two_done_shares_one_final(sm_models: dict) -> None:
+    program = build_statix(sm_models["sm10"], "SM10::MachineTwoDone")
+    finals = [s for s in program.states if s.is_final]
+    assert [s.name for s in finals] == ["done"]  # exactly one, shared
+    assert sum(1 for t in program.transitions if t.target == "done") == 2
+
+
+def test_parallel_done_is_rejected(sm_models: dict) -> None:
+    with pytest.raises(UnsupportedConstructError):
+        build_statix(sm_models["sm10"], "SM10::MachineParallelDone")
