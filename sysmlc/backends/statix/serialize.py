@@ -41,20 +41,6 @@ def _banner(filename: str, name: str) -> str:
     )
 
 
-def _enum_block(
-    base: str, entries: list[tuple[str, int]], *, docs: dict[str, str]
-) -> str:
-    if not entries:
-        return "/* (none defined in this model) */\n"
-    lines = [f"typedef enum {base}_e {{"]
-    for i, (const_name, value) in enumerate(entries):
-        comma = "," if i + 1 < len(entries) else ""
-        doc = docs.get(const_name, const_name)
-        lines.append(f"    {const_name} = {value}{comma} ///< @brief {doc}.")
-    lines.append(f"}} {base}_t;\n")
-    return "\n".join(lines)
-
-
 def _state_entries(program: CProgram) -> list[tuple[str, int]]:
     return [
         (_const(program.prefix, "STATE", s.name), _FIRST_STATE_ID + i)
@@ -101,11 +87,21 @@ def emit_context_initializer(program: CProgram) -> str:
     return _context_initializer(program)
 
 
-def emit_header(program: CProgram) -> str:
-    """Render the generated public statechart header."""
+def _enum_view(
+    base: str, entries: list[tuple[str, int]], docs: dict[str, str]
+) -> dict[str, object]:
+    return {
+        "base": base,
+        "entries": [
+            {"const": const, "value": value, "doc": docs.get(const, const)}
+            for const, value in entries
+        ],
+    }
+
+
+def _header_view(program: CProgram) -> dict[str, object]:
     p = program.prefix
     pkg_dir, stem = _paths(program)
-    guard = f"{p.upper()}_H"
     state_docs = {
         _const(p, "STATE", s.name): f"State '{s.name}'" for s in program.states
     }
@@ -120,121 +116,37 @@ def emit_header(program: CProgram) -> str:
         _const(p, "ACTION", a.name): f"Generated action '{a.name}'"
         for a in program.actions
     }
-    parts = [
-        f"#ifndef {guard}",
-        f"#define {guard}",
-        "",
-        _banner(f"{pkg_dir}/{stem}.h", program.qualified_name),
-        '#include "sc/sc_runtime.h"',
-        "",
-        "#ifdef __cplusplus",
-        'extern "C" {',
-        "#endif",
-        "",
-        "/// @brief Generated state identifiers.",
-        _enum_block(f"{p}_state", _state_entries(program), docs=state_docs),
-        f"#define {p.upper()}_STATE_COUNT {len(program.states)}u",
-        "",
-        "/// @brief Generated signal event identifiers.",
-        _enum_block(f"{p}_event", _event_entries(program), docs=event_docs),
-        "/// @brief Generated guard identifiers.",
-        _enum_block(f"{p}_guard", _guard_entries(program), docs=guard_docs),
-        "/// @brief Generated action identifiers.",
-        _enum_block(f"{p}_action", _action_entries(program), docs=action_docs),
-        "",
-        f"#define {p.upper()}_QUEUE_CAPACITY {program.queue_capacity}u",
-        "",
-    ]
-    for struct in program.context.structs:
-        parts.append(f"/// @brief Generated nested context type {struct.name}.")
-        parts.append("typedef struct {")
-        for field in struct.fields:
-            parts.append(f"    {field.c_type} {field.name};")
-        parts.append(f"}} {struct.name};")
-        parts.append("")
-    parts.append(f"/// @brief Generated context for {program.qualified_name}.")
-    parts.append(f"typedef struct {p}_context_s {{")
-    for field in program.context.fields:
-        parts.append(f"    {field.c_type} {field.name};")
-    if not program.context.fields:
-        parts.append(
-            "    uint8_t _unused; ///< @brief Placeholder for empty context."
-        )
-    parts.append(f"}} {p}_context_t;")
-    parts += [
-        "",
-        f"/// @brief Runtime instance for {program.qualified_name}.",
-        f"typedef struct {p}_s {{",
-        "    sc_runtime_t runtime;",
-        f"}} {p}_t;",
-        "",
-        (
-            "/// @brief Initialize a generated context object with model "
-            "default values."
-        ),
-        "/// @param ctx Context object to initialize.",
-        f"void {p}_context_init({p}_context_t *ctx);",
-        "",
-        (
-            "/// @brief Initialize a statechart instance and enter its initial "
-            "state."
-        ),
-        "/// @param sm Statechart instance to initialize.",
-        "/// @param ctx Context object owned by the caller.",
-        "/// @return SC_STATUS_OK on success, or an error status.",
-        f"sc_status_t {p}_init({p}_t *sm, {p}_context_t *ctx);",
-        "",
-        "/// @brief Dispatch one event into the statechart.",
-        "/// @param sm Statechart instance receiving the event.",
-        "/// @param event Event to dispatch.",
-        (
-            "/// @return SC_STATUS_OK if a transition fired, "
-            "SC_STATUS_NO_TRANSITION if none matched, or an error status."
-        ),
-        f"sc_status_t {p}_dispatch({p}_t *sm, const sc_event_t *event);",
-        "",
-        "/// @brief Dispatch one no-payload event by id.",
-        "/// @param sm Statechart instance receiving the event.",
-        "/// @param event_id Event identifier to dispatch.",
-        (
-            "/// @return SC_STATUS_OK if a transition fired, "
-            "SC_STATUS_NO_TRANSITION if none matched, or an error status."
-        ),
-        f"sc_status_t {p}_post({p}_t *sm, sc_event_id_t event_id);",
-        "",
-        "/// @brief Return the currently active state.",
-        "/// @param sm Statechart instance to inspect.",
-        (
-            "/// @return Active state id, or SC_STATE_INVALID before "
-            "initialization."
-        ),
-        f"sc_state_id_t {p}_get_state(const {p}_t *sm);",
-        "",
-        (
-            "/// @brief Whether the machine reached a root-level final state "
-            "(terminated)."
-        ),
-        "/// @param sm Statechart instance to inspect.",
-        "/// @return true if the active leaf is a root-scope final state.",
-        f"bool {p}_is_final(const {p}_t *sm);",
-        "",
-        "/// @brief Return a stable name for a generated state id.",
-        "/// @param state State identifier to name.",
-        "/// @return Static non-NULL state name.",
-        f"const char *{p}_state_name(sc_state_id_t state);",
-        "",
-        "/// @brief Return a stable name for a generated event id.",
-        "/// @param event Event identifier to name.",
-        "/// @return Static non-NULL event name.",
-        f"const char *{p}_event_name(sc_event_id_t event);",
-        "",
-        "#ifdef __cplusplus",
-        "}",
-        "#endif",
-        "",
-        f"#endif /* {guard} */",
-    ]
-    return "\n".join(parts) + "\n"
+    return {
+        "guard": f"{p.upper()}_H",
+        "banner": _banner(f"{pkg_dir}/{stem}.h", program.qualified_name),
+        "prefix": p,
+        "qn": program.qualified_name,
+        "state_count": len(program.states),
+        "queue_capacity": program.queue_capacity,
+        "enums": [
+            _enum_view(f"{p}_state", _state_entries(program), state_docs),
+            _enum_view(f"{p}_event", _event_entries(program), event_docs),
+            _enum_view(f"{p}_guard", _guard_entries(program), guard_docs),
+            _enum_view(f"{p}_action", _action_entries(program), action_docs),
+        ],
+        "structs": [
+            {
+                "name": st.name,
+                "fields": [
+                    {"c_type": f.c_type, "name": f.name} for f in st.fields
+                ],
+            }
+            for st in program.context.structs
+        ],
+        "context_fields": [
+            {"c_type": f.c_type, "name": f.name} for f in program.context.fields
+        ],
+    }
+
+
+def emit_header(program: CProgram) -> str:
+    """Render the generated public statechart header."""
+    return _env.get_template("machine.h.j2").render(**_header_view(program))
 
 
 def emit_source(program: CProgram) -> str:

@@ -1,0 +1,109 @@
+{% macro enum_block(e) -%}
+{% if e.entries -%}
+typedef enum {{ e.base }}_e {
+{% for c in e.entries %}
+    {{ c.const }} = {{ c.value }}{% if not loop.last %},{% endif %} ///< @brief {{ c.doc }}.
+{% endfor %}
+} {{ e.base }}_t;
+{%- else -%}
+/* (none defined in this model) */
+{%- endif %}
+{%- endmacro %}
+#ifndef {{ guard }}
+#define {{ guard }}
+
+{{ banner }}
+#include "sc/sc_runtime.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/// @brief Generated state identifiers.
+{{ enum_block(enums[0]) }}
+
+#define {{ prefix|upper }}_STATE_COUNT {{ state_count }}u
+
+/// @brief Generated signal event identifiers.
+{{ enum_block(enums[1]) }}
+
+/// @brief Generated guard identifiers.
+{{ enum_block(enums[2]) }}
+
+/// @brief Generated action identifiers.
+{{ enum_block(enums[3]) }}
+
+
+#define {{ prefix|upper }}_QUEUE_CAPACITY {{ queue_capacity }}u
+
+{% for st in structs %}
+/// @brief Generated nested context type {{ st.name }}.
+typedef struct {
+{% for f in st.fields %}
+    {{ f.c_type }} {{ f.name }};
+{% endfor %}
+} {{ st.name }};
+
+{% endfor %}
+/// @brief Generated context for {{ qn }}.
+typedef struct {{ prefix }}_context_s {
+{% for f in context_fields %}
+    {{ f.c_type }} {{ f.name }};
+{% endfor %}
+{% if not context_fields %}
+    uint8_t _unused; ///< @brief Placeholder for empty context.
+{% endif %}
+} {{ prefix }}_context_t;
+
+/// @brief Runtime instance for {{ qn }}.
+typedef struct {{ prefix }}_s {
+    sc_runtime_t runtime;
+} {{ prefix }}_t;
+
+/// @brief Initialize a generated context object with model default values.
+/// @param ctx Context object to initialize.
+void {{ prefix }}_context_init({{ prefix }}_context_t *ctx);
+
+/// @brief Initialize a statechart instance and enter its initial state.
+/// @param sm Statechart instance to initialize.
+/// @param ctx Context object owned by the caller.
+/// @return SC_STATUS_OK on success, or an error status.
+sc_status_t {{ prefix }}_init({{ prefix }}_t *sm, {{ prefix }}_context_t *ctx);
+
+/// @brief Dispatch one event into the statechart.
+/// @param sm Statechart instance receiving the event.
+/// @param event Event to dispatch.
+/// @return SC_STATUS_OK if a transition fired, SC_STATUS_NO_TRANSITION if none matched, or an error status.
+sc_status_t {{ prefix }}_dispatch({{ prefix }}_t *sm, const sc_event_t *event);
+
+/// @brief Dispatch one no-payload event by id.
+/// @param sm Statechart instance receiving the event.
+/// @param event_id Event identifier to dispatch.
+/// @return SC_STATUS_OK if a transition fired, SC_STATUS_NO_TRANSITION if none matched, or an error status.
+sc_status_t {{ prefix }}_post({{ prefix }}_t *sm, sc_event_id_t event_id);
+
+/// @brief Return the currently active state.
+/// @param sm Statechart instance to inspect.
+/// @return Active state id, or SC_STATE_INVALID before initialization.
+sc_state_id_t {{ prefix }}_get_state(const {{ prefix }}_t *sm);
+
+/// @brief Whether the machine reached a root-level final state (terminated).
+/// @param sm Statechart instance to inspect.
+/// @return true if the active leaf is a root-scope final state.
+bool {{ prefix }}_is_final(const {{ prefix }}_t *sm);
+
+/// @brief Return a stable name for a generated state id.
+/// @param state State identifier to name.
+/// @return Static non-NULL state name.
+const char *{{ prefix }}_state_name(sc_state_id_t state);
+
+/// @brief Return a stable name for a generated event id.
+/// @param event Event identifier to name.
+/// @return Static non-NULL event name.
+const char *{{ prefix }}_event_name(sc_event_id_t event);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* {{ guard }} */
