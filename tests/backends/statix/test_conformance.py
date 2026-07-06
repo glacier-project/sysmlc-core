@@ -1,6 +1,7 @@
 from collections.abc import Callable
 
 import pytest
+from sismic.exceptions import InvariantError
 from sismic.interpreter import Interpreter
 
 from sysmlc.backends.quake.builder import build_statechart
@@ -128,3 +129,39 @@ def test_sm12_do_matches_sismic(
     assert statix_leaf == sismic_leaf, (
         f"{qn}: statix {statix_leaf!r} != sismic {sismic_leaf!r}"
     )
+
+
+SM17_CASES = [
+    ("SM17::MachineScoped", ()),
+    ("SM17::MachineCounterLimit", ("Tick", "Tick")),
+    ("SM17::MachineNegated", ("Tick",)),
+]
+
+
+@pytest.mark.parametrize("qn,events", SM17_CASES)
+def test_sm17_constraints_match_sismic(
+    sm_models: dict,
+    statix_run_status: Callable,
+    qn: str,
+    events: tuple[str, ...],
+) -> None:
+    # Derive the oracle verdict: does Sismic raise InvariantError on this run?
+    interpreter = Interpreter(build_statechart(sm_models["sm17"], qn))
+    violated = False
+    try:
+        interpreter.execute()
+        for e in events:
+            interpreter.queue(e)
+            interpreter.execute()
+    except InvariantError:
+        violated = True
+
+    status = statix_run_status(build_statix(sm_models["sm17"], qn), events)
+    if violated:
+        assert status == "SC_STATUS_CONSTRAINT_VIOLATED", (
+            f"{qn}: statix {status!r}"
+        )
+    else:
+        assert status != "SC_STATUS_CONSTRAINT_VIOLATED", (
+            f"{qn}: statix {status!r}"
+        )

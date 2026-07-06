@@ -42,7 +42,10 @@ def sm_models() -> dict[str, syside.Model]:
 
 
 def _run_last_line(
-    tmp_path: Path, program: CProgram, events: tuple[str, ...]
+    tmp_path: Path,
+    program: CProgram,
+    events: tuple[str, ...],
+    check: bool = True,
 ) -> str:
     """Write, compile, and run a program; return runner's last stdout line."""
     StatixBackend().write(program, OutputOptions(output_dir=tmp_path))
@@ -59,7 +62,7 @@ def _run_last_line(
     )
     out = subprocess.run(
         [str(build / f"{program.prefix}_runner"), *events],
-        check=True,
+        check=check,
         capture_output=True,
         text=True,
     )
@@ -90,5 +93,21 @@ def statix_run_final(tmp_path: Path) -> Callable[..., tuple[str, bool]]:
         leaf = tokens[0]
         final = any(tok == "final=1" for tok in tokens[1:])
         return leaf, final
+
+    return _run
+
+
+@pytest.fixture
+def statix_run_status(tmp_path: Path) -> Callable[..., str]:
+    """Build/compile/run; return the runner's last status= token.
+
+    Tolerant of a non-zero exit, so a constraint violation (which makes the
+    runner exit 1 after printing status=SC_STATUS_CONSTRAINT_VIOLATED) is
+    observable rather than raising.
+    """
+
+    def _run(program: CProgram, events: tuple[str, ...] = ()) -> str:
+        line = _run_last_line(tmp_path, program, events, check=False)
+        return line.rsplit("status=", maxsplit=1)[1].split()[0]
 
     return _run
