@@ -1,7 +1,7 @@
 import pytest
 
 from sysmlc.backends.statix.builder import build_statix
-from sysmlc.backends.statix.program import COMPLETION_EVENT
+from sysmlc.backends.statix.program import COMPLETION_EVENT, CProgram
 from sysmlc.errors import UnsupportedConstructError
 
 
@@ -152,7 +152,7 @@ def test_parallel_done_is_rejected(sm_models: dict) -> None:
         build_statix(sm_models["sm10"], "SM10::MachineParallelDone")
 
 
-def _entry_statements(program, state_name):
+def _entry_statements(program: CProgram, state_name: str) -> tuple[str, ...]:
     """The statements of a state's entry action, or () if it has none."""
     state = next(s for s in program.states if s.name == state_name)
     if state.entry_action_id is None:
