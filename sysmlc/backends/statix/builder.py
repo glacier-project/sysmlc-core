@@ -11,6 +11,7 @@ from sysmlc.backends.statix.program import (
     CContext,
     CField,
     CGuard,
+    CInvariant,
     CProgram,
     CProject,
     CState,
@@ -57,15 +58,16 @@ def _c_prefix(qualified_name: str) -> str:
 
 
 class StatixBuilder:
-    """Assemble a flat C statechart (:class:`CProgram`) from neutral facts.
+    """Assemble a C statechart (:class:`CProgram`) from neutral facts.
 
     Implements ``TargetBuilder``. Every C representational choice lives here:
-    leaf states become an enum + a per-state entry/exit table; eventless
-    transitions carry :data:`COMPLETION_EVENT`; signal triggers become events;
-    guards/effects/attributes lower via :class:`CCodeGen` into a generated
-    context struct. Hierarchy, parallel, history, timers, ``after``/``at``/
-    ``when``, ``send``, ``then done``, and non-scalar/non-composite attributes
-    are rejected loudly.
+    states become an enum + a per-state table; eventless transitions carry
+    :data:`COMPLETION_EVENT`; signal triggers become events; guards/effects/
+    attributes lower via :class:`CCodeGen` into a generated context struct.
+    Composite states, ``then done`` finals, one-shot ``do`` actions, and
+    asserted constraints (invariants) are supported. Parallel, history, timers
+    (``after``/``at``/``when``), ``send``, function calls in expressions, and
+    non-scalar/non-composite attributes are rejected loudly.
     """
 
     def __init__(self, qualified_name: str) -> None:
@@ -88,6 +90,7 @@ class StatixBuilder:
         self._events: dict[str, None] = {}
         self._structs: dict[str, CStruct] = {}
         self._finals: dict[str, CState] = {}
+        self._constraints: list[ConstraintFact] = []
 
     # -- TargetBuilder protocol --
 
@@ -102,10 +105,8 @@ class StatixBuilder:
         self._bindings.append(binding)
 
     def bind_constraint(self, fact: ConstraintFact) -> None:
-        """Reject asserted constraints (unsupported in iteration 1)."""
-        raise UnsupportedConstructError(
-            "asserted constraints are not supported by statix yet."
-        )
+        """Buffer asserted constraint; emitted as an invariant in result()."""
+        self._constraints.append(fact)
 
     def add_state(self, state: StateFact) -> None:
         """Buffer a state; remember the root, reject parallel/final states."""
@@ -124,7 +125,7 @@ class StatixBuilder:
         self._transition_facts.append(transition)
 
     def result(self) -> CProgram:
-        """Assemble and return the flat C statechart program."""
+        """Assemble and return the C statechart program."""
         root = self._root
         if root is None or root.kind is StateKind.PARALLEL:
             raise UnsupportedConstructError(
@@ -144,6 +145,7 @@ class StatixBuilder:
             self._build_transition(t) for t in self._transition_facts
         )
         states = real_states + tuple(self._finals.values())
+        invariants = tuple(self._build_invariant(c) for c in self._constraints)
         if root.initial_substate is None:
             raise UnsupportedConstructError(
                 "the machine declares no initial state."
@@ -162,6 +164,7 @@ class StatixBuilder:
             queue_capacity=_DEFAULT_QUEUE_CAPACITY,
             initial=root.initial_substate,
             max_depth=max_depth,
+            invariants=invariants,
         )
 
     def _reject_machine_level_actions(self, root: StateFact) -> None:
@@ -302,15 +305,26 @@ class StatixBuilder:
             f"unsupported trigger: {type(trigger).__name__}"
         )
 
-    def _guard_for(self, guard: syside.Expression | None) -> str | None:
-        if guard is None:
-            return None
-        rendered = self._gen.render_expression(guard)
+    def _build_invariant(self, fact: ConstraintFact) -> CInvariant:
+        rendered = self._gen.render_expression(fact.expression)
+        if fact.is_negated:
+            rendered = f"!({rendered})"
+        guard = self._register_rendered_guard(rendered)
+        scope = None if fact.scope == "" else fact.scope
+        return CInvariant(scope=scope, guard=guard)
+
+    def _register_rendered_guard(self, rendered: str) -> str:
+        """Register (deduped) a guard from an already-rendered C bool expr."""
         if rendered not in self._guard_names:
             name = f"g{len(self._guards)}"
             self._guard_names[rendered] = name
             self._guards.append(CGuard(name=name, expr=rendered))
         return self._guard_names[rendered]
+
+    def _guard_for(self, guard: syside.Expression | None) -> str | None:
+        if guard is None:
+            return None
+        return self._register_rendered_guard(self._gen.render_expression(guard))
 
     def _register_action(
         self, statements: tuple[str, ...], id_hint: str
@@ -357,7 +371,7 @@ class StatixBuilder:
 
 
 def build_statix(model: syside.Model, state_def_qn: str) -> CProgram:
-    """Build a flat C statechart program from a SysML state definition."""
+    """Build a C statechart program from a SysML state definition."""
     result = StateMachineDriver(model).run(
         state_def_qn, StatixBuilder(state_def_qn)
     )

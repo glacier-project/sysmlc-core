@@ -203,6 +203,11 @@ def _source_view(program: CProgram) -> dict[str, object]:
         "state_count_macro": f"{p.upper()}_STATE_COUNT",
         "initial_const": _const(p, "STATE", program.initial),
         "max_depth": program.max_depth,
+        "invariant_rows": [
+            {"scope": st(inv.scope), "guard": _const(p, "GUARD", inv.guard)}
+            for inv in program.invariants
+        ],
+        "invariant_count": len(program.invariants),
         "guards": [
             {"const": _const(p, "GUARD", g.name), "expr": g.expr}
             for g in program.guards

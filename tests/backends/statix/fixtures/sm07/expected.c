@@ -16,6 +16,10 @@ static const sc_transition_t transitions[] = {
     {SM07_MACHINE_FIRING_ORDER_STATE_A, SC_EVENT_COMPLETION, SC_GUARD_NONE, SM07_MACHINE_FIRING_ORDER_ACTION_A_COMPLETION_EFFECT, SM07_MACHINE_FIRING_ORDER_STATE_B},
 };
 
+static const sc_invariant_t invariants[] = {
+    {SC_STATE_INVALID, SC_GUARD_NONE}
+};
+
 static const sc_machine_t machine_def = {
     transitions,
     states,
@@ -23,6 +27,8 @@ static const sc_machine_t machine_def = {
     SM07_MACHINE_FIRING_ORDER_STATE_COUNT,
     SM07_MACHINE_FIRING_ORDER_STATE_A,
     (sc_state_id_t)1u,
+    invariants,
+    (uint16_t)0u,
 };
 
 /* Generated guard/action dispatch. */

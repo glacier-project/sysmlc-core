@@ -238,3 +238,26 @@ def test_machine_level_entry_then_do_is_rejected(sm_models: dict) -> None:
 def test_parallel_do_is_rejected(sm_models: dict) -> None:
     with pytest.raises(UnsupportedConstructError):
         build_statix(sm_models["sm12"], "SM12::MachineParallelDo")
+
+
+def test_builder_compiles_asserted_constraints(sm_models: dict) -> None:
+    prog = build_statix(sm_models["sm17"], "SM17::MachineScoped")
+    # Two constraints on this model: root (always) level > 0.0, and
+    # idle-scoped level <= 2.0. Both lower into prog.invariants.
+    assert len(prog.invariants) == 2
+    root, scoped = prog.invariants[0], prog.invariants[1]
+    assert root.scope is None
+    assert scoped.scope == "idle"
+    # Guards are deduped into prog.guards; neither is empty.
+    guard_map = {g.name: g.expr for g in prog.guards}
+    assert guard_map[root.guard] == "ctx->level > 0.0"
+    assert guard_map[scoped.guard] == "ctx->level <= 2.0"
+
+
+def test_builder_compiles_negated_constraint(sm_models: dict) -> None:
+    prog = build_statix(sm_models["sm17"], "SM17::MachineNegated")
+    assert len(prog.invariants) == 1
+    inv = prog.invariants[0]
+    guard_map = {g.name: g.expr for g in prog.guards}
+    # assert not (level > 2.0) -> wrapped in !(...).
+    assert guard_map[inv.guard] == "!(ctx->level > 2.0)"

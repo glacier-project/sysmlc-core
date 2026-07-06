@@ -271,6 +271,43 @@ static sc_status_t SC__FN(_run_completion)(SC__T *sm)
     return SC_STATUS_STEP_LIMIT;
 }
 
+/// @brief Whether `scope` is on the active configuration (ancestor chain of leaf).
+static bool SC__FN(_is_ancestor)(const sc_machine_t *machine, sc_state_id_t scope,
+                                 sc_state_id_t leaf)
+{
+    sc_state_id_t s = leaf;
+    uint16_t guard;
+    for (guard = 0u; guard < (uint16_t)SC_MAX_DEPTH; ++guard) {
+        if (s == SC_STATE_INVALID) {
+            break;
+        }
+        if (s == scope) {
+            return true;
+        }
+        s = machine->states[s].parent;
+    }
+    return false;
+}
+
+/// @brief Validate active asserted invariants after a settled macro-step.
+/// @return SC_STATUS_OK if all active invariants hold, else SC_STATUS_CONSTRAINT_VIOLATED.
+static sc_status_t SC__FN(_check_invariants)(SC__T *sm)
+{
+    const sc_machine_t *machine = sm->runtime.machine;
+    sc_event_t completion;
+    uint16_t k;
+    (void)sc_event_init(&completion, SC_EVENT_COMPLETION);
+    for (k = 0u; k < machine->invariant_count; ++k) {
+        const sc_invariant_t *inv = &machine->invariants[k];
+        bool active = (inv->scope == SC_STATE_INVALID) ||
+                      SC__FN(_is_ancestor)(machine, inv->scope, sm->runtime.current_state);
+        if (active && !SC_MACHINE_GUARD(inv->guard, &sm->runtime, &completion)) {
+            return SC_STATUS_CONSTRAINT_VIOLATED;
+        }
+    }
+    return SC_STATUS_OK;
+}
+
 /// @brief Initialize a statechart instance and settle completion transitions.
 /// @param sm Statechart instance to initialize.
 /// @param ctx Caller-owned generated context.
@@ -301,7 +338,11 @@ sc_status_t SC__FN(_init)(SC__T *sm, SC__CTX *ctx)
         }
         sm->runtime.current_state = leaf;
     }
-    return SC__FN(_run_completion)(sm);
+    status = SC__FN(_run_completion)(sm);
+    if (status != SC_STATUS_OK) {
+        return status;
+    }
+    return SC__FN(_check_invariants)(sm);
 }
 
 /// @brief Dispatch one event into a statechart instance.
@@ -324,13 +365,18 @@ sc_status_t SC__FN(_dispatch)(SC__T *sm, const sc_event_t *event)
     idx = SC__FN(_find_transition)(machine, sm->runtime.current_state, event->id,
                                    sm, event);
     if (idx < 0) {
-        return SC_STATUS_NO_TRANSITION;
+        status = SC__FN(_check_invariants)(sm);
+        return (status != SC_STATUS_OK) ? status : SC_STATUS_NO_TRANSITION;
     }
     status = SC__FN(_take_transition)(sm, &machine->transitions[idx], event);
     if (status != SC_STATUS_OK) {
         return status;
     }
-    return SC__FN(_run_completion)(sm);
+    status = SC__FN(_run_completion)(sm);
+    if (status != SC_STATUS_OK) {
+        return status;
+    }
+    return SC__FN(_check_invariants)(sm);
 }
 
 /// @brief Dispatch one no-payload event by id.

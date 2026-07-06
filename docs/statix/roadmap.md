@@ -178,11 +178,14 @@ rosetta.
   rejected. An inline state-level `do` is fused as a one-shot after the state's
   entry (entry statements first); `do send`, machine-level `do`, and
   parallel-region `do` remain out of scope. Mostly a builder change.
-- **D Asserted constraints** — generate `<prefix>_check_invariants(ctx, active)`
-  returning a new `SC_STATUS_CONSTRAINT_VIOLATED`; call after each RTC step and
-  on init; scoped constraints checked only when the owning state is active.
-  Prefer a status return over C `assert()` (which compiles out under `NDEBUG`).
-  `assert not constraint` negates.
+- **D Asserted constraints** (landed) — each `assert constraint` becomes an
+  `sc_invariant_t` row (an owning state scope + a guard, reusing the guard
+  mechanism), checked by `_check_invariants` after init and each dispatch settle;
+  root constraints are always active, state-scoped ones only while the owning
+  state is on the active ancestor chain. A false active invariant returns the new
+  `SC_STATUS_CONSTRAINT_VIOLATED` (a status return, not C `assert()`).
+  `assert not constraint` wraps `!(...)`. Function-call constraints stay rejected
+  until the functions increment.
 - **E Functions + external** — reuse the shared `LIBRARY_FUNCTIONS` table
   re-targeted to C `math.h` (`fabs`/`fmax`/`fmin`/`sin`/`cos`/`tan`, mindful of
   `-Wdouble-promotion`); external `calc def`s become user-supplied C functions
@@ -222,7 +225,7 @@ Conformance-gated, hierarchy before advanced features, untimed before timed.
   - Corpus: SM01 multi-`state def` project compiles, links, and runs
   - Runtime delta: prefixed public API; static guard/action; shared `sc/sc_machine.h` dispatch template
 - **Phase A: UML core (untimed)**
-  - Features: **composite (landed)**, **then done/final (landed)**, **one-shot do (landed)**, constraints, functions/extern
+  - Features: **composite (landed)**, **then done/final (landed)**, **one-shot do (landed)**, **constraints (landed)**, functions/extern
   - Corpus: sm08, sm10, sm12, sm14, sm17
   - Runtime delta: state tree + LCA dispatch + MAX_DEPTH; final states; invariant check + new status
 - **Phase B: Internal-event RTC**

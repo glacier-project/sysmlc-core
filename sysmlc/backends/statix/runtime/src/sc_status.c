@@ -26,6 +26,8 @@ const char *sc_status_str(sc_status_t status)
         return "SC_STATUS_NO_TRANSITION";
     case SC_STATUS_STEP_LIMIT:
         return "SC_STATUS_STEP_LIMIT";
+    case SC_STATUS_CONSTRAINT_VIOLATED:
+        return "SC_STATUS_CONSTRAINT_VIOLATED";
     default:
         return "SC_STATUS_UNKNOWN";
     }

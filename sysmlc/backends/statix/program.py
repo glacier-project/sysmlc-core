@@ -43,6 +43,18 @@ class CGuard:
 
 
 @dataclass(frozen=True)
+class CInvariant:
+    """An asserted invariant: a guard checked while its scope state is active.
+
+    ``scope`` is the owning state's display name, or ``None`` for a root/always
+    invariant. ``guard`` is a guard name into :attr:`CProgram.guards`.
+    """
+
+    scope: str | None
+    guard: str
+
+
+@dataclass(frozen=True)
 class CAction:
     """An action id backed by rendered C statements (each ends in ';')."""
 
@@ -100,6 +112,7 @@ class CProgram:
     queue_capacity: int
     initial: str
     max_depth: int = 1
+    invariants: tuple[CInvariant, ...] = ()
 
 
 @dataclass(frozen=True)
