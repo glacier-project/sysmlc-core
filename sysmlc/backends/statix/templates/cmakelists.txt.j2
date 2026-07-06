@@ -15,5 +15,5 @@ add_library(statix_runtime STATIC
 
 add_library(statix_statecharts STATIC
 {{ lib_sources }})
-target_link_libraries(statix_statecharts statix_runtime)
+target_link_libraries(statix_statecharts statix_runtime{{ math_lib }})
 {{ runners_tail -}}

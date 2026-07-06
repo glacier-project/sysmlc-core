@@ -198,6 +198,7 @@ def _source_view(program: CProgram) -> dict[str, object]:
         "pkg_dir": pkg_dir,
         "stem": stem,
         "prefix": p,
+        "needs_math": program.needs_math,
         "state_rows": state_rows,
         "transition_rows": transition_rows,
         "state_count_macro": f"{p.upper()}_STATE_COUNT",
@@ -272,7 +273,12 @@ def _cmakelists_view(project: CProject) -> dict[str, str]:
         + "\n\n".join(runners)
         + ("\n" if runners else "")
     )
-    return {"lib_sources": lib_sources, "runners_tail": runners_tail}
+    needs_math = any(p.needs_math for p in project.programs)
+    return {
+        "lib_sources": lib_sources,
+        "runners_tail": runners_tail,
+        "math_lib": " m" if needs_math else "",
+    }
 
 
 def emit_cmakelists(project: CProject) -> str:

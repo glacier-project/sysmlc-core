@@ -34,6 +34,19 @@ _UNARY_OPERATORS: Final[dict[syside.Operator, tuple[str, int]]] = {
     syside.Operator.Not: ("!", 3),
 }
 
+# statix-specific C targets for the shared library-function allowlist. Keys MUST
+# equal sysmlc.codegen.python.LIBRARY_FUNCTIONS (a test asserts it), so a new
+# shared function forces an explicit map-or-reject decision here. Targets are
+# <math.h> functions and are double-typed.
+_C_MATH_FUNCTIONS: Final[dict[str, str]] = {
+    "NumericalFunctions::abs": "fabs",
+    "NumericalFunctions::max": "fmax",
+    "NumericalFunctions::min": "fmin",
+    "TrigFunctions::sin": "sin",
+    "TrigFunctions::cos": "cos",
+    "TrigFunctions::tan": "tan",
+}
+
 _COMPARISON_OPERATORS: Final[frozenset[syside.Operator]] = frozenset(
     {
         syside.Operator.Equals,
@@ -71,10 +84,14 @@ class CCodeGen:
         context_var: str = "ctx",
         allow_context: bool = True,
         attribute_names: frozenset[str] = frozenset(),
+        real_attributes: frozenset[str] = frozenset(),
     ) -> None:
         self._ctx = context_var
         self._allow_context = allow_context
         self._attribute_names = attribute_names
+        self._real_attributes = real_attributes
+        self.needs_math = False
+        self._used_math = False
 
     def render_expression(self, expr: syside.Expression) -> str:
         """Translate ``expr`` to C source (no enclosing parentheses)."""
@@ -107,7 +124,17 @@ class CCodeGen:
             raise CCodeGenError(
                 "assignment has no value expression", node=assign
             )
-        return f"{lhs} = {self._emit(value)};"
+        self._used_math = False
+        rhs = self._emit(value)
+        if self._used_math and (
+            base is not None or target.name not in self._real_attributes
+        ):
+            raise CCodeGenError(
+                "library-function results are double; assigning one to a "
+                "non-Real attribute is unsupported by statix yet.",
+                node=assign,
+            )
+        return f"{lhs} = {rhs};"
 
     def _emit(self, expr: syside.Expression, parent_precedence: int = 0) -> str:
         if isinstance(expr, syside.LiteralBoolean):
@@ -127,9 +154,7 @@ class CCodeGen:
         if isinstance(expr, syside.FeatureReferenceExpression):
             return self._emit_feature_reference(expr)
         if isinstance(expr, syside.InvocationExpression):
-            raise CCodeGenError(
-                "function calls are unsupported by statix yet.", node=expr
-            )
+            return self._emit_invocation(expr)
         raise CCodeGenError(
             f"unsupported expression node: {type(expr).__name__}", node=expr
         )
@@ -156,6 +181,27 @@ class CCodeGen:
                 node=expr,
             )
         return f"{self._ctx}->{ref.name}"
+
+    def _emit_invocation(self, expr: syside.InvocationExpression) -> str:
+        if not self._allow_context:
+            raise CCodeGenError(
+                "function calls are unsupported in a context initializer.",
+                node=expr,
+            )
+        func = expr.function
+        qn = None if func is None else func.qualified_name
+        target = None if qn is None else _C_MATH_FUNCTIONS.get(str(qn))
+        if target is None:
+            raise CCodeGenError(
+                f"unsupported function call {qn!s}; only allowlisted library "
+                "functions (NumericalFunctions/TrigFunctions) are supported "
+                "by statix yet.",
+                node=expr,
+            )
+        self.needs_math = True
+        self._used_math = True
+        args = ", ".join(self._emit(a, 0) for a in expr.arguments.collect())
+        return f"{target}({args})"
 
     def _emit_feature_chain(self, expr: syside.FeatureChainExpression) -> str:
         base = self._emit(expr.operands.collect()[0], 0)

@@ -1,8 +1,13 @@
+from pathlib import Path
+
 import pytest
 
 from sysmlc.backends.statix.builder import build_statix
 from sysmlc.backends.statix.program import COMPLETION_EVENT, CProgram
 from sysmlc.errors import UnsupportedConstructError
+from sysmlc.sysml.loading import load_model
+
+_INTCALL = Path(__file__).resolve().parent / "fixtures" / "intcall"
 
 
 def test_helloworld_is_two_states_one_completion(sm_models: dict) -> None:
@@ -261,3 +266,15 @@ def test_builder_compiles_negated_constraint(sm_models: dict) -> None:
     guard_map = {g.name: g.expr for g in prog.guards}
     # assert not (level > 2.0) -> wrapped in !(...).
     assert guard_map[inv.guard] == "!(ctx->level > 2.0)"
+
+
+def test_function_constraint_now_builds_with_math(sm_models: dict) -> None:
+    program = build_statix(sm_models["sm17"], "SM17::MachineFunctionViolation")
+    assert program.needs_math is True
+    assert any(g.expr == "cos(ctx->x) <= 0.0" for g in program.guards)
+
+
+def test_integer_library_assignment_is_rejected() -> None:
+    model = load_model(_INTCALL)
+    with pytest.raises(UnsupportedConstructError):
+        build_statix(model, "INTCALL::Machine")

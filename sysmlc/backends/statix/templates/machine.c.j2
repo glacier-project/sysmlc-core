@@ -1,5 +1,7 @@
 {{ banner }}
 #include "{{ pkg_dir }}/{{ stem }}.h"
+{% if needs_math %}#include <math.h>
+{% endif %}
 
 /* Static state and transition tables (file-local). */
 static const sc_state_def_t states[] = {
