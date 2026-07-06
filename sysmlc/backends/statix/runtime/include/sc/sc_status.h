@@ -20,7 +20,8 @@ typedef enum sc_status_e {
     SC_STATUS_QUEUE_FULL,       ///< @brief Event could not be enqueued.
     SC_STATUS_QUEUE_EMPTY,      ///< @brief No event available to dequeue.
     SC_STATUS_NO_TRANSITION,    ///< @brief Event did not enable any transition.
-    SC_STATUS_STEP_LIMIT        ///< @brief Completion micro-step exceeded SC_MAX_RTC_STEPS.
+    SC_STATUS_STEP_LIMIT,       ///< @brief Completion micro-step exceeded SC_MAX_RTC_STEPS.
+    SC_STATUS_CONSTRAINT_VIOLATED ///< @brief An active asserted constraint (invariant) is false.
 } sc_status_t;
 
 /// @brief Return a static, never-NULL, human-readable name for a status code.

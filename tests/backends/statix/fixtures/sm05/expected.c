@@ -16,6 +16,10 @@ static const sc_transition_t transitions[] = {
     {SM05_MACHINE_CHAIN_NESTED_STATE_IDLE, SC_EVENT_COMPLETION, SM05_MACHINE_CHAIN_NESTED_GUARD_G0, SC_ACTION_NONE, SM05_MACHINE_CHAIN_NESTED_STATE_RUNNING},
 };
 
+static const sc_invariant_t invariants[] = {
+    {SC_STATE_INVALID, SC_GUARD_NONE}
+};
+
 static const sc_machine_t machine_def = {
     transitions,
     states,
@@ -23,6 +27,8 @@ static const sc_machine_t machine_def = {
     SM05_MACHINE_CHAIN_NESTED_STATE_COUNT,
     SM05_MACHINE_CHAIN_NESTED_STATE_IDLE,
     (sc_state_id_t)1u,
+    invariants,
+    (uint16_t)0u,
 };
 
 /* Generated guard/action dispatch. */

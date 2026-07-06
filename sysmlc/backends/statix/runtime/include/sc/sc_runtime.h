@@ -42,6 +42,14 @@ extern "C" {
 #define SC_MAX_DEPTH 16u
 #endif
 
+/// @brief Hard limit on invariant rows a chart may declare.
+///
+/// A bind-time hard cap (not merely a loop cap): an over-large or corrupt table
+/// is rejected rather than having trailing invariants silently skipped.
+#ifndef SC_MAX_INVARIANTS
+#define SC_MAX_INVARIANTS 256u
+#endif
+
 /// @brief One row of a generated transition table.
 ///
 /// Represents `source -- event [guard] / action --> target`.
@@ -62,6 +70,12 @@ typedef struct sc_state_def_s {
     bool is_final;                ///< @brief True for a synthesized `then done` final state.
 } sc_state_def_t;
 
+/// @brief One asserted invariant: a guard checked while its scope is active.
+typedef struct sc_invariant_s {
+    sc_state_id_t scope; ///< @brief Owning state id, or SC_STATE_INVALID = root (always active).
+    sc_guard_id_t guard; ///< @brief Guard id whose falsehood is a constraint violation.
+} sc_invariant_t;
+
 /// @brief Complete immutable machine definition generated as static const.
 typedef struct sc_machine_s {
     const sc_transition_t *transitions; ///< @brief Generated transition table.
@@ -70,6 +84,8 @@ typedef struct sc_machine_s {
     sc_state_id_t state_count; ///< @brief Number of states.
     sc_state_id_t initial_state; ///< @brief Initial state id.
     sc_state_id_t max_depth; ///< @brief Deepest root->leaf path in this chart.
+    const sc_invariant_t *invariants; ///< @brief Generated invariant table (never NULL).
+    uint16_t invariant_count; ///< @brief Number of invariant rows (may be 0).
 } sc_machine_t;
 
 /// @brief Common mutable runtime state embedded by generated instances.

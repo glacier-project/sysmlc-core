@@ -14,6 +14,15 @@ static const sc_transition_t transitions[] = {
 {% endfor %}
 };
 
+static const sc_invariant_t invariants[] = {
+{% for r in invariant_rows %}
+    {{ '{' }}{{ r.scope }}, {{ r.guard }}{{ '}' }},
+{% endfor %}
+{% if not invariant_rows %}
+    {{ '{' }}SC_STATE_INVALID, SC_GUARD_NONE{{ '}' }}
+{% endif %}
+};
+
 static const sc_machine_t machine_def = {
     transitions,
     states,
@@ -21,6 +30,8 @@ static const sc_machine_t machine_def = {
     {{ state_count_macro }},
     {{ initial_const }},
     (sc_state_id_t){{ max_depth }}u,
+    invariants,
+    (uint16_t){{ invariant_count }}u,
 };
 
 /* Generated guard/action dispatch. */

@@ -42,6 +42,18 @@ sc_status_t sc_runtime_bind(sc_runtime_t *runtime, const sc_machine_t *machine, 
             return SC_STATUS_INVALID_ARGUMENT;
         }
     }
+    if (machine->invariant_count > (uint16_t)SC_MAX_INVARIANTS) {
+        return SC_STATUS_INVALID_ARGUMENT;
+    }
+    if ((machine->invariant_count > 0u) && (machine->invariants == NULL)) {
+        return SC_STATUS_INVALID_ARGUMENT;
+    }
+    for (i = 0u; i < machine->invariant_count; ++i) {
+        sc_state_id_t scope = machine->invariants[i].scope;
+        if ((scope != SC_STATE_INVALID) && (scope >= machine->state_count)) {
+            return SC_STATUS_INVALID_ARGUMENT;
+        }
+    }
     runtime->machine = machine;
     runtime->user_data = user_data;
     runtime->current_state = machine->initial_state;
