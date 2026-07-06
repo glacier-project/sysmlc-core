@@ -52,7 +52,7 @@ package SM12 {
             then working;
         state working {
             do action {
-                send new Ping() via commPort;
+                send new Ping() to commPort;
             }
         }
         state finished;
@@ -65,7 +65,7 @@ package SM12 {
         entry;
             then working;
         state working {
-            do send new Ping() via commPort;
+            do send new Ping() to commPort;
         }
         state finished;
         transition first working then finished;

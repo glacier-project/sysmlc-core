@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -13,6 +14,7 @@ from sismic.model import (
 )
 
 from sysmlc.backends.quake.codegen import (
+    TICK_METADATA_KEY,
     QuakeRenderNeeds,
     SismicCodeGen,
     math_import_lines,
@@ -39,6 +41,8 @@ from sysmlc.semantics.statemachine.facts import (
 
 if TYPE_CHECKING:
     import syside
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -109,6 +113,7 @@ class SismicBuilder:
         name: str,
         *,
         external: tuple[str, frozenset[str]] | None = None,
+        part_system_mode: bool = False,
     ) -> None:
         """Initialize the builder.
 
@@ -116,18 +121,24 @@ class SismicBuilder:
             name: The sismic statechart name (the state definition's name).
             external: Optional ``(module_stem, function_names)`` pair for
                 external calc-def backing.
+            part_system_mode: True when the machine is built inside a part
+                system, where ``send ... via <port>`` renders as a call to
+                the injected router; false for a standalone statechart,
+                where such a send is dropped.
         """
         self._name = name
+        self._part_system_mode = part_system_mode
         self._needs = QuakeRenderNeeds()
         if external is not None:
             self._needs.register_external(module=external[0], names=external[1])
-        self._codegen = SismicCodeGen(needs=self._needs)
+        self._codegen = SismicCodeGen(
+            needs=self._needs, part_system_mode=part_system_mode
+        )
         self._preamble: list[str] = []
         self._seen_attrs: dict[str, str] = {}
         self._constraints: list[ConstraintFact] = []
         self._state_facts: list[StateFact] = []
         self._transition_facts: list[TransitionFact] = []
-        self._done_finals: set[str] = set()
         self._planned_triggers: dict[
             int, _TimeTriggerPlan | _ChangeTriggerPlan
         ] = {}
@@ -174,18 +185,37 @@ class SismicBuilder:
     def result(self) -> Statechart:
         """Build, validate, and return the assembled sismic statechart."""
         self._plan_triggers()
+        if self._needs.external_module is not None:
+            # Assemble a scratch statechart first purely to record the calls;
+            self._assemble(Statechart(name=self._name, preamble=""))
         imports = self._preamble_import_lines()
         if imports:
             self._preamble[0:0] = imports
-        statechart = Statechart(
-            name=self._name, preamble="\n".join(self._preamble)
+        statechart = self._assemble(
+            Statechart(name=self._name, preamble="\n".join(self._preamble))
         )
+        for event_name, port in sorted(self._needs.undeliverable_sends):
+            logger.warning(
+                "machine %r sends %r via %r; without a connected system "
+                "context the signal is never delivered",
+                self._name,
+                event_name,
+                port,
+            )
+        return statechart
+
+    def _assemble(self, statechart: Statechart) -> Statechart:
+        """Emit every buffered fact into ``statechart`` and validate it."""
+        done_finals: set[str] = set()
         for state in self._state_facts:
             self._emit_state(statechart, state)
         self._emit_constraints(statechart)
         for index, transition in enumerate(self._transition_facts):
             self._emit_transition(
-                statechart, transition, self._planned_triggers.get(index)
+                statechart,
+                transition,
+                self._planned_triggers.get(index),
+                done_finals,
             )
         statechart.validate()
         return statechart
@@ -251,17 +281,21 @@ class SismicBuilder:
             self._arming_by_source.setdefault(source, []).append(
                 f"{counter} = {counter} + 1"
             )
+        # The time-trigger event self-describes which state and counter its
+        # guard checks, so a runner can drop events the guard would ignore.
+        stamp = f"{TICK_METADATA_KEY}=('{source}', '{counter}')"
         if isinstance(trigger, AfterTrigger):
             self._arming_by_source[source].append(
-                f"send('{event_name}', n={counter}, delay={delay})"
+                f"send('{event_name}', n={counter}, delay={delay}, {stamp})"
             )
             return
         delta = f"_d_{ident}_t{ordinal}"
+        tick_send = f"send('{event_name}', n={counter}, delay={delta}, {stamp})"
         self._arming_by_source[source].extend(
             [
                 f"{delta} = ({delay}) - time",
                 f"if {delta} >= 0:",
-                f"    send('{event_name}', n={counter}, delay={delta})",
+                f"    {tick_send}",
             ]
         )
 
@@ -375,6 +409,7 @@ class SismicBuilder:
         statechart: Statechart,
         transition: TransitionFact,
         plan: _TimeTriggerPlan | _ChangeTriggerPlan | None,
+        done_finals: set[str],
     ) -> None:
         if transitions.self_loop_is_unstable(transition):
             raise UnsupportedConstructError(
@@ -382,7 +417,7 @@ class SismicBuilder:
                 "timer, or effect to break the loop)."
             )
         target = (
-            self._final_state(statechart, transition.target.scope)
+            self._final_state(statechart, transition.target.scope, done_finals)
             if isinstance(transition.target, CompletionTarget)
             else transition.target
         )
@@ -497,15 +532,18 @@ class SismicBuilder:
             return self._codegen
         return SismicCodeGen(
             needs=self._needs,
+            part_system_mode=self._part_system_mode,
             feature_aliases=((trigger.payload_feature, "event"),),
         )
 
-    def _final_state(self, statechart: Statechart, scope: str) -> str:
+    def _final_state(
+        self, statechart: Statechart, scope: str, done_finals: set[str]
+    ) -> str:
         scope_name = scope or self._name
         final_name = "done" if scope == "" else f"{scope}::done"
-        if final_name not in self._done_finals:
+        if final_name not in done_finals:
             statechart.add_state(FinalState(final_name), parent=scope_name)
-            self._done_finals.add(final_name)
+            done_finals.add(final_name)
         return final_name
 
 
@@ -514,6 +552,7 @@ def build_statechart(
     state_def_qn: str,
     *,
     external: tuple[str, frozenset[str]] | None = None,
+    part_system_mode: bool = False,
 ) -> Statechart:
     """Build a sismic Statechart from a SysML state definition.
 
@@ -524,11 +563,18 @@ def build_statechart(
         state_def_qn: Qualified name of the SysML ``state def`` to translate.
         external: Optional ``(module_stem, function_names)`` pair for
             external calc-def backing.
+        part_system_mode: True when the machine is built inside a part
+            system, where ``send ... via <port>`` renders as a call to
+            the injected router; false for a standalone statechart,
+            where such a send is dropped.
 
     Returns:
         A sismic ``Statechart`` ready to feed into ``Interpreter``.
     """
     name = state_def_qn.split("::")[-1]
     return StateMachineDriver(model).run(
-        state_def_qn, SismicBuilder(name, external=external)
+        state_def_qn,
+        SismicBuilder(
+            name, external=external, part_system_mode=part_system_mode
+        ),
     )

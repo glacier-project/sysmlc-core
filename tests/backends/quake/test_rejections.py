@@ -26,6 +26,19 @@ def test_eventless_self_loop_is_rejected(model: syside.Model) -> None:
         build_statechart(model, "Rejections::MachineSelfLoop")
 
 
+def test_send_to_peer_is_rejected(model: syside.Model) -> None:
+    """A `to` receiver naming another occurrence is cross-machine
+    addressing, which a single statechart cannot deliver."""
+    with pytest.raises(UnsupportedConstructError, match="own port"):
+        build_statechart(model, "Rejections::MachineSendToPeer")
+
+
+def test_send_to_peer_port_is_rejected(model: syside.Model) -> None:
+    """A chained `to` receiver (another machine's port) is rejected too."""
+    with pytest.raises(UnsupportedConstructError, match="own port"):
+        build_statechart(model, "Rejections::MachineSendToPeerPort")
+
+
 def test_negative_after_duration_is_rejected(model: syside.Model) -> None:
     """An `accept after` duration must be finite and non-negative."""
     with pytest.raises(ValueError, match=r"finite, non-negative"):
@@ -53,3 +66,9 @@ def test_deep_initial_targets_are_rejected(
     """Initial targets must resolve to direct substates."""
     with pytest.raises(UnsupportedConstructError, match="direct substate"):
         build_statechart(model, machine_qn)
+
+
+def test_structured_enum_literal_is_rejected(model: syside.Model) -> None:
+    """A structured enum literal has no single primitive projection."""
+    with pytest.raises(UnsupportedConstructError, match="is structured"):
+        build_statechart(model, "Rejections::MachineStructuredEnum")

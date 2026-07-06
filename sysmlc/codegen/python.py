@@ -46,6 +46,16 @@ _COMPARISON_OPERATORS: Final[frozenset[syside.Operator]] = frozenset(
     }
 )
 
+# Parent precedence strictly above every operator in the tables above.
+ATOM_PRECEDENCE: Final[int] = (
+    max(
+        precedence
+        for table in (_BINARY_OPERATORS, _UNARY_OPERATORS)
+        for _, precedence in table.values()
+    )
+    + 1
+)
+
 # Maps a fully-qualified SysML function name to the Python call target.
 # The single source of truth for the supported standard-library calls;
 # backends that need different call targets derive their table from it.
@@ -349,7 +359,7 @@ class PythonCodeGen:
         *,
         external_module: str | None,
         external_names: frozenset[str],
-        used_external: set[str] | None,
+        used_external: set[str],
     ) -> str | None:
         """Emit a simple-name-backed external calc-def call, if applicable."""
         func = expr.function
@@ -359,8 +369,7 @@ class PythonCodeGen:
         ):
             return None
         if func.name in external_names:
-            if used_external is not None:
-                used_external.add(func.name)
+            used_external.add(func.name)
             args = ", ".join(
                 self._emit(argument, 0) for argument in expr.arguments.collect()
             )

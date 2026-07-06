@@ -5,12 +5,18 @@ from typing import TYPE_CHECKING, ClassVar, override
 import syside
 
 from sysmlc.codegen.python import (
+    ATOM_PRECEDENCE,
     LIBRARY_FUNCTIONS,
     PythonCodeGen,
     PythonCodeGenContext,
     payload_signature,
 )
 from sysmlc.errors import UnsupportedConstructError
+from sysmlc.semantics.statemachine.interface import (
+    send_receiver_is_own_port,
+    send_via_port,
+)
+from sysmlc.sysml.queries import feature_value
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -51,12 +57,34 @@ def math_import_lines() -> list[str]:
     return [f"from math import {aliases}"]
 
 
+# The reserved runtime names shared across quake modules. Names with a
+# single owner stay with that owner (the builder's `_tick_*`/`_n_*`/
+# `_w_*`/`_d_*` families, the `_`-aliased math imports above).
+
+# Context name of the injected part-system router: render_send emits
+# calls to it, the coordinator binds one per interpreter.
+ROUTER_CONTEXT_KEY = "_sysmlc_route"
+
+# Kwarg on a time trigger's reminder event carrying the (source state,
+# counter variable) pair its guard checks: the builder emits it, the
+# coordinator reads it to purge stale reminders.
+TICK_METADATA_KEY = "_sysmlc_tick"
+
+
 class QuakeRenderNeeds:
-    """Tracks external imports configured for generated sismic snippets."""
+    """Data the code generator fills and the builder reads back.
+
+    Passed to every ``SismicCodeGen`` so snippets share it. It holds the
+    external-import configuration, and collects two facts as snippets are
+    rendered: the external names actually called, so only used imports are
+    emitted, and the ``via`` sends dropped for lack of a system context.
+    """
 
     def __init__(self) -> None:
         self.external_module: str | None = None
         self.external_names: frozenset[str] = frozenset()
+        self.used_external: set[str] = set()
+        self.undeliverable_sends: set[tuple[str, str]] = set()
 
     def register_external(self, *, module: str, names: frozenset[str]) -> None:
         """Record the --python module and the function names it provides."""
@@ -64,13 +92,41 @@ class QuakeRenderNeeds:
         self.external_names = names
 
     def external_import_lines(self) -> list[str]:
-        """Render sorted imports for all configured external functions."""
+        """Render sorted imports for the external functions actually called.
+
+        A name that no rendered snippet invokes is not imported: the emitted
+        statechart must not depend on the --python module on behalf of code
+        that never uses it.
+        """
         if self.external_module is None:
             return []
         return [
             f"from {self.external_module} import {name}"
-            for name in sorted(self.external_names)
+            for name in sorted(self.used_external)
         ]
+
+
+def _enumeration_is_structured(
+    definition: syside.EnumerationDefinition,
+) -> bool:
+    """Whether an enumeration definition carries attribute features.
+
+    A plain or value-typed enumeration inherits only its implicit ``self``
+    feature; a structured enumeration (one that specializes an attribute
+    definition, like the official ``ClassificationKind``) inherits named
+    attribute usages, whose per-literal ``:>>`` redefinitions cannot be
+    projected to a single primitive value.
+
+    Args:
+        definition: The enumeration definition owning a referenced literal.
+
+    Returns:
+        True when the definition inherits any attribute usage feature.
+    """
+    for feature in definition.features.collect():
+        if isinstance(feature, syside.AttributeUsage):
+            return True
+    return False
 
 
 class SismicCodeGen(PythonCodeGen):
@@ -85,6 +141,7 @@ class SismicCodeGen(PythonCodeGen):
         context: PythonCodeGenContext | None = None,
         *,
         needs: QuakeRenderNeeds | None = None,
+        part_system_mode: bool = False,
         feature_aliases: Sequence[tuple[syside.Feature, str]] = (),
     ) -> None:
         """Initialize the generator.
@@ -92,6 +149,10 @@ class SismicCodeGen(PythonCodeGen):
         Args:
             context: General Python rendering context.
             needs: External import configuration shared by generated snippets.
+            part_system_mode: True when the machine is built inside a part
+                system, where ``send ... via <port>`` renders as a call to
+                the injected router; false for a standalone statechart,
+                where such a send is dropped.
             feature_aliases: Transition-local feature identities that should
                 render as target runtime names. The comparison is by object
                 identity so same-named SysML features in other scopes do not
@@ -99,41 +160,145 @@ class SismicCodeGen(PythonCodeGen):
         """
         super().__init__(context)
         self._needs = needs if needs is not None else QuakeRenderNeeds()
+        self._part_system_mode = part_system_mode
         self._feature_aliases = tuple(feature_aliases)
 
     @override
     def render_send(self, send: syside.SendActionUsage) -> str:
-        """Translate a send action to a sismic ``send(...)`` call.
+        """Translate a send action by its receiver semantics.
 
-        Emits ``send('<Event>'[, <field>=<expr>, ...])``: ``<Event>`` is the
-        payload type's name. Each positional constructor argument
-        becomes a kwarg named by the payload attribute it binds to, in
-        declaration order.
-
-        Bare-value sends are rejected by ``payload_signature``. The payload
-        must be a typed ``new <Sig>(...)`` constructor.
+        The receiver decides the outcome: a ``via`` send routes over the
+        port's connections in part-system mode, or is dropped (and recorded
+        for a warning) when there is no part system to route it; a send
+        directed ``to`` the machine's own port becomes sismic
+        ``send('<Event>'[, <field>=<expr>, ...])``, which dispatches the
+        signal to the machine itself as an internal event. Each positional
+        constructor argument becomes a kwarg named by the payload attribute
+        it binds to, in declaration order. The payload must be a typed
+        ``new <Sig>(...)`` constructor; ``payload_signature`` rejects bare
+        values.
 
         Args:
             send: The ``send new <Type>(<args>)`` action to translate.
 
         Returns:
-            Python source for the ``send(...)`` call.
+            Python source for the resulting statement, or the empty string
+            for a dropped ``via`` send.
 
         Raises:
+            UnsupportedConstructError: If the send's ``to`` receiver is
+                anything but the machine's own port; a single statechart
+                cannot deliver cross-machine addressing.
             ValueError: If the payload is not a ``new <Type>(...)`` constructor
                 resolving to a named definition, if an argument has no
                 corresponding named attribute, or if an argument uses an
                 expression shape the emitter rejects.
         """
         event_name, pairs = payload_signature(send)
+        if send.receiver_argument is not None and not send_receiver_is_own_port(
+            send
+        ):
+            raise UnsupportedConstructError(
+                f"send {event_name!r} addresses a receiver that is not the "
+                "machine's own port; cross-machine 'to' addressing is not "
+                "supported. Route the signal with 'via <port>' and a "
+                "connect instead.",
+                node=send,
+            )
         kwargs = ", ".join(
             f"{name}={self.render_expression(argument)}"
             for name, argument in pairs
         )
         delimiter = self._context.string_delimiter
+        via_port = send_via_port(send)
+        if via_port is not None:
+            if not self._part_system_mode:
+                self._needs.undeliverable_sends.add((event_name, via_port))
+                return ""
+            event = f"{delimiter}{event_name}{delimiter}"
+            port = f"{delimiter}{via_port}{delimiter}"
+            if kwargs:
+                return f"{ROUTER_CONTEXT_KEY}({event}, {port}, {kwargs})"
+            return f"{ROUTER_CONTEXT_KEY}({event}, {port})"
         if kwargs:
             return f"send({delimiter}{event_name}{delimiter}, {kwargs})"
         return f"send({delimiter}{event_name}{delimiter})"
+
+    @override
+    def _emit_feature_reference(
+        self, expr: syside.FeatureReferenceExpression
+    ) -> str:
+        """Emit a bare reference, applying aliases and enum projection.
+
+        A reference to the whole payload binding (``accept r : Reading`` then
+        an effect using ``r`` on its own) renders as sismic's runtime
+        ``event``, mirroring the field-access rewrite ``r.value`` ->
+        ``event.value``.
+
+        A reference to an enumeration literal renders as the literal's
+        projected primitive value, never as a generated enum member; the
+        projection rules live on ``_emit_enum_literal``.
+
+        Raises:
+            UnsupportedConstructError: If the literal belongs to a structured
+                enumeration, whose per-literal attribute state has no single
+                primitive projection.
+            ValueError: If the referent has no resolved name.
+        """
+        ref = expr.referent
+        alias = None if ref is None else self._feature_alias(ref)
+        if alias is not None:
+            return alias
+        if isinstance(ref, syside.EnumerationUsage):
+            return self._emit_enum_literal(ref)
+        return super()._emit_feature_reference(expr)
+
+    def _emit_enum_literal(self, literal: syside.EnumerationUsage) -> str:
+        """Emit an enumeration literal as its projected primitive value.
+
+        A literal with a declared value projects to that value's source
+        (``LightColor::red`` -> ``"red"``, ``GradePoints::A`` -> ``4.0``);
+        a plain symbolic literal (one whose enumeration declares no
+        attributes) projects to its own name as a Python string
+        (``Mode::idle`` -> ``"idle"``). Because plain literals project by
+        name, two enumerations with same-named plain literals project to
+        equal strings.
+
+        Args:
+            literal: The enumeration literal referenced in an expression.
+
+        Returns:
+            Python source for the literal's projected value.
+
+        Raises:
+            UnsupportedConstructError: If the literal belongs to a structured
+                enumeration, whose per-literal attribute state has no single
+                primitive projection.
+            ValueError: If a plain literal has no resolved name.
+        """
+        value_expression = feature_value(literal)
+        if value_expression is not None:
+            # A literal with a declared value projects to that value's
+            # source, emitted through the general expression grammar.
+            return self._emit(
+                value_expression, parent_precedence=ATOM_PRECEDENCE
+            )
+        owner = literal.owner
+        if isinstance(
+            owner, syside.EnumerationDefinition
+        ) and _enumeration_is_structured(owner):
+            name = owner.name or "<anonymous>"
+            raise UnsupportedConstructError(
+                f"enumeration {name!r} is structured (its literals carry "
+                "attribute values); structured enumeration literals have no "
+                "single primitive projection and are not supported.",
+                node=literal,
+            )
+        # A plain symbolic literal projects to its own name as a string.
+        if literal.name is None:
+            raise ValueError("enumeration literal has no resolved name")
+        delimiter = self._context.string_delimiter
+        return f"{delimiter}{literal.name}{delimiter}"
 
     @override
     def _emit_feature_chain(self, expr: syside.FeatureChainExpression) -> str:
@@ -175,7 +340,7 @@ class SismicCodeGen(PythonCodeGen):
             expr,
             external_module=self._needs.external_module,
             external_names=self._needs.external_names,
-            used_external=None,
+            used_external=self._needs.used_external,
         )
         if external_call is not None:
             return external_call

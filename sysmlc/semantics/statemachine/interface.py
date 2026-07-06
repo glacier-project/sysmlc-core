@@ -87,7 +87,7 @@ class SignalInterfaceCollector:
             if isinstance(action, syside.SendActionUsage):
                 event_name, _pairs = payload_signature(action)
                 self._sent.add(event_name)
-                self._sent_via[_send_via_port(action)].add(event_name)
+                self._sent_via[send_via_port(action)].add(event_name)
 
 
 def machine_interface(
@@ -101,18 +101,54 @@ def machine_interface(
     return result
 
 
-def _send_via_port(send: syside.SendActionUsage) -> str | None:
+def send_via_port(send: syside.SendActionUsage) -> str | None:
     """Return the simple name of a send's ``via`` (sender) port, or None.
 
     ``send E via p`` stores ``p`` as the sender argument (a
     ``FeatureReferenceExpression`` whose referent is the ``PortUsage``) —
     the mirror of the accepter's ``receiver_argument`` (``triggers._via_port``).
     """
-    sender = send.sender_argument
-    if isinstance(sender, syside.FeatureReferenceExpression):
-        referent = sender.referent
-        if referent is not None:
-            return referent.name
+    referent = _referenced_feature(send.sender_argument)
+    return referent.name if referent is not None else None
+
+
+def send_receiver_is_own_port(send: syside.SendActionUsage) -> bool:
+    """Whether a send's ``to`` receiver is the sending machine's own port.
+
+    ``send E to p`` stores ``p`` as the receiver argument; the receiver is
+    "own" when it is a ``PortUsage`` declared by the same state definition
+    that contains the send. Only that form is a self-directed transfer; any
+    other receiver needs cross-machine addressing.
+    """
+    referent = _referenced_feature(send.receiver_argument)
+    if not isinstance(referent, syside.PortUsage):
+        return False
+    machine = _owning_state_definition(send)
+    return machine is not None and _owning_state_definition(referent) is machine
+
+
+def _referenced_feature(
+    argument: syside.Expression | None,
+) -> syside.Feature | None:
+    """Return the feature a ``via``/``to`` port argument references, or None.
+
+    Such an argument is a ``FeatureReferenceExpression`` whose referent is
+    the port usage; any other argument shape references no feature.
+    """
+    if isinstance(argument, syside.FeatureReferenceExpression):
+        return argument.referent
+    return None
+
+
+def _owning_state_definition(
+    element: syside.Element,
+) -> syside.StateDefinition | None:
+    """Return the state definition an element is declared in, if any."""
+    owner = element.owner
+    while owner is not None:
+        if isinstance(owner, syside.StateDefinition):
+            return owner
+        owner = owner.owner
     return None
 
 

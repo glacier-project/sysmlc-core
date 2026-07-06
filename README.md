@@ -44,7 +44,7 @@ Build and run a sismic statechart from one of the example state machines under
 `models/sm-examples/` (accepts `01`, `sm01`, or the full folder name):
 
 ```bash
-uv run python examples/run_sismic.py sm01
+uv run python examples/run_quake.py sm01
 ```
 
 Or use the API directly:
@@ -62,6 +62,15 @@ The `sysmlc` CLI exposes one build command per backend:
 ```bash
 sysmlc quake build models/sm-examples/sm01-helloworld \
   -e SM01::Machine -o out/
+```
+
+The **quake** backend can also execute a model with `run`, printing the
+macro-step trace and each machine's final configuration. A lone state
+definition runs as a single statechart; a top-level part usage runs one
+interpreter per part on a shared clock:
+
+```bash
+sysmlc quake run models/sm-examples/part01-two-parts
 ```
 
 Translate a state machine to a Lingua Franca modal-reactor program with the

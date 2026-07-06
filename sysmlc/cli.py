@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import importlib.util
 import logging
 import shutil
 import sys
@@ -42,12 +43,75 @@ def _parse_external(python_path: Path) -> tuple[str, frozenset[str]]:
 
     Only top-level synchronous ``def``s are eligible; an ``async def`` cannot
     back a synchronous reaction call.
+
+    Raises:
+        CliError: If the file cannot be read or is not valid Python.
     """
-    tree = ast.parse(python_path.read_text())
+    try:
+        source = python_path.read_text()
+    except OSError as error:
+        raise CliError(
+            f"cannot read --python file {python_path}: {error}"
+        ) from error
+    try:
+        tree = ast.parse(source, filename=str(python_path))
+    except SyntaxError as error:
+        raise CliError(
+            f"--python file {python_path} is not valid Python: {error}"
+        ) from error
     names = frozenset(
         node.name for node in tree.body if isinstance(node, ast.FunctionDef)
     )
     return python_path.stem, names
+
+
+def _parse_python_arg(
+    args: argparse.Namespace, backend: Backend
+) -> tuple[Path, tuple[str, frozenset[str]]] | tuple[None, None]:
+    """Gate and parse a command's ``--python`` flag.
+
+    Returns:
+        The flag's path paired with its ``_parse_external`` result, or
+        ``(None, None)`` when ``--python`` was not given.
+
+    Raises:
+        CliError: If the backend does not support ``--python``, or if the
+            file cannot be read or is not valid Python.
+    """
+    python_path: Path | None = getattr(args, "python", None)
+    if python_path is None:
+        return None, None
+    if backend.name not in {"rosetta", "quake"}:
+        raise CliError(f"backend {backend.name!r} does not support --python")
+    return python_path, _parse_external(python_path)
+
+
+def _load_external_module(python_path: Path) -> None:
+    """Import a ``--python`` file under its stem so preamble imports resolve.
+
+    Registers the module in ``sys.modules`` under the file's stem, overwriting
+    any existing same-stem entry, so an emitted ``from <stem> import <name>``
+    resolves when a statechart preamble runs.
+
+    Raises:
+        ValueError: If the path is not an importable Python module.
+        CliError: If executing the module's top level raises.
+    """
+    stem = python_path.stem
+    spec = importlib.util.spec_from_file_location(stem, python_path)
+    if spec is None or spec.loader is None:
+        raise ValueError(f"cannot import external module from {python_path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[stem] = module
+    try:
+        spec.loader.exec_module(module)
+    except Exception as error:
+        # Mirror the import system: a failed import must not leave the
+        # broken half-executed module importable.
+        del sys.modules[stem]
+        raise CliError(
+            f"--python file {python_path} failed to execute: {error}"
+        ) from error
 
 
 def _build_parser(backends: dict[str, Backend]) -> argparse.ArgumentParser:
@@ -89,6 +153,12 @@ def _build_parser(backends: dict[str, Backend]) -> argparse.ArgumentParser:
         )
         _add_build_arguments(build, backend)
         build.set_defaults(_backend=backend)
+        run = actions.add_parser(
+            "run",
+            help=f"execute a {backend.name} model to quiescence",
+        )
+        _add_run_arguments(run)
+        run.set_defaults(_backend=backend)
     return parser
 
 
@@ -177,6 +247,34 @@ def _select_state_def(model: syside.Model, requested: str | None) -> str:
     if requested not in state_defs:
         raise CliError(f"state definition {requested!r} not found")
     return requested
+
+
+def _add_run_arguments(run: argparse.ArgumentParser) -> None:
+    """Add the inputs for a ``run`` command."""
+    run.add_argument("model", type=Path, help="path to a SysML model directory")
+    run.add_argument(
+        "-e",
+        "--element",
+        help="qualified name of the state definition or part usage to run",
+    )
+    run.add_argument(
+        "--max-steps",
+        type=int,
+        default=1000,
+        help="safety cap on total macro steps (default: %(default)s)",
+    )
+    run.add_argument(
+        "--until",
+        type=float,
+        help="stop at this simulated time in seconds, keeping the trace up "
+        "to it (default: run to quiescence)",
+    )
+    run.add_argument(
+        "--python",
+        type=Path,
+        help="a Python file whose top-level functions back external calc-def "
+        "calls; matched to SysML functions by simple name",
+    )
 
 
 def _select_element(
@@ -304,14 +402,7 @@ def _cmd_build(args: argparse.Namespace) -> int:
             overrides = select_values(tree, target_qn)
             model = configure_model(model, target_qn, overrides)
 
-    external: tuple[str, frozenset[str]] | None = None
-    python_path = getattr(args, "python", None)
-    if python_path is not None:
-        if backend.name not in {"rosetta", "quake"}:
-            raise CliError(
-                f"backend {backend.name!r} does not support --python"
-            )
-        external = _parse_external(python_path)
+    python_path, external = _parse_python_arg(args, backend)
 
     build_kwargs: dict[str, object] = (
         {"external": external} if external is not None else {}
@@ -340,14 +431,7 @@ def _build_part(
     if getattr(args, "values", None) is not None:
         raise CliError("--values is not supported with part systems yet")
 
-    external: tuple[str, frozenset[str]] | None = None
-    python_path: Path | None = getattr(args, "python", None)
-    if python_path is not None:
-        if backend.name != "rosetta":
-            raise CliError(
-                f"backend {backend.name!r} does not support --python"
-            )
-        external = _parse_external(python_path)
+    python_path, external = _parse_python_arg(args, backend)
 
     build_kwargs: dict[str, object] = (
         {"external": external} if external is not None else {}
@@ -388,6 +472,42 @@ def _write_artifact(
     return 0
 
 
+def _cmd_run(args: argparse.Namespace) -> int:
+    """Run a ``<backend> run`` command: execute the model to quiescence."""
+    backend: Backend = args._backend
+    model = load_model(args.model)
+    element_qn, kind = _select_element(model, args.element)
+    hook_name = {
+        "statedef": "run_state_def",
+        "part": "run_part_system",
+    }.get(kind)
+    hook = getattr(backend, hook_name, None) if hook_name else None
+    if hook is None:
+        raise CliError(f"backend {backend.name!r} cannot run a {kind!r}")
+
+    python_path, external = _parse_python_arg(args, backend)
+    if python_path is not None:
+        _load_external_module(python_path)
+
+    report = hook(
+        model,
+        element_qn,
+        max_steps=args.max_steps,
+        until=args.until,
+        external=external,
+    )
+    print(f"Ran {element_qn}:")
+    print(report.render())
+    if report.hit_step_cap:
+        print(
+            f"error: exceeded the {args.max_steps}-step safety cap; "
+            "raise --max-steps or bound the run with --until",
+            file=sys.stderr,
+        )
+        return 1
+    return 0
+
+
 def _cmd_backends(backends: dict[str, Backend]) -> int:
     """Run the ``backends`` command: list what is installed."""
     if not backends:
@@ -417,6 +537,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.command == "backends":
             return _cmd_backends(backends)
+        if args.action == "run":
+            return _cmd_run(args)
         return _cmd_build(args)
     except (SysmlcError, ValueError) as error:
         logger.debug("command failed", exc_info=True)

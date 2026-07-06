@@ -14,6 +14,10 @@ class SerializationError(SysmlcError):
     """Raised when an error occurs during generated artifacts serialization."""
 
 
+class ExecutionError(SysmlcError):
+    """Raised when a compiled artifact fails during simulated execution."""
+
+
 class CodeGenerationError(SysmlcError):
     """Raised when an error occurs during code generation.
 

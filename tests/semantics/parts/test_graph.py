@@ -1,12 +1,11 @@
-from pathlib import Path
-
 import pytest
 
 from sysmlc.errors import UnsupportedConstructError
 from sysmlc.semantics.parts.graph import part_graph
 from sysmlc.sysml.loading import load_model
+from tests.backends.test_sm_examples import SM_EXAMPLES_DIR
 
-FIX = Path("models/sm-examples/part01-two-parts")
+FIX = SM_EXAMPLES_DIR / "part01-two-parts"
 
 
 def test_part_graph_extracts_system() -> None:
@@ -26,16 +25,22 @@ def test_part_graph_captures_declared_ports() -> None:
     assert g.parts[1].ports == ("commPort",)
 
 
+def test_part_graph_rejects_partless_usage() -> None:
+    # A leaf part usage nests no parts, so there is nothing to compose.
+    with pytest.raises(UnsupportedConstructError, match="composes no parts"):
+        part_graph(load_model(FIX), "Part01::pingSystem::plant")
+
+
 def test_part_graph_rejects_zero_exhibit_part() -> None:
     # A part def with no exhibit is a pure composite (not supported in 2a).
-    g = load_model(Path("models/sm-examples/part-zero-exhibit"))
+    g = load_model(SM_EXAMPLES_DIR / "part-zero-exhibit")
     with pytest.raises(UnsupportedConstructError, match="no exhibit"):
         part_graph(g, "PartZero::sys")
 
 
 def test_part_node_carries_multiple_exhibits() -> None:
     g = part_graph(
-        load_model(Path("models/sm-examples/part-multi-exhibit")),
+        load_model(SM_EXAMPLES_DIR / "part-multi-exhibit"),
         "PartMulti::sys",
     )
     composite = next(p for p in g.parts if p.usage_name == "rig")
