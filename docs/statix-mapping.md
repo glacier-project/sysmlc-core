@@ -85,6 +85,12 @@ micro-step**:
 This is what lets flat machines like sm01 (`idle → running` on completion) reach
 their settled state without an external event.
 
+A completion target (`then done`) synthesizes an absorbing leaf final state per
+scope (named `done` at root, `<scope>::done` for nested scopes). Entering a final
+state marks the machine (or enclosing composite) complete.
+`<prefix>_is_final(const <prefix>_t *sm)` reports whether the machine has
+*terminated* — that is, the active leaf is a root-scope final state.
+
 ## 4. Triggers and signals
 
 `accept E [via port]` is a **signal trigger**: `E` becomes an `enum` event id
@@ -171,7 +177,6 @@ iteration 1:
 | parallel / history states                        | rejected (composite/leaf supported)    |
 | `after` / `at` / `when` triggers                 | rejected (no timers/change events yet) |
 | `send` effects, reading `accept` payload data    | rejected (send/RTC family)             |
-| `then done` completion targets                   | rejected (no final-state model yet)    |
 | machine-level (state def) entry/do/exit actions  | rejected (put on states)               |
 | non-inline / referenced `do` activities          | rejected                               |
 | asserted constraints                             | rejected                               |
