@@ -36,3 +36,30 @@ def test_final_state_matches_sismic(
     assert statix_leaf == sismic_leaf, (
         f"{stem}: statix {statix_leaf!r} != sismic {sismic_leaf!r}"
     )
+
+
+SM08_CASES = [
+    "SM08::MachineNested",
+    "SM08::MachineDeep",
+    "SM08::MachineNameCollision",
+    "SM08::MachineCrossOut",
+    "SM08::MachineCrossIn",
+]
+
+
+@pytest.mark.parametrize("qn", SM08_CASES)
+def test_sm08_hierarchy_matches_sismic(
+    sm_models: dict,
+    statix_run: Callable,
+    qn: str,
+) -> None:
+    interpreter = Interpreter(build_statechart(sm_models["sm08"], qn))
+    interpreter.execute()
+    sismic_leaf = sorted(interpreter.configuration)[-1]
+
+    program = build_statix(sm_models["sm08"], qn)
+    statix_leaf = statix_run(program)
+
+    assert statix_leaf == sismic_leaf, (
+        f"{qn}: statix {statix_leaf!r} != sismic {sismic_leaf!r}"
+    )
