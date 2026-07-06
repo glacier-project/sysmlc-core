@@ -413,84 +413,23 @@ def emit_source(program: CProgram) -> str:
     return "\n".join(parts) + "\n"
 
 
-def emit_runner(program: CProgram) -> str:
-    """Render a minimal hosted-C runner for smoke execution on a PC."""
+def _runner_view(program: CProgram) -> dict[str, object]:
     p = program.prefix
     pkg_dir, stem = _paths(program)
-    parts = [
-        _banner(f"{pkg_dir}/{stem}_runner.c", program.qualified_name),
-        f'#include "{pkg_dir}/{stem}.h"',
-        "",
-        "#include <stdio.h>",
-        "#include <string.h>",
-        "",
-        (
-            f"static bool {p}_event_from_name("
-            "const char *name, sc_event_id_t *event_id)"
-        ),
-        "{",
-        "    if ((name == NULL) || (event_id == NULL)) {",
-        "        return false;",
-        "    }",
-    ]
-    for e in program.events:
-        parts += [
-            f'    if (strcmp(name, "{e}") == 0) {{',
-            f"        *event_id = {_const(p, 'EVENT', e)};",
-            "        return true;",
-            "    }",
-        ]
-    parts += [
-        "    return false;",
-        "}",
-        "",
-        "int main(int argc, char **argv)",
-        "{",
-        f"    {p}_context_t ctx;",
-        f"    {p}_t sm;",
-        "    sc_status_t status;",
-        "    int i;",
-        "",
-        f"    {p}_context_init(&ctx);",
-        f"    status = {p}_init(&sm, &ctx);",
-        (
-            '    (void)printf("init status=%s state=%s final=%d\\n", '
-            "sc_status_str(status),"
-        ),
-        (
-            f"                 {p}_state_name({p}_get_state(&sm)), "
-            f"(int){p}_is_final(&sm));"
-        ),
-        "    if (status != SC_STATUS_OK) {",
-        "        return 1;",
-        "    }",
-        "",
-        "    for (i = 1; i < argc; ++i) {",
-        "        sc_event_id_t event_id = SC_EVENT_INVALID;",
-        f"        if (!{p}_event_from_name(argv[i], &event_id)) {{",
-        '            (void)fprintf(stderr, "unknown event: %s\\n", argv[i]);',
-        "            return 2;",
-        "        }",
-        f"        status = {p}_post(&sm, event_id);",
-        (
-            '        (void)printf("event %s status=%s state=%s final=%d\\n", '
-            "argv[i],"
-        ),
-        (
-            f"                     sc_status_str(status), "
-            f"{p}_state_name({p}_get_state(&sm)), (int){p}_is_final(&sm));"
-        ),
-        (
-            "        if ((status != SC_STATUS_OK) && "
-            "(status != SC_STATUS_NO_TRANSITION)) {"
-        ),
-        "            return 1;",
-        "        }",
-        "    }",
-        "    return 0;",
-        "}",
-    ]
-    return "\n".join(parts) + "\n"
+    return {
+        "banner": _banner(f"{pkg_dir}/{stem}_runner.c", program.qualified_name),
+        "pkg_dir": pkg_dir,
+        "stem": stem,
+        "prefix": p,
+        "events": [
+            {"name": e, "const": _const(p, "EVENT", e)} for e in program.events
+        ],
+    }
+
+
+def emit_runner(program: CProgram) -> str:
+    """Render a minimal hosted-C runner for smoke execution on a PC."""
+    return _env.get_template("runner.c.j2").render(**_runner_view(program))
 
 
 def _cmakelists_view(project: CProject) -> dict[str, str]:
