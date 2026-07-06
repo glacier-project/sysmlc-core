@@ -51,7 +51,7 @@ Each row is a construct statix rejects today; the front-end delivers all of them
   - Example model: sm10
   - Oracle (quake/Sismic): `FinalState` + completion
   - rosetta (LF): `done` mode / `completed`
-- **C. `do` activity (one-shot)**
+- **C. `do` activity (one-shot) (landed)**
   - Example model: sm12
   - Oracle (quake/Sismic): fused into `on_entry`
   - rosetta (LF): fused into entry reaction
@@ -173,9 +173,11 @@ rosetta.
   completion transition fire on the next micro-step; a root-level final is
   queryable as terminated via `<prefix>_is_final`. Parallel `then done` is a join
   (deferred with I).
-- **C `do` (one-shot)** — append a state's inline `do` (`assign`/`send`)
+- **C `do` (one-shot) (landed)** — append a state's inline `do` (`assign`/`send`)
   statements to its entry sequence (entry then do); non-inline `do` stays
-  rejected. Mostly a builder change.
+  rejected. An inline state-level `do` is fused as a one-shot after the state's
+  entry (entry statements first); `do send`, machine-level `do`, and
+  parallel-region `do` remain out of scope. Mostly a builder change.
 - **D Asserted constraints** — generate `<prefix>_check_invariants(ctx, active)`
   returning a new `SC_STATUS_CONSTRAINT_VIOLATED`; call after each RTC step and
   on init; scoped constraints checked only when the owning state is active.
@@ -220,7 +222,7 @@ Conformance-gated, hierarchy before advanced features, untimed before timed.
   - Corpus: SM01 multi-`state def` project compiles, links, and runs
   - Runtime delta: prefixed public API; static guard/action; shared `sc/sc_machine.h` dispatch template
 - **Phase A: UML core (untimed)**
-  - Features: **composite (landed)**, **then done/final (landed)**, one-shot do, constraints, functions/extern
+  - Features: **composite (landed)**, **then done/final (landed)**, **one-shot do (landed)**, constraints, functions/extern
   - Corpus: sm08, sm10, sm12, sm14, sm17
   - Runtime delta: state tree + LCA dispatch + MAX_DEPTH; final states; invariant check + new status
 - **Phase B: Internal-event RTC**
