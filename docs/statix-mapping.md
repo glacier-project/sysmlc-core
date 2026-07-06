@@ -174,16 +174,16 @@ statix **never silently drops** a construct: anything outside the supported flat
 subset raises `UnsupportedConstructError` with a clear message. Rejected in
 iteration 1:
 
-| Construct                                        | Status                                 |
-| ------------------------------------------------ | -------------------------------------- |
-| parallel / history states                        | rejected (composite/leaf supported)    |
-| `after` / `at` / `when` triggers                 | rejected (no timers/change events yet) |
-| `send` effects, `do send`, reading `accept` payload data | rejected (send/RTC family)         |
-| machine-level (state def) entry/do/exit actions  | rejected (put on states)               |
-| non-inline / referenced `do` activities          | rejected                               |
-| asserted constraints                             | rejected                               |
-| `String` / non-scalar, non-composite attributes  | rejected                               |
-| external / library function calls in expressions | rejected                               |
+| Construct                                                | Status                                 |
+| -------------------------------------------------------- | -------------------------------------- |
+| parallel / history states                                | rejected (composite/leaf supported)    |
+| `after` / `at` / `when` triggers                         | rejected (no timers/change events yet) |
+| `send` effects, `do send`, reading `accept` payload data | rejected (send/RTC family)             |
+| machine-level (state def) entry/do/exit actions          | rejected (put on states)               |
+| non-inline / referenced `do` activities                  | rejected                               |
+| asserted constraints                                     | rejected                               |
+| `String` / non-scalar, non-composite attributes          | rejected                               |
+| external / library function calls in expressions         | rejected                               |
 
 ## 10. Forward notes (not settled)
 
