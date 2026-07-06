@@ -19,11 +19,11 @@ package Part01 {
         port commPort;
         attribute verdict : Integer := 0;
         assert constraint ok { verdict == 0 }
-        entry; then start;
-        state start;
+        entry; then ready;
+        state ready;
         state waitPong;
         state fail { entry assign verdict := 1; }
-        transition first start
+        transition first ready
             accept after 0.1 [s]
             do send new Ping() via commPort
             then waitPong;

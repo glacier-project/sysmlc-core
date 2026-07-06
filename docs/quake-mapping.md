@@ -1859,8 +1859,8 @@ configuration per instance, and why it stopped:
 Ran Part01::pingSystem:
 trace:
   plant: Step@0(None, [], >['PlantBehavior', 'idle'], <[])
-  tb: Step@0(None, [], >['TesterBehavior', 'start'], <[])
-  tb: Step@0.1(InternalEvent('_tick_start_t1', ...), [Transition('start', 'waitPong', event='_tick_start_t1')], >['waitPong'], <['start'])
+  tb: Step@0(None, [], >['TesterBehavior', 'ready'], <[])
+  tb: Step@0.1(InternalEvent('_tick_ready_t1', ...), [Transition('ready', 'waitPong', event='_tick_ready_t1')], >['waitPong'], <['ready'])
   plant: Step@0.1(Event('Ping'), [Transition('idle', 'pinged', event='Ping')], >['pinged'], <['idle'])
   plant: Step@0.1(None, [Transition('pinged', 'idle', event=None)], >['idle'], <['pinged'])
   tb: Step@0.1(Event('Pong'), [Transition('waitPong', 'done', event='Pong')], >['done'], <['waitPong', 'done', 'TesterBehavior'])
