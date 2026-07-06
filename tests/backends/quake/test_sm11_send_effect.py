@@ -26,19 +26,37 @@ def model() -> syside.Model:
     return load_model(EXAMPLE.model_dir)
 
 
-def test_send_effect_emits_event(model: syside.Model) -> None:
-    """A ``do send new Ping()`` effect emits a sismic ``send('Ping')`` call."""
+def test_send_effect_emits_send_and_drives_self_accept(
+    model: syside.Model,
+) -> None:
+    """``do send new Ping()`` emits ``send("Ping")`` and self-delivers.
+
+    The emitted internal event drives the same-machine accept
+    transition end to end.
+    """
     sc = build_statechart(model, "SM11::MachineSelfSend")
     assert transition_between(sc, "idle", "armed").action == 'send("Ping")'
+    interpreter = Interpreter(sc)
+    interpreter.execute()
+    assert "fired" in interpreter.configuration
 
 
-def test_payload_args_emitted_as_kwargs(model: syside.Model) -> None:
-    """Positional payload args become ``send()`` kwargs by attribute name."""
+def test_payload_args_emitted_as_kwargs_and_accepted(
+    model: syside.Model,
+) -> None:
+    """Positional payload args become ``send()`` kwargs and round-trip.
+
+    The kwargs are named by attribute; the payload-carrying send is
+    accepted by the same machine end to end.
+    """
     sc = build_statechart(model, "SM11::MachinePayload")
     assert (
         transition_between(sc, "idle", "armed").action
         == 'send("Reading", value=current)'
     )
+    interpreter = Interpreter(sc)
+    interpreter.execute()
+    assert "fired" in interpreter.configuration
 
 
 def test_string_payload_arg_emitted_as_kwarg(model: syside.Model) -> None:
@@ -50,34 +68,56 @@ def test_string_payload_arg_emitted_as_kwarg(model: syside.Model) -> None:
     )
 
 
-def test_accept_payload_guard_uses_event_field(
+def test_payload_guard_reads_event_field_and_gates_at_runtime(
     model: syside.Model,
 ) -> None:
-    """A payload field read in a guard emits sismic's ``event.<field>``."""
+    """A payload field read in a guard emits and evaluates ``event.<f>``.
+
+    The guard string uses sismic's ``event`` namespace and the
+    accepted payload value gates the transition at runtime.
+    """
     sc = build_statechart(model, "SM11::MachineReadablePayloadGuard")
     transition = transition_between(sc, "armed", "fired")
     assert transition.event == "Measurement"
     assert transition.guard == "event.value > 0.5"
+    interpreter = Interpreter(sc)
+    interpreter.execute()
+    assert "fired" in interpreter.configuration
 
 
-def test_accept_payload_effect_uses_event_field(
+def test_payload_effect_reads_event_field_and_captures_value(
     model: syside.Model,
 ) -> None:
-    """A payload field read in an effect emits sismic's ``event.<field>``."""
+    """A payload field read in an effect emits and evaluates ``event.<f>``.
+
+    The effect string uses sismic's ``event`` namespace and the fired
+    effect captures the accepted payload value.
+    """
     sc = build_statechart(model, "SM11::MachineReadablePayloadEffect")
     assert (
         transition_between(sc, "armed", "fired").action
         == "captured = event.value"
     )
+    interpreter = Interpreter(sc)
+    interpreter.execute()
+    assert "fired" in interpreter.configuration
+    assert interpreter.context["captured"] == 0.9
 
 
-def test_accept_payload_chain_uses_event_root(
+def test_payload_chain_rewrites_root_and_reads_through_chain(
     model: syside.Model,
 ) -> None:
-    """A payload field chain rewrites only the payload root to ``event``."""
+    """A payload field chain rewrites only its root to ``event``.
+
+    The emitted guard reads through the chained field and the accepted
+    payload is read through it at runtime.
+    """
     sc = build_statechart(model, "SM11::MachineReadablePayloadChain")
     transition = transition_between(sc, "armed", "fired")
     assert transition.guard == "event.sample.value > 0.5"
+    interpreter = Interpreter(sc)
+    interpreter.execute()
+    assert "fired" in interpreter.configuration
 
 
 def test_accept_payload_whole_uses_event(
@@ -98,30 +138,6 @@ def test_mixed_effect_emits_assign_then_send(model: syside.Model) -> None:
     assert action.index("count = count + 1") < action.index('send("Ping")')
 
 
-def test_self_send_drives_accept_end_to_end(model: syside.Model) -> None:
-    """The sent internal event drives the same-machine accept transition."""
-    sc = build_statechart(model, "SM11::MachineSelfSend")
-    interpreter = Interpreter(sc)
-    interpreter.execute()
-    assert "fired" in interpreter.configuration
-
-
-def test_payload_send_drives_accept_end_to_end(model: syside.Model) -> None:
-    """A payload-carrying send is accepted by the same machine end-to-end."""
-    sc = build_statechart(model, "SM11::MachinePayload")
-    interpreter = Interpreter(sc)
-    interpreter.execute()
-    assert "fired" in interpreter.configuration
-
-
-def test_payload_guard_reads_sent_value(model: syside.Model) -> None:
-    """The accepted payload value gates the transition at runtime."""
-    sc = build_statechart(model, "SM11::MachineReadablePayloadGuard")
-    interpreter = Interpreter(sc)
-    interpreter.execute()
-    assert "fired" in interpreter.configuration
-
-
 def test_payload_guard_rejects_sent_value(model: syside.Model) -> None:
     """A false payload guard leaves the accepting state active."""
     sc = build_statechart(model, "SM11::MachineReadablePayloadRejected")
@@ -129,23 +145,6 @@ def test_payload_guard_rejects_sent_value(model: syside.Model) -> None:
     interpreter.execute()
     assert "armed" in interpreter.configuration
     assert "fired" not in interpreter.configuration
-
-
-def test_payload_effect_reads_sent_value(model: syside.Model) -> None:
-    """The transition effect can read the accepted payload value."""
-    sc = build_statechart(model, "SM11::MachineReadablePayloadEffect")
-    interpreter = Interpreter(sc)
-    interpreter.execute()
-    assert "fired" in interpreter.configuration
-    assert interpreter.context["captured"] == 0.9
-
-
-def test_payload_chain_reads_sent_value(model: syside.Model) -> None:
-    """The accepted payload can be read through a chained field."""
-    sc = build_statechart(model, "SM11::MachineReadablePayloadChain")
-    interpreter = Interpreter(sc)
-    interpreter.execute()
-    assert "fired" in interpreter.configuration
 
 
 VIA_ALONE_MODEL = """

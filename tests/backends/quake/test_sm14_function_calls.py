@@ -7,7 +7,10 @@ from sismic.interpreter import Interpreter
 from sysmlc.backends.quake import build_statechart
 from sysmlc.sysml.loading import load_model
 from tests import _load_inline_model
-from tests.backends.quake.conftest import transition_from
+from tests.backends.quake.conftest import (
+    QUAKE_PREAMBLE_IMPORTS,
+    transition_from,
+)
 from tests.backends.test_sm_examples import SM_EXAMPLES_DIR
 
 if TYPE_CHECKING:
@@ -54,11 +57,7 @@ def test_trig_call_renders_aliased_math_import(
 
     sc = build_statechart(model, "TrigCall::Machine")
 
-    assert (
-        sc.preamble.splitlines()[0]
-        == "from math import cos as _cos, sin as _sin, tan as _tan"
-    )
-    assert sc.preamble.splitlines()[1] == "from types import SimpleNamespace"
+    assert sc.preamble.splitlines()[:2] == list(QUAKE_PREAMBLE_IMPORTS)
     assert transition_from(sc, "idle").guard == "_cos(x) <= 1.0"
 
 

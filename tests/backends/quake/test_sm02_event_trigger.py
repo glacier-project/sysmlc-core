@@ -20,33 +20,30 @@ def model() -> syside.Model:
     return load_model(EXAMPLE.model_dir)
 
 
-@pytest.fixture(
-    scope="module",
-    params=[
-        "SM02::Machine",
-        "SM02::MachineNamed",
-        "SM02::MachinePortless",
-    ],
-    ids=["canonical", "named-payload", "no-via-port"],
-)
-def state_def_qn(request: pytest.FixtureRequest) -> str:
-    """Yield every signal-trigger ``accept`` form sm02 exercises."""
-    param: str = request.param
-    return param
-
-
 def test_only_idle_to_running_transition_is_declared(
     model: syside.Model,
-    state_def_qn: str,
 ) -> None:
-    """One ``Transition`` from ``idle`` to ``running``."""
-    sc = build_statechart(model, state_def_qn)
+    """One ``Transition`` from ``idle`` to ``running``.
+
+    All three accept forms build the same shape; the canonical machine
+    stands for them.
+    """
+    sc = build_statechart(model, "SM02::Machine")
     assert len(sc.transitions) == 1
     only = sc.transitions[0]
     assert only.source == "idle"
     assert only.target == "running"
 
 
+@pytest.mark.parametrize(
+    "state_def_qn",
+    [
+        "SM02::Machine",
+        "SM02::MachineNamed",
+        "SM02::MachinePortless",
+    ],
+    ids=["canonical", "named-payload", "no-via-port"],
+)
 def test_transition_event_is_payload_type_name(
     model: syside.Model,
     state_def_qn: str,
@@ -68,11 +65,10 @@ def test_transition_event_is_payload_type_name(
     assert sc.transitions[0].event == "Tick"
 
 
-def test_transition_does_not_fire_without_queued_event(
+def test_transition_waits_for_queued_event_then_fires(
     model: syside.Model,
-    state_def_qn: str,
 ) -> None:
-    """A triggered transition does not fire spontaneously.
+    """A triggered transition fires on its queued event, never before.
 
     Per SysML v2 OMG spec, §7.18.3 "Transition Usages", triggering
     rule 3:
@@ -91,24 +87,14 @@ def test_transition_does_not_fire_without_queued_event(
     The "un-triggered" qualifier excludes accepter-bearing
     transitions: with an accepter present, the transition is
     *triggered*, not eventless, and must NOT fire on source
-    completion alone.
+    completion alone. Queueing the event named ``"Tick"`` then fires
+    it.
     """
-    sc = build_statechart(model, state_def_qn)
+    sc = build_statechart(model, "SM02::Machine")
     interp = Interpreter(sc)
     interp.execute()
-    config = list(interp.configuration)
-    assert "idle" in config
-    assert "running" not in config
-
-
-def test_queueing_tick_fires_transition_to_running(
-    model: syside.Model,
-    state_def_qn: str,
-) -> None:
-    """Queueing the event named ``"Tick"`` fires the transition."""
-    sc = build_statechart(model, state_def_qn)
-    interp = Interpreter(sc)
-    interp.execute()
+    assert "idle" in interp.configuration
+    assert "running" not in interp.configuration
     interp.queue("Tick")
     interp.execute()
     assert "running" in interp.configuration

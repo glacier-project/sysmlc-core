@@ -21,20 +21,30 @@ def model() -> syside.Model:
     return load_model(EXAMPLE.model_dir)
 
 
-def test_parallel_root_is_orthogonal_state(model: syside.Model) -> None:
-    """A ``parallel`` state def builds as an ``OrthogonalState``.
+def test_parallel_root_activates_all_regions_concurrently(
+    model: syside.Model,
+) -> None:
+    """A ``parallel`` state def runs all its regions at once.
 
     Per the book (§28.3): a ``parallel`` state's substates are
-    non-exclusive concurrent regions.
+    non-exclusive concurrent regions. The builder maps it to an
+    ``OrthogonalState``, and execution activates every region.
     """
     sc = build_statechart(model, "SM09::MachineParallel")
     assert isinstance(sc.state_for("MachineParallel"), OrthogonalState)
+    interpreter = Interpreter(sc)
+    interpreter.execute()
+    assert "lights::on" in interpreter.configuration
+    assert "sound::beeping" in interpreter.configuration
 
 
-def test_regions_are_compound_with_own_initial(model: syside.Model) -> None:
-    """Each orthogonal region is a ``CompoundState`` with its own initial.
+def test_regions_are_compounds_with_scoped_initials_and_substates(
+    model: syside.Model,
+) -> None:
+    """Each region is a CompoundState with its own scoped subtree.
 
-    A region is itself a composite with an ``entry; then X;`` initial.
+    A region is itself a composite with an ``entry; then X;`` initial,
+    and its substates carry ``region::leaf`` names under it.
     """
     sc = build_statechart(model, "SM09::MachineParallel")
     lights = sc.state_for("lights")
@@ -43,26 +53,10 @@ def test_regions_are_compound_with_own_initial(model: syside.Model) -> None:
     assert isinstance(sound, CompoundState)
     assert lights.initial == "lights::off"
     assert sound.initial == "sound::silent"
-
-
-def test_region_substates_named_by_relative_path(model: syside.Model) -> None:
-    """Region substates carry ``region::leaf`` names under their region."""
-    sc = build_statechart(model, "SM09::MachineParallel")
     assert sc.parent_for("lights") == "MachineParallel"
     assert sc.parent_for("sound") == "MachineParallel"
     assert sc.parent_for("lights::off") == "lights"
     assert sc.parent_for("sound::silent") == "sound"
-
-
-def test_execution_activates_both_regions_concurrently(
-    model: syside.Model,
-) -> None:
-    """Executing a parallel state activates both regions at once."""
-    sc = build_statechart(model, "SM09::MachineParallel")
-    interpreter = Interpreter(sc)
-    interpreter.execute()
-    assert "lights::on" in interpreter.configuration
-    assert "sound::beeping" in interpreter.configuration
 
 
 def test_nested_parallel_substate_is_orthogonal_state(

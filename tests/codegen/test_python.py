@@ -26,157 +26,52 @@ class OperatorCase:
 
     Attributes:
         case_id: Test id.
-        attributes: SysML attribute declarations the guard needs, one
-            complete declaration per tuple entry.
         guard: SysML guard expression source text.
         expected: Python source ``render_expression`` must emit.
     """
 
     case_id: str
-    attributes: tuple[str, ...]
     guard: str
     expected: str
 
 
 OPERATOR_CASES: list[OperatorCase] = [
-    OperatorCase("literal-true", (), "true", "True"),
-    OperatorCase("literal-false", (), "false", "False"),
-    OperatorCase(
-        "bare-reference",
-        ("attribute enabled : Boolean := true;",),
-        "enabled",
-        "enabled",
-    ),
-    OperatorCase(
-        "not",
-        ("attribute enabled : Boolean := false;",),
-        "not enabled",
-        "not enabled",
-    ),
-    OperatorCase(
-        "unary-minus",
-        ("attribute x : Integer := 1;",),
-        "-x < 0",
-        "-x < 0",
-    ),
-    OperatorCase(
-        "and",
-        (
-            "attribute a : Boolean := true;",
-            "attribute b : Boolean := true;",
-        ),
-        "a and b",
-        "a and b",
-    ),
-    OperatorCase(
-        "or",
-        (
-            "attribute a : Boolean := true;",
-            "attribute b : Boolean := false;",
-        ),
-        "a or b",
-        "a or b",
-    ),
-    OperatorCase(
-        "eq",
-        ("attribute x : Integer := 1;",),
-        "x == 1",
-        "x == 1",
-    ),
-    OperatorCase(
-        "neq",
-        ("attribute x : Integer := 1;",),
-        "x != 0",
-        "x != 0",
-    ),
-    OperatorCase(
-        "lt",
-        ("attribute x : Integer := 1;",),
-        "x < 2",
-        "x < 2",
-    ),
-    OperatorCase(
-        "le",
-        ("attribute x : Integer := 1;",),
-        "x <= 1",
-        "x <= 1",
-    ),
-    OperatorCase(
-        "gt",
-        ("attribute x : Integer := 1;",),
-        "x > 0",
-        "x > 0",
-    ),
-    OperatorCase(
-        "ge",
-        ("attribute x : Integer := 1;",),
-        "x >= 1",
-        "x >= 1",
-    ),
-    OperatorCase(
-        "arith-plus",
-        ("attribute x : Integer := 1;",),
-        "x + 1 > 1",
-        "x + 1 > 1",
-    ),
-    OperatorCase(
-        "arith-minus",
-        ("attribute x : Integer := 2;",),
-        "x - 1 > 0",
-        "x - 1 > 0",
-    ),
-    OperatorCase(
-        "arith-mul",
-        ("attribute x : Integer := 2;",),
-        "x * 2 > 1",
-        "x * 2 > 1",
-    ),
-    OperatorCase(
-        "arith-div",
-        ("attribute x : Integer := 4;",),
-        "x / 2 > 1",
-        "x / 2 > 1",
-    ),
-    OperatorCase(
-        "real-literal",
-        ("attribute x : Real := 1.0;",),
-        "x > 0.5",
-        "x > 0.5",
-    ),
-    OperatorCase(
-        "logical-chain",
-        (
-            "attribute a : Boolean := true;",
-            "attribute b : Boolean := true;",
-            "attribute c : Boolean := false;",
-        ),
-        "a and b or c",
-        "a and b or c",
-    ),
-    OperatorCase(
-        "lower-prec-lhs",
-        (
-            "attribute a : Boolean := true;",
-            "attribute b : Boolean := false;",
-            "attribute c : Boolean := true;",
-        ),
-        "(a or b) and c",
-        "(a or b) and c",
-    ),
-    OperatorCase(
-        "left-assoc-rhs",
-        ("attribute x : Integer := 5;",),
-        "x - (1 - 2) > 0",
-        "x - (1 - 2) > 0",
-    ),
+    OperatorCase("literal-true", "true", "True"),
+    OperatorCase("literal-false", "false", "False"),
+    OperatorCase("bare-reference", "enabled", "enabled"),
+    OperatorCase("not", "not enabled", "not enabled"),
+    OperatorCase("unary-minus", "-x < 0", "-x < 0"),
+    OperatorCase("and", "a and b", "a and b"),
+    OperatorCase("or", "a or b", "a or b"),
+    OperatorCase("eq", "x == 1", "x == 1"),
+    OperatorCase("neq", "x != 0", "x != 0"),
+    OperatorCase("lt", "x < 2", "x < 2"),
+    OperatorCase("le", "x <= 1", "x <= 1"),
+    OperatorCase("gt", "x > 0", "x > 0"),
+    OperatorCase("ge", "x >= 1", "x >= 1"),
+    OperatorCase("arith-plus", "x + 1 > 1", "x + 1 > 1"),
+    OperatorCase("arith-minus", "x - 1 > 0", "x - 1 > 0"),
+    OperatorCase("arith-mul", "x * 2 > 1", "x * 2 > 1"),
+    OperatorCase("arith-div", "x / 2 > 1", "x / 2 > 1"),
+    OperatorCase("real-literal", "x > 0.5", "x > 0.5"),
+    OperatorCase("logical-chain", "a and b or c", "a and b or c"),
+    OperatorCase("lower-prec-lhs", "(a or b) and c", "(a or b) and c"),
+    OperatorCase("left-assoc-rhs", "x - (1 - 2) > 0", "x - (1 - 2) > 0"),
 ]
 
+# The guards only need these names to resolve; render_expression never
+# evaluates them, so the attributes stay uninitialized.
 _GUARD_MODEL_TEMPLATE = """
 package Test {{
     private import ScalarValues::*;
 
     state def Machine {{
-{attributes}
+        attribute enabled : Boolean;
+        attribute a : Boolean;
+        attribute b : Boolean;
+        attribute c : Boolean;
+        attribute x : Real;
+
         entry;
             then idle;
         state idle;
@@ -186,15 +81,6 @@ package Test {{
     }}
 }}
 """
-
-
-def _guard_model_source(case: OperatorCase) -> str:
-    attribute_block = "\n".join(
-        f"        {declaration}" for declaration in case.attributes
-    )
-    return _GUARD_MODEL_TEMPLATE.format(
-        attributes=attribute_block, guard=case.guard
-    )
 
 
 class TestPythonCodeGen:
@@ -377,7 +263,9 @@ class TestPythonCodeGen:
         self, case: OperatorCase, tmp_path: Path
     ) -> None:
         code_gen = _get_py_codegen('"')
-        model = _load_inline_model(tmp_path, _guard_model_source(case))
+        model = _load_inline_model(
+            tmp_path, _GUARD_MODEL_TEMPLATE.format(guard=case.guard)
+        )
 
         trans = _single_element(model, syside.TransitionUsage)
 

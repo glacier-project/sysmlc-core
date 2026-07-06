@@ -14,7 +14,6 @@ if TYPE_CHECKING:
     import syside
 
 EXAMPLE = SM_EXAMPLES_BY_DIR["sm01-helloworld"]
-MACHINE_QN = "SM01::Machine"
 
 
 @pytest.fixture(scope="module")
@@ -22,10 +21,19 @@ def model() -> syside.Model:
     return load_model(EXAMPLE.model_dir)
 
 
-def test_initial_substate_idle_is_active_after_initial_entry(
+@pytest.mark.parametrize(
+    "machine_qn",
+    [
+        "SM01::Machine",
+        "SM01::MachineInitial1_ByTransition",
+        "SM01::MachineInitial3_ByQualifiedName",
+    ],
+)
+def test_supported_initial_state_spellings_activate_idle(
     model: syside.Model,
+    machine_qn: str,
 ) -> None:
-    """The ``then idle`` succession makes ``idle`` the initial substate.
+    """Every supported initial-state syntax makes ``idle`` initial.
 
     Per SysML v2 OMG spec, §7.18.2 "State Definitions and Usages":
 
@@ -40,7 +48,7 @@ def test_initial_substate_idle_is_active_after_initial_entry(
     ``initial="idle"`` — verified by checking ``idle`` is in the
     configuration after the first MacroStep.
     """
-    sc = build_statechart(model, MACHINE_QN)
+    sc = build_statechart(model, machine_qn)
     interp = Interpreter(sc)
     interp.execute_once()
     assert "idle" in interp.configuration
@@ -62,7 +70,7 @@ def test_only_idle_to_running_transition_is_declared(
     transitions for it. Pins the structural counterpart to the
     runtime check that initial entry fires no transition.
     """
-    sc = build_statechart(model, MACHINE_QN)
+    sc = build_statechart(model, "SM01::Machine")
     assert len(sc.transitions) == 1
     only = sc.transitions[0]
     assert isinstance(only, Transition)

@@ -9,7 +9,10 @@ from sismic.interpreter import Interpreter
 from sysmlc.backends.quake import build_statechart
 from sysmlc.backends.quake.serialize import to_yaml
 from sysmlc.sysml.loading import load_model
-from tests.backends.quake.conftest import SM_EXAMPLES_BY_DIR
+from tests.backends.quake.conftest import (
+    QUAKE_PREAMBLE_IMPORTS,
+    SM_EXAMPLES_BY_DIR,
+)
 
 if TYPE_CHECKING:
     import syside
@@ -29,7 +32,6 @@ def test_constraints_attach_to_root_and_substate(
 
     assert sc.state_for("MachineScoped").invariants == ["level > 0.0"]
     assert sc.state_for("idle").invariants == ["level <= 2.0"]
-    Interpreter(sc).execute()
 
 
 def test_counter_constraint_fails_after_limit_is_exceeded(
@@ -51,19 +53,17 @@ def test_counter_constraint_fails_after_limit_is_exceeded(
         interpreter.execute()
 
 
-def test_negated_constraint_renders_wrapped_invariant(
+def test_negated_constraint_renders_wrapped_and_raises_at_runtime(
     model: syside.Model,
 ) -> None:
+    """A negated constraint renders wrapped and is enforced when violated.
+
+    The invariant string parenthesizes the negated condition; the run
+    starts clean and the violating Tick raises ``InvariantError``.
+    """
     sc = build_statechart(model, "SM17::MachineNegated")
 
     assert sc.state_for("MachineNegated").invariants == ["not (level > 2.0)"]
-    Interpreter(sc).execute()
-
-
-def test_negated_constraint_violation_raises_at_runtime(
-    model: syside.Model,
-) -> None:
-    sc = build_statechart(model, "SM17::MachineNegated")
 
     interpreter = Interpreter(sc)
     interpreter.execute()
@@ -83,25 +83,18 @@ def test_constraint_serializes_as_yaml_contract(model: syside.Model) -> None:
     assert "always: level <= 2.0" in text
 
 
-def test_constraint_preamble_uses_aliased_math_import(
+def test_function_constraint_uses_math_alias_and_is_enforced(
     model: syside.Model,
 ) -> None:
+    """A function-calling constraint imports the alias and is enforced.
+
+    The preamble carries the aliased math import the invariant needs;
+    the violating Tick raises ``InvariantError``.
+    """
     sc = build_statechart(model, "SM17::MachineFunctionViolation")
 
     lines = sc.preamble.splitlines()
-    assert lines[:2] == [
-        "from math import cos as _cos, sin as _sin, tan as _tan",
-        "from types import SimpleNamespace",
-    ]
-    assert sc.state_for("MachineFunctionViolation").invariants == [
-        "_cos(x) <= 0.0"
-    ]
-
-
-def test_function_constraint_violation_is_enforced_by_sismic(
-    model: syside.Model,
-) -> None:
-    sc = build_statechart(model, "SM17::MachineFunctionViolation")
+    assert lines[:2] == list(QUAKE_PREAMBLE_IMPORTS)
     assert sc.state_for("MachineFunctionViolation").invariants == [
         "_cos(x) <= 0.0"
     ]

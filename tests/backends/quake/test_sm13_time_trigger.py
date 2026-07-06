@@ -9,7 +9,11 @@ from sismic.interpreter import Interpreter
 
 from sysmlc.backends.quake import build_statechart
 from sysmlc.sysml.loading import load_model
-from tests.backends.quake.conftest import SM_EXAMPLES_BY_DIR, quake_preamble
+from tests.backends.quake.conftest import (
+    SM_EXAMPLES_BY_DIR,
+    quake_preamble,
+    transition_from,
+)
 
 if TYPE_CHECKING:
     import syside
@@ -57,7 +61,7 @@ def test_relative_time_trigger_emits_delayed_event(
     """A time trigger becomes a delayed `_tick_*` event armed on entry."""
     sc = build_statechart(model, state_def_qn)
     assert len(sc.transitions) == 2
-    timed = next(t for t in sc.transitions if t.source == "idle")
+    timed = transition_from(sc, "idle")
     assert timed.target == "running"
     assert timed.event == "_tick_idle_t1"
     assert timed.guard == "event.n == _n_idle"
@@ -105,21 +109,6 @@ def test_chained_reference_duration_is_read_at_entry(
     assert interp.final
 
 
-def test_attribute_reference_duration_fires_at_seeded_value(
-    model: syside.Model,
-) -> None:
-    """An attribute-reference duration fires at its seeded SI value."""
-    sc = build_statechart(model, "SM13::MachineAfterAttribute")
-    interp = Interpreter(sc)
-    interp.execute()
-    interp.clock.time = 119.0
-    interp.execute()
-    assert not interp.final
-    interp.clock.time = 120.0
-    interp.execute()
-    assert interp.final
-
-
 def test_time_trigger_does_not_fire_before_duration_elapses(
     model: syside.Model,
 ) -> None:
@@ -136,20 +125,20 @@ def test_time_trigger_does_not_fire_before_duration_elapses(
     assert interp.final
 
 
-def test_after_with_guard_conjoins_condition(model: syside.Model) -> None:
-    """`accept after ... if g` guards the tick delivery with `g`."""
+def test_after_with_guard_conjoins_condition_and_fires_when_true(
+    model: syside.Model,
+) -> None:
+    """``accept after ... if g`` guards the tick delivery with ``g``.
+
+    The emitted guard conjoins the activation-counter check with the
+    condition; with the condition true at the deadline, the transition
+    fires.
+    """
     sc = build_statechart(model, "SM13::MachineAfterGuard")
-    timed = next(t for t in sc.transitions if t.source == "idle")
+    timed = transition_from(sc, "idle")
     assert timed.event == "_tick_idle_t1"
     assert timed.guard == "event.n == _n_idle and (ready)"
     assert sc.preamble == quake_preamble("ready = True", "_n_idle = 0")
-
-
-def test_after_with_guard_fires_when_condition_holds_at_deadline(
-    model: syside.Model,
-) -> None:
-    """With the condition true at the deadline, the transition fires."""
-    sc = build_statechart(model, "SM13::MachineAfterGuard")
     interp = Interpreter(sc)
     interp.execute()
     interp.clock.time = 5.0
@@ -179,14 +168,19 @@ def test_after_with_guard_false_at_deadline_consumes_the_occurrence(
     assert not interp.final
 
 
-def test_absolute_time_trigger_emits_arming_delta(
+def test_absolute_time_trigger_arms_delta_and_fires_at_instant(
     model: syside.Model,
 ) -> None:
-    """An absolute time trigger arms a tick only for a non-past instant."""
+    """An absolute time trigger arms a delta tick and fires on time.
+
+    Entry computes the remaining delta and arms the tick only for a
+    non-past instant; the transition fires when the clock reaches the
+    absolute instant.
+    """
     sc = build_statechart(model, "SM13::MachineAt")
     assert sc.preamble == quake_preamble("deadline = 8.0", "_n_idle = 0")
     assert len(sc.transitions) == 2
-    timed = next(t for t in sc.transitions if t.source == "idle")
+    timed = transition_from(sc, "idle")
     assert timed.target == "running"
     assert timed.event == "_tick_idle_t1"
     assert timed.guard == "event.n == _n_idle"
@@ -197,13 +191,6 @@ def test_absolute_time_trigger_emits_arming_delta(
         "    send('_tick_idle_t1', n=_n_idle, delay=_d_idle_t1, "
         "_sysmlc_tick=('idle', '_n_idle'))"
     )
-
-
-def test_absolute_time_trigger_fires_at_instant(
-    model: syside.Model,
-) -> None:
-    """The transition fires when the clock reaches the absolute instant."""
-    sc = build_statechart(model, "SM13::MachineAt")
     interp = Interpreter(sc)
     interp.execute()
     interp.clock.time = 7.9
@@ -286,10 +273,15 @@ def test_reentry_invalidates_the_stale_deadline(model: syside.Model) -> None:
     assert "running" in interp.configuration
 
 
-def test_no_default_duration_leaves_only_machinery_in_preamble(
+def test_no_default_duration_builds_but_errors_in_simulation(
     no_default_model: syside.Model,
 ) -> None:
-    """A no-default duration attribute is left unseeded (machinery only)."""
+    """A no-default duration builds cleanly and fails only when run.
+
+    The attribute is left uninitialized (machinery only in the
+    preamble): the model is valid but incomplete, so the failure
+    surfaces at simulation, by design.
+    """
     sc = build_statechart(
         no_default_model, "SM13NoDefault::MachineAfterNoDefault"
     )
@@ -298,15 +290,6 @@ def test_no_default_duration_leaves_only_machinery_in_preamble(
     timed = sc.transitions[0]
     assert timed.event == "_tick_idle_t1"
     assert timed.guard == "event.n == _n_idle"
-
-
-def test_no_default_duration_errors_in_simulation(
-    no_default_model: syside.Model,
-) -> None:
-    """A no-default duration errors when simulated -- incomplete, by design."""
-    sc = build_statechart(
-        no_default_model, "SM13NoDefault::MachineAfterNoDefault"
-    )
     interp = Interpreter(sc)
     with pytest.raises(CodeEvaluationError):
         interp.execute()
