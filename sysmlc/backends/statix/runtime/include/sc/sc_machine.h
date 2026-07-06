@@ -42,16 +42,10 @@ static sc_status_t SC__FN(_run_state_action)(SC__T *sm, sc_action_id_t action,
     return SC_MACHINE_ACTION(action, &sm->runtime, event);
 }
 
-/// @brief Find the first enabled transition matching a state/event pair.
-/// @param machine Immutable machine definition.
-/// @param state Source state id to match.
-/// @param event_id Event id to match.
-/// @param sm Statechart instance used by guard evaluation.
-/// @param event Event used by guard evaluation.
-/// @return Transition table index, or -1 when none is enabled.
-static int32_t SC__FN(_find_transition)(const sc_machine_t *machine,
-                                        sc_state_id_t state, sc_event_id_t event_id,
-                                        const SC__T *sm, const sc_event_t *event)
+/// @brief Find the first enabled transition sourced exactly at one state.
+static int32_t SC__FN(_find_transition_at)(const sc_machine_t *machine,
+                                           sc_state_id_t state, sc_event_id_t event_id,
+                                           const SC__T *sm, const sc_event_t *event)
 {
     uint16_t limit = machine->transition_count;
     uint16_t i;
@@ -72,17 +66,168 @@ static int32_t SC__FN(_find_transition)(const sc_machine_t *machine,
     return -1;
 }
 
-/// @brief Take one transition and update the current state.
-/// @param sm Statechart instance.
-/// @param t Transition row to fire.
-/// @param event Event associated with the transition.
-/// @return SC_STATUS_OK on success, or an action error status.
+/// @brief Inner-first selection: try the active leaf, then each ancestor.
+static int32_t SC__FN(_find_transition)(const sc_machine_t *machine,
+                                        sc_state_id_t leaf, sc_event_id_t event_id,
+                                        const SC__T *sm, const sc_event_t *event)
+{
+    sc_state_id_t s = leaf;
+    uint16_t guard;
+    for (guard = 0u; guard < (uint16_t)SC_MAX_DEPTH; ++guard) {
+        int32_t idx;
+        if (s == SC_STATE_INVALID) {
+            break;
+        }
+        idx = SC__FN(_find_transition_at)(machine, s, event_id, sm, event);
+        if (idx >= 0) {
+            return idx;
+        }
+        s = machine->states[s].parent;
+    }
+    return -1;
+}
+
+/// @brief Number of ancestors from a state up to the virtual root.
+static sc_state_id_t SC__FN(_depth)(const sc_machine_t *machine, sc_state_id_t s)
+{
+    sc_state_id_t d = 0u;
+    uint16_t guard;
+    for (guard = 0u; guard < (uint16_t)SC_MAX_DEPTH; ++guard) {
+        if (s == SC_STATE_INVALID) {
+            break;
+        }
+        d = (sc_state_id_t)(d + 1u);
+        s = machine->states[s].parent;
+    }
+    return d;
+}
+
+/// @brief Least common ancestor of two states (SC_STATE_INVALID = virtual root).
+static sc_state_id_t SC__FN(_lca)(const sc_machine_t *machine, sc_state_id_t a,
+                                  sc_state_id_t b)
+{
+    sc_state_id_t da = SC__FN(_depth)(machine, a);
+    sc_state_id_t db = SC__FN(_depth)(machine, b);
+    uint16_t guard;
+    for (guard = 0u; (guard < (uint16_t)SC_MAX_DEPTH) && (da > db); ++guard) {
+        a = machine->states[a].parent;
+        da = (sc_state_id_t)(da - 1u);
+    }
+    for (guard = 0u; (guard < (uint16_t)SC_MAX_DEPTH) && (db > da); ++guard) {
+        b = machine->states[b].parent;
+        db = (sc_state_id_t)(db - 1u);
+    }
+    for (guard = 0u; guard < (uint16_t)SC_MAX_DEPTH; ++guard) {
+        if (a == b) {
+            break;
+        }
+        a = machine->states[a].parent;
+        b = machine->states[b].parent;
+    }
+    return a;
+}
+
+/// @brief Run exit actions from the active leaf up to (excluding) `stop`.
+///
+/// Returns SC_STATUS_INVALID_ARGUMENT if the walk terminates without meeting
+/// `stop` (a corrupt tree: `stop` is not an ancestor of the active leaf, or the
+/// depth bound was hit), rather than stopping silently at a truncated point.
+static sc_status_t SC__FN(_exit_up_to)(SC__T *sm, sc_state_id_t from,
+                                       sc_state_id_t stop, const sc_event_t *event)
+{
+    const sc_machine_t *machine = sm->runtime.machine;
+    sc_state_id_t s = from;
+    uint16_t guard;
+    for (guard = 0u; guard < (uint16_t)SC_MAX_DEPTH; ++guard) {
+        sc_status_t status;
+        if ((s == stop) || (s == SC_STATE_INVALID)) {
+            break;
+        }
+        status = SC__FN(_run_state_action)(sm, machine->states[s].exit_action, event);
+        if (status != SC_STATUS_OK) {
+            return status;
+        }
+        s = machine->states[s].parent;
+    }
+    if (s != stop) {
+        return SC_STATUS_INVALID_ARGUMENT;
+    }
+    return SC_STATUS_OK;
+}
+
+/// @brief Run entry actions outer-first from (excluding) `stop` down to `target`.
+///
+/// Collects `target`'s ancestor chain up to `stop` first; if the walk does not
+/// actually reach `stop` (a corrupt tree, or the depth bound was hit) it enters
+/// nothing and returns SC_STATUS_INVALID_ARGUMENT, rather than entering a
+/// truncated path. `n` cannot exceed SC_MAX_DEPTH because the loop runs at most
+/// SC_MAX_DEPTH times and appends before stepping, so `path[n]` is always in
+/// bounds.
+static sc_status_t SC__FN(_enter_down_to)(SC__T *sm, sc_state_id_t stop,
+                                          sc_state_id_t target, const sc_event_t *event)
+{
+    const sc_machine_t *machine = sm->runtime.machine;
+    sc_state_id_t path[SC_MAX_DEPTH];
+    uint16_t n = 0u;
+    sc_state_id_t s = target;
+    uint16_t guard;
+    for (guard = 0u; guard < (uint16_t)SC_MAX_DEPTH; ++guard) {
+        if ((s == stop) || (s == SC_STATE_INVALID)) {
+            break;
+        }
+        if (n < (uint16_t)SC_MAX_DEPTH) {
+            path[n] = s;
+            n = (uint16_t)(n + 1u);
+        }
+        s = machine->states[s].parent;
+    }
+    if (s != stop) {
+        return SC_STATUS_INVALID_ARGUMENT;
+    }
+    while (n > 0u) {
+        sc_status_t status;
+        n = (uint16_t)(n - 1u);
+        status = SC__FN(_run_state_action)(sm, machine->states[path[n]].entry_action, event);
+        if (status != SC_STATUS_OK) {
+            return status;
+        }
+    }
+    return SC_STATUS_OK;
+}
+
+/// @brief Descend into initial children until a leaf; write it to *out_leaf.
+static sc_status_t SC__FN(_descend)(SC__T *sm, sc_state_id_t start,
+                                    const sc_event_t *event, sc_state_id_t *out_leaf)
+{
+    const sc_machine_t *machine = sm->runtime.machine;
+    sc_state_id_t cur = start;
+    uint16_t guard;
+    for (guard = 0u; guard < (uint16_t)SC_MAX_DEPTH; ++guard) {
+        sc_state_id_t child = machine->states[cur].initial_child;
+        sc_status_t status;
+        if (child == SC_STATE_INVALID) {
+            break;
+        }
+        cur = child;
+        status = SC__FN(_run_state_action)(sm, machine->states[cur].entry_action, event);
+        if (status != SC_STATUS_OK) {
+            return status;
+        }
+    }
+    *out_leaf = cur;
+    return SC_STATUS_OK;
+}
+
+/// @brief Take one transition: exit to scope, run effect, enter target, descend.
 static sc_status_t SC__FN(_take_transition)(SC__T *sm, const sc_transition_t *t,
                                             const sc_event_t *event)
 {
     const sc_machine_t *machine = sm->runtime.machine;
-    sc_status_t status = SC__FN(_run_state_action)(
-        sm, machine->states[sm->runtime.current_state].exit_action, event);
+    sc_state_id_t scope = (t->source == t->target)
+                              ? machine->states[t->source].parent
+                              : SC__FN(_lca)(machine, t->source, t->target);
+    sc_state_id_t leaf;
+    sc_status_t status = SC__FN(_exit_up_to)(sm, sm->runtime.current_state, scope, event);
     if (status != SC_STATUS_OK) {
         return status;
     }
@@ -92,14 +237,19 @@ static sc_status_t SC__FN(_take_transition)(SC__T *sm, const sc_transition_t *t,
             return status;
         }
     }
-    sm->runtime.current_state = t->target;
-    return SC__FN(_run_state_action)(
-        sm, machine->states[t->target].entry_action, event);
+    status = SC__FN(_enter_down_to)(sm, scope, t->target, event);
+    if (status != SC_STATUS_OK) {
+        return status;
+    }
+    status = SC__FN(_descend)(sm, t->target, event, &leaf);
+    if (status != SC_STATUS_OK) {
+        return status;
+    }
+    sm->runtime.current_state = leaf;
+    return SC_STATUS_OK;
 }
 
 /// @brief Fire completion transitions until none is enabled, bounded.
-/// @param sm Statechart instance.
-/// @return SC_STATUS_OK when quiescent, or SC_STATUS_STEP_LIMIT on exhaustion.
 static sc_status_t SC__FN(_run_completion)(SC__T *sm)
 {
     const sc_machine_t *machine = sm->runtime.machine;
@@ -142,6 +292,14 @@ sc_status_t SC__FN(_init)(SC__T *sm, SC__CTX *ctx)
         &completion);
     if (status != SC_STATUS_OK) {
         return status;
+    }
+    {
+        sc_state_id_t leaf;
+        status = SC__FN(_descend)(sm, SC_MACHINE_DEF.initial_state, &completion, &leaf);
+        if (status != SC_STATUS_OK) {
+            return status;
+        }
+        sm->runtime.current_state = leaf;
     }
     return SC__FN(_run_completion)(sm);
 }
