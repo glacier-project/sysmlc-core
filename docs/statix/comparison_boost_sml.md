@@ -24,92 +24,92 @@ which *statechart semantics* we can adopt without breaking those rules.
 1. **Flat states + event-triggered transitions**
    - boost::sml: ✅
    - statix today: ✅
-2. **Initial state**
+1. **Initial state**
    - boost::sml: ✅ (`*` prefix)
    - statix today: ✅
-3. **Guards**
+1. **Guards**
    - boost::sml: ✅ composable `&&` `||` `!`
    - statix today: ◐ one guard id/row
    - Direction: composite guards (gen-side)
-4. **Transition effect / action**
+1. **Transition effect / action**
    - boost::sml: ✅ multiple via `,`
    - statix today: ◐ one action id/row
    - Direction: action lists
-5. **First-match / ordering semantics**
+1. **First-match / ordering semantics**
    - boost::sml: ✅
    - statix today: ✅ declaration order
-6. **Unexpected event handling**
+1. **Unexpected event handling**
    - boost::sml: ✅ `unexpected_event<E>`
    - statix today: ✅ `SC_STATUS_NO_TRANSITION`
    - Direction: + wildcard catch-all (#11)
-7. **Terminal state**
+1. **Terminal state**
    - boost::sml: ✅ `X`, `is_terminated()`
    - statix today: ❌
    - Direction: **near-term**
-8. **Anonymous / completion transitions**
+1. **Anonymous / completion transitions**
    - boost::sml: ✅
    - statix today: ❌
    - Direction: **near-term** (bounded RTC)
-9. **Internal transitions**
+1. **Internal transitions**
    - boost::sml: ✅ (no `= dst`)
    - statix today: ❌
    - Direction: with entry/exit (Stage 1)
-10. **Self-transition (external)**
-    - boost::sml: ✅ `= src`
-    - statix today: ◐ target==source works, no exit/entry yet
-    - Direction: with entry/exit
-11. **Wildcard source state**
-    - boost::sml: ✅ `_`
-    - statix today: ❌
-    - Direction: **near-term** (`SC_STATE_ANY`)
-12. **Entry / exit actions**
-    - boost::sml: ✅ `on_entry` / `on_exit`
-    - statix today: ❌
-    - Direction: Stage 1
-13. **Hierarchical / composite states (submachine)**
-    - boost::sml: ✅ `sm<...>`
-    - statix today: ❌
-    - Direction: Stage 1
-14. **Orthogonal / parallel regions**
-    - boost::sml: ✅ multiple `*` initials
-    - statix today: ❌
-    - Direction: Stage 3
-15. **History (shallow)**
-    - boost::sml: ✅
-    - statix today: ❌
-    - Direction: Stage 3
-16. **Event deferral**
-    - boost::sml: ✅ `defer`
-    - statix today: ❌
-    - Direction: bounded defer (later)
-17. **Queue / re-post events**
-    - boost::sml: ✅ `process` (dynamic queue)
-    - statix today: ◐ fixed queue, caller-driven
-    - Direction: mature in-action posting
-18. **Typed event payload**
-    - boost::sml: ✅ full C++ types
-    - statix today: ◐ bounded byte payload placeholder
-    - Direction: typed payload in generator
-19. **Logging / visiting current states**
-    - boost::sml: ✅ `logger`, `visit_current_states`
-    - statix today: ❌
-    - Direction: optional link-time trace hooks
-20. **Exception handling**
-    - boost::sml: ✅ `exception<E>`
-    - statix today: ❌
-    - Direction: **out of scope** (no C++ exceptions)
-21. **Dependency injection**
-    - boost::sml: ✅ `pool` / `try_get`
-    - statix today: ❌ (single `user_data`)
-    - Direction: **out of scope** (different model)
-22. **Thread safety**
-    - boost::sml: ✅ `thread_safe<lock>`
-    - statix today: ❌ (caller's responsibility)
-    - Direction: **out of scope** for the runtime
-23. **Selectable dispatch (jump/switch/branch/fold)**
-    - boost::sml: ✅ policy
-    - statix today: ◐ one generated switch
-    - Direction: optional jump-table emission
+1. **Self-transition (external)**
+   - boost::sml: ✅ `= src`
+   - statix today: ◐ target==source works, no exit/entry yet
+   - Direction: with entry/exit
+1. **Wildcard source state**
+   - boost::sml: ✅ `_`
+   - statix today: ❌
+   - Direction: **near-term** (`SC_STATE_ANY`)
+1. **Entry / exit actions**
+   - boost::sml: ✅ `on_entry` / `on_exit`
+   - statix today: ❌
+   - Direction: Stage 1
+1. **Hierarchical / composite states (submachine)**
+   - boost::sml: ✅ `sm<...>`
+   - statix today: ❌
+   - Direction: Stage 1
+1. **Orthogonal / parallel regions**
+   - boost::sml: ✅ multiple `*` initials
+   - statix today: ❌
+   - Direction: Stage 3
+1. **History (shallow)**
+   - boost::sml: ✅
+   - statix today: ❌
+   - Direction: Stage 3
+1. **Event deferral**
+   - boost::sml: ✅ `defer`
+   - statix today: ❌
+   - Direction: bounded defer (later)
+1. **Queue / re-post events**
+   - boost::sml: ✅ `process` (dynamic queue)
+   - statix today: ◐ fixed queue, caller-driven
+   - Direction: mature in-action posting
+1. **Typed event payload**
+   - boost::sml: ✅ full C++ types
+   - statix today: ◐ bounded byte payload placeholder
+   - Direction: typed payload in generator
+1. **Logging / visiting current states**
+   - boost::sml: ✅ `logger`, `visit_current_states`
+   - statix today: ❌
+   - Direction: optional link-time trace hooks
+1. **Exception handling**
+   - boost::sml: ✅ `exception<E>`
+   - statix today: ❌
+   - Direction: **out of scope** (no C++ exceptions)
+1. **Dependency injection**
+   - boost::sml: ✅ `pool` / `try_get`
+   - statix today: ❌ (single `user_data`)
+   - Direction: **out of scope** (different model)
+1. **Thread safety**
+   - boost::sml: ✅ `thread_safe<lock>`
+   - statix today: ❌ (caller's responsibility)
+   - Direction: **out of scope** for the runtime
+1. **Selectable dispatch (jump/switch/branch/fold)**
+   - boost::sml: ✅ policy
+   - statix today: ◐ one generated switch
+   - Direction: optional jump-table emission
 
 ✅ supported · ◐ partial / different mechanism · ❌ not yet
 
