@@ -44,10 +44,6 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["sysmlc"]
 
-[tool.hatch.build.targets.wheel.force-include]
-"sysmlc/backends/statix/runtime" = "sysmlc/backends/statix/runtime"
-"sysmlc/backends/statix/templates" = "sysmlc/backends/statix/templates"
-
 [tool.ruff]
 # Google style uses 80 chars
 line-length = 80

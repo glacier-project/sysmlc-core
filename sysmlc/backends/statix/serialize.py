@@ -3,7 +3,11 @@ from __future__ import annotations
 from jinja2 import Environment, PackageLoader
 
 from sysmlc.backends.statix.builder import _c_identifier
-from sysmlc.backends.statix.program import COMPLETION_EVENT, CProgram, CProject
+from sysmlc.backends.statix.program import (
+    COMPLETION_EVENT,
+    CProgram,
+    CProject,
+)
 
 _env = Environment(
     loader=PackageLoader("sysmlc.backends.statix", "templates"),
@@ -149,180 +153,81 @@ def emit_header(program: CProgram) -> str:
     return _env.get_template("machine.h.j2").render(**_header_view(program))
 
 
-def emit_source(program: CProgram) -> str:
-    """Render the generated statechart implementation."""
+def _source_view(program: CProgram) -> dict[str, object]:
     p = program.prefix
     pkg_dir, stem = _paths(program)
-    parts = [
-        _banner(f"{pkg_dir}/{stem}.c", program.qualified_name),
-        f'#include "{pkg_dir}/{stem}.h"',
-        "",
-        "/* Static state and transition tables (file-local). */",
-        "static const sc_state_def_t states[] = {",
-    ]
-    for s in program.states:
-        entry = (
+
+    def act(action_id: str | None) -> str:
+        return (
             "SC_ACTION_NONE"
-            if s.entry_action_id is None
-            else _const(p, "ACTION", s.entry_action_id)
+            if action_id is None
+            else _const(p, "ACTION", action_id)
         )
-        exit_ = (
-            "SC_ACTION_NONE"
-            if s.exit_action_id is None
-            else _const(p, "ACTION", s.exit_action_id)
-        )
-        parent = (
+
+    def st(state_name: str | None) -> str:
+        return (
             "SC_STATE_INVALID"
-            if s.parent is None
-            else _const(p, "STATE", s.parent)
+            if state_name is None
+            else _const(p, "STATE", state_name)
         )
-        initial_child = (
-            "SC_STATE_INVALID"
-            if s.initial_child is None
-            else _const(p, "STATE", s.initial_child)
-        )
-        is_final = "true" if s.is_final else "false"
-        parts.append(
-            f"    {{{entry}, {exit_}, {parent}, {initial_child}, {is_final}}},"
-        )
-    parts += [
-        "};",
-        "",
-        "static const sc_transition_t transitions[] = {",
+
+    state_rows = [
+        {
+            "entry": act(s.entry_action_id),
+            "exit": act(s.exit_action_id),
+            "parent": st(s.parent),
+            "initial_child": st(s.initial_child),
+            "is_final": "true" if s.is_final else "false",
+        }
+        for s in program.states
     ]
-    for t in program.transitions:
-        source = _const(p, "STATE", t.source)
-        event = _event_token(program, t.event)
-        guard = (
-            "SC_GUARD_NONE" if t.guard is None else _const(p, "GUARD", t.guard)
-        )
-        action = (
-            "SC_ACTION_NONE"
-            if t.action is None
-            else _const(p, "ACTION", t.action)
-        )
-        target = _const(p, "STATE", t.target)
-        parts.append(f"    {{{source}, {event}, {guard}, {action}, {target}}},")
-    parts += [
-        "};",
-        "",
-        "static const sc_machine_t machine_def = {",
-        "    transitions,",
-        "    states,",
-        "    (uint16_t)(sizeof(transitions) / sizeof(transitions[0])),",
-        f"    {p.upper()}_STATE_COUNT,",
-        f"    {_const(p, 'STATE', program.initial)},",
-        f"    (sc_state_id_t){program.max_depth}u,",
-        "};",
-        "",
-        "/* Generated guard/action dispatch. */",
-        (
-            "static bool guard_eval(sc_guard_id_t guard_id, "
-            "const sc_runtime_t *runtime, const sc_event_t *event)"
-        ),
-        "{",
+    transition_rows = [
+        {
+            "source": _const(p, "STATE", t.source),
+            "event": _event_token(program, t.event),
+            "guard": "SC_GUARD_NONE"
+            if t.guard is None
+            else _const(p, "GUARD", t.guard),
+            "action": act(t.action),
+            "target": _const(p, "STATE", t.target),
+        }
+        for t in program.transitions
     ]
-    if program.guards:
-        parts += [
-            (
-                f"    const {p}_context_t *ctx = "
-                f"(const {p}_context_t *)runtime->user_data;"
-            ),
-            "    (void)event;",
-            "    switch (guard_id) {",
-        ]
-        for g in program.guards:
-            parts.append(f"    case {_const(p, 'GUARD', g.name)}:")
-            parts.append(f"        return {g.expr};")
-        parts += ["    default:", "        return false;", "    }"]
-    else:
-        parts += [
-            "    (void)runtime;",
-            "    (void)event;",
-            "    (void)guard_id;",
-            "    return false;",
-        ]
-    parts += [
-        "}",
-        "",
-        (
-            "static sc_status_t action_exec("
-            "sc_action_id_t action_id, sc_runtime_t *runtime, "
-            "const sc_event_t *event)"
-        ),
-        "{",
-    ]
-    if program.actions:
-        parts += [
-            f"    {p}_context_t *ctx = ({p}_context_t *)runtime->user_data;",
-            "    (void)event;",
-            "    if (ctx == NULL) { return SC_STATUS_INVALID_ARGUMENT; }",
-            "    switch (action_id) {",
-        ]
-        for a in program.actions:
-            parts.append(f"    case {_const(p, 'ACTION', a.name)}:")
-            for stmt in a.statements:
-                parts.append(f"        {stmt}")
-            parts.append("        return SC_STATUS_OK;")
-        parts += ["    default:", "        return SC_STATUS_ERROR;", "    }"]
-    else:
-        parts += [
-            "    (void)runtime;",
-            "    (void)event;",
-            "    (void)action_id;",
-            "    return SC_STATUS_OK;",
-        ]
-    parts += [
-        "}",
-        "",
-        f"void {p}_context_init({p}_context_t *ctx)",
-        "{",
-        "    if (ctx == NULL) {",
-        "        return;",
-        "    }",
-        f"    *ctx = ({p}_context_t){_context_initializer(program)};",
-        "}",
-        "",
-        f"const char *{p}_state_name(sc_state_id_t state)",
-        "{",
-        "    switch (state) {",
-    ]
-    for s in program.states:
-        parts.append(f"    case {_const(p, 'STATE', s.name)}:")
-        parts.append(f'        return "{s.name}";')
-    parts += [
-        "    case SC_STATE_INVALID:",
-        '        return "SC_STATE_INVALID";',
-        "    default:",
-        '        return "SC_STATE_UNKNOWN";',
-        "    }",
-        "}",
-        "",
-        f"const char *{p}_event_name(sc_event_id_t event)",
-        "{",
-        "    switch (event) {",
-    ]
-    for e in program.events:
-        parts.append(f"    case {_const(p, 'EVENT', e)}:")
-        parts.append(f'        return "{e}";')
-    parts += [
-        "    case SC_EVENT_COMPLETION:",
-        '        return "SC_EVENT_COMPLETION";',
-        "    case SC_EVENT_INVALID:",
-        '        return "SC_EVENT_INVALID";',
-        "    default:",
-        '        return "SC_EVENT_UNKNOWN";',
-        "    }",
-        "}",
-        "",
-        "/* Instantiate the shared dispatch for this machine. */",
-        f"#define SC_MACHINE_PREFIX {p}",
-        "#define SC_MACHINE_DEF machine_def",
-        "#define SC_MACHINE_GUARD guard_eval",
-        "#define SC_MACHINE_ACTION action_exec",
-        '#include "sc/sc_machine.h"',
-    ]
-    return "\n".join(parts) + "\n"
+    return {
+        "banner": _banner(f"{pkg_dir}/{stem}.c", program.qualified_name),
+        "pkg_dir": pkg_dir,
+        "stem": stem,
+        "prefix": p,
+        "state_rows": state_rows,
+        "transition_rows": transition_rows,
+        "state_count_macro": f"{p.upper()}_STATE_COUNT",
+        "initial_const": _const(p, "STATE", program.initial),
+        "max_depth": program.max_depth,
+        "guards": [
+            {"const": _const(p, "GUARD", g.name), "expr": g.expr}
+            for g in program.guards
+        ],
+        "actions": [
+            {
+                "const": _const(p, "ACTION", a.name),
+                "statements": list(a.statements),
+            }
+            for a in program.actions
+        ],
+        "context_initializer": _context_initializer(program),
+        "state_names": [
+            {"const": _const(p, "STATE", s.name), "name": s.name}
+            for s in program.states
+        ],
+        "event_names": [
+            {"const": _const(p, "EVENT", e), "name": e} for e in program.events
+        ],
+    }
+
+
+def emit_source(program: CProgram) -> str:
+    """Render the generated statechart implementation."""
+    return _env.get_template("machine.c.j2").render(**_source_view(program))
 
 
 def _runner_view(program: CProgram) -> dict[str, object]:
