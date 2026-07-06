@@ -8,11 +8,10 @@ from sismic.interpreter import Interpreter
 
 from sysmlc.backends.quake import build_statechart
 from sysmlc.sysml.loading import load_model
-from tests.backends.quake.conftest import SM_EXAMPLES_BY_DIR
+from tests.backends.quake.conftest import SM_EXAMPLES_BY_DIR, transition_from
 
 if TYPE_CHECKING:
     import syside
-    from sismic.model import Statechart, Transition
 
 EXAMPLE = SM_EXAMPLES_BY_DIR["sm06-transition-effect"]
 
@@ -56,15 +55,6 @@ CASES: list[EffectCase] = [
 ]
 
 
-def _transition_from(statechart: Statechart, source: str) -> Transition:
-    """Return the single transition leaving ``source`` in ``statechart``."""
-    matches = [t for t in statechart.transitions if t.source == source]
-    assert len(matches) == 1, (
-        f"expected exactly one transition from {source!r}, found {len(matches)}"
-    )
-    return matches[0]
-
-
 @pytest.fixture(scope="module")
 def model() -> syside.Model:
     return load_model(EXAMPLE.model_dir)
@@ -91,7 +81,7 @@ def test_effect_transition_action_is_emitted(
     the transition usage is triggered".
     """
     sc = build_statechart(model, case.state_def_qn)
-    assert _transition_from(sc, EFFECT_SOURCE).action == case.expected_action
+    assert transition_from(sc, EFFECT_SOURCE).action == case.expected_action
 
 
 def test_effect_targets_only_its_transition(

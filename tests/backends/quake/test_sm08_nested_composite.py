@@ -8,20 +8,12 @@ from sismic.model import BasicState, CompoundState
 
 from sysmlc.backends.quake import build_statechart
 from sysmlc.sysml.loading import load_model
-from tests.backends.quake.conftest import SM_EXAMPLES_BY_DIR
+from tests.backends.quake.conftest import SM_EXAMPLES_BY_DIR, has_transition
 
 if TYPE_CHECKING:
     import syside
-    from sismic.model import Statechart
 
 EXAMPLE = SM_EXAMPLES_BY_DIR["sm08-nested-composite"]
-
-
-def _has_transition(sc: Statechart, source: str, target: str) -> bool:
-    """Whether ``sc`` has a transition from ``source`` to ``target``."""
-    return any(
-        t.source == source and t.target == target for t in sc.transitions
-    )
 
 
 @pytest.fixture(scope="module")
@@ -57,7 +49,7 @@ def test_within_composite_transition_uses_relative_paths(
 ) -> None:
     """A transition inside a composite connects relative-path endpoints."""
     sc = build_statechart(model, "SM08::MachineNested")
-    assert _has_transition(sc, "running::warming", "running::hot")
+    assert has_transition(sc, "running::warming", "running::hot")
 
 
 def test_three_level_nesting_recurses(model: syside.Model) -> None:
@@ -82,8 +74,8 @@ def test_name_collision_disambiguated_by_relative_path(
         "groupB::paused",
     ):
         assert name in sc.states
-    assert _has_transition(sc, "groupA::active", "groupA::paused")
-    assert _has_transition(sc, "groupB::active", "groupB::paused")
+    assert has_transition(sc, "groupA::active", "groupA::paused")
+    assert has_transition(sc, "groupB::active", "groupB::paused")
 
 
 def test_execution_descends_into_composite(model: syside.Model) -> None:
@@ -100,7 +92,7 @@ def test_cross_boundary_out_resolves_dotted_source(
 ) -> None:
     """A transition out of a deep state resolves its dotted source."""
     sc = build_statechart(model, "SM08::MachineCrossOut")
-    assert _has_transition(sc, "running::hot", "stopped")
+    assert has_transition(sc, "running::hot", "stopped")
 
 
 def test_cross_boundary_in_resolves_dotted_target(
@@ -108,7 +100,7 @@ def test_cross_boundary_in_resolves_dotted_target(
 ) -> None:
     """A transition into a deep state resolves its dotted target."""
     sc = build_statechart(model, "SM08::MachineCrossIn")
-    assert _has_transition(sc, "idle", "running::hot")
+    assert has_transition(sc, "idle", "running::hot")
 
 
 def test_cross_boundary_in_enters_specified_deep_state(

@@ -8,32 +8,17 @@ from sismic.interpreter import Interpreter
 from sysmlc.backends.quake import build_statechart
 from sysmlc.sysml.loading import load_model
 from tests import _load_inline_model
-from tests.backends.quake.conftest import SM_EXAMPLES_BY_DIR
+from tests.backends.quake.conftest import (
+    SM_EXAMPLES_BY_DIR,
+    transition_between,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     import syside
-    from sismic.model import Statechart, Transition
 
 EXAMPLE = SM_EXAMPLES_BY_DIR["sm11-send-effect"]
-
-
-def _action_of(sc: Statechart, source: str, target: str) -> str | None:
-    """The action string of the transition from ``source`` to ``target``."""
-    for transition in sc.transitions:
-        if transition.source == source and transition.target == target:
-            action: str | None = transition.action
-            return action
-    raise AssertionError(f"no transition {source} -> {target}")
-
-
-def _transition(sc: Statechart, source: str, target: str) -> Transition:
-    """The transition from ``source`` to ``target``."""
-    for transition in sc.transitions:
-        if transition.source == source and transition.target == target:
-            return transition
-    raise AssertionError(f"no transition {source} -> {target}")
 
 
 @pytest.fixture(scope="module")
@@ -44,19 +29,25 @@ def model() -> syside.Model:
 def test_send_effect_emits_event(model: syside.Model) -> None:
     """A ``do send new Ping()`` effect emits a sismic ``send('Ping')`` call."""
     sc = build_statechart(model, "SM11::MachineSelfSend")
-    assert _action_of(sc, "idle", "armed") == 'send("Ping")'
+    assert transition_between(sc, "idle", "armed").action == 'send("Ping")'
 
 
 def test_payload_args_emitted_as_kwargs(model: syside.Model) -> None:
     """Positional payload args become ``send()`` kwargs by attribute name."""
     sc = build_statechart(model, "SM11::MachinePayload")
-    assert _action_of(sc, "idle", "armed") == 'send("Reading", value=current)'
+    assert (
+        transition_between(sc, "idle", "armed").action
+        == 'send("Reading", value=current)'
+    )
 
 
 def test_string_payload_arg_emitted_as_kwarg(model: syside.Model) -> None:
     """A string payload arg is emitted as a quoted Python kwarg."""
     sc = build_statechart(model, "SM11::MachineStringPayload")
-    assert _action_of(sc, "idle", "armed") == 'send("Note", text="hi")'
+    assert (
+        transition_between(sc, "idle", "armed").action
+        == 'send("Note", text="hi")'
+    )
 
 
 def test_accept_payload_guard_uses_event_field(
@@ -64,7 +55,7 @@ def test_accept_payload_guard_uses_event_field(
 ) -> None:
     """A payload field read in a guard emits sismic's ``event.<field>``."""
     sc = build_statechart(model, "SM11::MachineReadablePayloadGuard")
-    transition = _transition(sc, "armed", "fired")
+    transition = transition_between(sc, "armed", "fired")
     assert transition.event == "Measurement"
     assert transition.guard == "event.value > 0.5"
 
@@ -74,7 +65,10 @@ def test_accept_payload_effect_uses_event_field(
 ) -> None:
     """A payload field read in an effect emits sismic's ``event.<field>``."""
     sc = build_statechart(model, "SM11::MachineReadablePayloadEffect")
-    assert _action_of(sc, "armed", "fired") == "captured = event.value"
+    assert (
+        transition_between(sc, "armed", "fired").action
+        == "captured = event.value"
+    )
 
 
 def test_accept_payload_chain_uses_event_root(
@@ -82,7 +76,7 @@ def test_accept_payload_chain_uses_event_root(
 ) -> None:
     """A payload field chain rewrites only the payload root to ``event``."""
     sc = build_statechart(model, "SM11::MachineReadablePayloadChain")
-    transition = _transition(sc, "armed", "fired")
+    transition = transition_between(sc, "armed", "fired")
     assert transition.guard == "event.sample.value > 0.5"
 
 
@@ -91,13 +85,13 @@ def test_accept_payload_whole_uses_event(
 ) -> None:
     """A bare reference to the whole payload binding emits ``event``."""
     sc = build_statechart(model, "SM11::MachineReadablePayloadWhole")
-    assert _action_of(sc, "armed", "fired") == "captured = event"
+    assert transition_between(sc, "armed", "fired").action == "captured = event"
 
 
 def test_mixed_effect_emits_assign_then_send(model: syside.Model) -> None:
     """A mixed effect body emits the assign and the send, in order."""
     sc = build_statechart(model, "SM11::MachineMixed")
-    action = _action_of(sc, "idle", "armed")
+    action = transition_between(sc, "idle", "armed").action
     assert action is not None
     assert "count = count + 1" in action
     assert 'send("Ping")' in action
@@ -194,7 +188,7 @@ def test_standalone_via_send_is_dropped(tmp_path: Path) -> None:
     so with no system context the transfer has no receiver."""
     model = _load_inline_model(tmp_path, VIA_ALONE_MODEL)
     sc = build_statechart(model, "ViaAlone::Machine")
-    assert _action_of(sc, "idle", "armed") is None
+    assert transition_between(sc, "idle", "armed").action is None
 
 
 def test_standalone_via_send_keeps_sibling_statements(
@@ -203,4 +197,4 @@ def test_standalone_via_send_keeps_sibling_statements(
     """Dropping a via-send removes only that statement from the effect."""
     model = _load_inline_model(tmp_path, VIA_MIXED_MODEL)
     sc = build_statechart(model, "ViaMixed::Machine")
-    assert _action_of(sc, "idle", "armed") == "count = count + 1"
+    assert transition_between(sc, "idle", "armed").action == "count = count + 1"
