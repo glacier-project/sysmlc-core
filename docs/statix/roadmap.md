@@ -131,8 +131,9 @@ rosetta.
 
 ## Feature realizations (summary)
 
-- **A Composite states** — the tree + LCA dispatch above; builder emits the tree,
-  `MAX_DEPTH`, and initial-child descent.
+- **A Composite states (**landed**)** — table `parent`/`initial_child` columns
+  walked by bounded LCA dispatch in `sc/sc_machine.h`; parallel and history
+  remain out of scope.
 - **B `then done` / final** — a generated `FINAL`-kind state per scope; entering
   it marks the enclosing composite complete and the completion micro-step fires
   its eventless exit; at the root, "complete" is a settled/terminal status the
@@ -182,7 +183,7 @@ Conformance-gated, hierarchy before advanced features, untimed before timed.
 | Phase   | Theme                      | Features                                                                                                                       | Corpus                                                   | Runtime delta                                                                                        |
 | ------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | **A.0** | Emission model             | **landed:** one prefixed `.c`/`.h` per statechart; whole-model build; host runners; no global dispatch symbols                 | SM01 multi-`state def` project compiles, links, and runs | prefixed public API; static guard/action; shared `sc/sc_machine.h` dispatch template                 |
-| **A**   | UML core (untimed)         | composite, `then done`/final, one-shot `do`, constraints, functions/extern                                                     | sm08, sm10, sm12, sm14, sm17                             | state tree + LCA dispatch + `MAX_DEPTH`; final states; invariant check + new status                  |
+| **A**   | UML core (untimed)         | **composite (landed)**, then done/final, one-shot do, constraints, functions/extern                                            | sm08, sm10, sm12, sm14, sm17                             | state tree + LCA dispatch + MAX_DEPTH; final states; invariant check + new status                  |
 | **B**   | Internal-event RTC         | `send` + internal queue drain + payloads                                                                                       | sm11                                                     | generalize the bounded micro-step; typed payloads in the event buffer                                |
 | **B.5** | Host execution & testbench | `sysmlc statix run`; virtual-time testbench DSL; state/context expectations; JSON/CSV traces; statix-vs-quake trace comparison | sm01-sm17 reusable scripted traces                       | hosted runner tooling only; board-clean generated units unchanged                                    |
 | **C**   | Timed subset               | `after`/`at`, `when`                                                                                                           | sm13, sm16, sm14(full)                                   | `sc_runtime_tick`; timer table + activation counters; armed-flag observers; documented LF divergence |
