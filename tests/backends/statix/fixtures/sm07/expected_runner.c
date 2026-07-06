@@ -26,8 +26,8 @@ int main(int argc, char **argv)
 
     sm07_machine_firing_order_context_init(&ctx);
     status = sm07_machine_firing_order_init(&sm, &ctx);
-    (void)printf("init status=%s state=%s\n", sc_status_str(status),
-                 sm07_machine_firing_order_state_name(sm07_machine_firing_order_get_state(&sm)));
+    (void)printf("init status=%s state=%s final=%d\n", sc_status_str(status),
+                 sm07_machine_firing_order_state_name(sm07_machine_firing_order_get_state(&sm)), (int)sm07_machine_firing_order_is_final(&sm));
     if (status != SC_STATUS_OK) {
         return 1;
     }
@@ -39,8 +39,8 @@ int main(int argc, char **argv)
             return 2;
         }
         status = sm07_machine_firing_order_post(&sm, event_id);
-        (void)printf("event %s status=%s state=%s\n", argv[i],
-                     sc_status_str(status), sm07_machine_firing_order_state_name(sm07_machine_firing_order_get_state(&sm)));
+        (void)printf("event %s status=%s state=%s final=%d\n", argv[i],
+                     sc_status_str(status), sm07_machine_firing_order_state_name(sm07_machine_firing_order_get_state(&sm)), (int)sm07_machine_firing_order_is_final(&sm));
         if ((status != SC_STATUS_OK) && (status != SC_STATUS_NO_TRANSITION)) {
             return 1;
         }

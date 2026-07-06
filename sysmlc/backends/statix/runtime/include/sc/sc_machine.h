@@ -360,6 +360,25 @@ sc_state_id_t SC__FN(_get_state)(const SC__T *sm)
     return state;
 }
 
+/// @brief Whether the machine has reached a root-level final state (terminated).
+/// @param sm Statechart instance to inspect.
+/// @return true if the active leaf is a root-scope final state, else false.
+bool SC__FN(_is_final)(const SC__T *sm)
+{
+    const sc_machine_t *machine;
+    sc_state_id_t s;
+    if ((sm == NULL) || (!sm->runtime.initialized)) {
+        return false;
+    }
+    machine = sm->runtime.machine;
+    s = sm->runtime.current_state;
+    if ((machine == NULL) || (s >= machine->state_count)) {
+        return false;
+    }
+    return machine->states[s].is_final &&
+           (machine->states[s].parent == SC_STATE_INVALID);
+}
+
 #undef SC__CAT2
 #undef SC__CAT
 #undef SC__T

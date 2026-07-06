@@ -82,6 +82,11 @@ sc_status_t sm05_machine_chain_nested_post(sm05_machine_chain_nested_t *sm, sc_e
 /// @return Active state id, or SC_STATE_INVALID before initialization.
 sc_state_id_t sm05_machine_chain_nested_get_state(const sm05_machine_chain_nested_t *sm);
 
+/// @brief Whether the machine reached a root-level final state (terminated).
+/// @param sm Statechart instance to inspect.
+/// @return true if the active leaf is a root-scope final state.
+bool sm05_machine_chain_nested_is_final(const sm05_machine_chain_nested_t *sm);
+
 /// @brief Return a stable name for a generated state id.
 /// @param state State identifier to name.
 /// @return Static non-NULL state name.

@@ -59,12 +59,12 @@ def test_composite_state_rows_and_max_depth(sm_models: dict) -> None:
     # running is composite: descends into warming; top-level so parent INVALID.
     assert (
         "{SC_ACTION_NONE, SC_ACTION_NONE, SC_STATE_INVALID, "
-        "SM08_MACHINE_NESTED_STATE_RUNNING_WARMING}," in config
+        "SM08_MACHINE_NESTED_STATE_RUNNING_WARMING, false}," in config
     )
     # warming is a leaf under running.
     assert (
         "{SC_ACTION_NONE, SC_ACTION_NONE, SM08_MACHINE_NESTED_STATE_RUNNING, "
-        "SC_STATE_INVALID}," in config
+        "SC_STATE_INVALID, false}," in config
     )
     # Depth of running::warming is 2.
     assert "(sc_state_id_t)2u," in config

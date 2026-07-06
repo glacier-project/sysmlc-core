@@ -69,6 +69,7 @@ def statix_run(
             text=True,
         )
         last = out.stdout.strip().splitlines()[-1]
-        return last.rsplit("state=", maxsplit=1)[1].strip()
+        tail = last.rsplit("state=", maxsplit=1)[1].strip()
+        return tail.split()[0]
 
     return _run

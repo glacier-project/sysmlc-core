@@ -26,8 +26,8 @@ int main(int argc, char **argv)
 
     sm04_machine_entry_increment_context_init(&ctx);
     status = sm04_machine_entry_increment_init(&sm, &ctx);
-    (void)printf("init status=%s state=%s\n", sc_status_str(status),
-                 sm04_machine_entry_increment_state_name(sm04_machine_entry_increment_get_state(&sm)));
+    (void)printf("init status=%s state=%s final=%d\n", sc_status_str(status),
+                 sm04_machine_entry_increment_state_name(sm04_machine_entry_increment_get_state(&sm)), (int)sm04_machine_entry_increment_is_final(&sm));
     if (status != SC_STATUS_OK) {
         return 1;
     }
@@ -39,8 +39,8 @@ int main(int argc, char **argv)
             return 2;
         }
         status = sm04_machine_entry_increment_post(&sm, event_id);
-        (void)printf("event %s status=%s state=%s\n", argv[i],
-                     sc_status_str(status), sm04_machine_entry_increment_state_name(sm04_machine_entry_increment_get_state(&sm)));
+        (void)printf("event %s status=%s state=%s final=%d\n", argv[i],
+                     sc_status_str(status), sm04_machine_entry_increment_state_name(sm04_machine_entry_increment_get_state(&sm)), (int)sm04_machine_entry_increment_is_final(&sm));
         if ((status != SC_STATUS_OK) && (status != SC_STATUS_NO_TRANSITION)) {
             return 1;
         }
