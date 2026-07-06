@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, ClassVar, override
 import syside
 
 from sysmlc.codegen.python import (
+    ATOM_PRECEDENCE,
     LIBRARY_FUNCTIONS,
     PythonCodeGen,
     PythonCodeGenContext,
@@ -15,6 +16,7 @@ from sysmlc.semantics.statemachine.interface import (
     send_receiver_is_own_port,
     send_via_port,
 )
+from sysmlc.sysml.queries import feature_value
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -102,6 +104,29 @@ class QuakeRenderNeeds:
             f"from {self.external_module} import {name}"
             for name in sorted(self.used_external)
         ]
+
+
+def _enumeration_is_structured(
+    definition: syside.EnumerationDefinition,
+) -> bool:
+    """Whether an enumeration definition carries attribute features.
+
+    A plain or value-typed enumeration inherits only its implicit ``self``
+    feature; a structured enumeration (one that specializes an attribute
+    definition, like the official ``ClassificationKind``) inherits named
+    attribute usages, whose per-literal ``:>>`` redefinitions cannot be
+    projected to a single primitive value.
+
+    Args:
+        definition: The enumeration definition owning a referenced literal.
+
+    Returns:
+        True when the definition inherits any attribute usage feature.
+    """
+    for feature in definition.features.collect():
+        if isinstance(feature, syside.AttributeUsage):
+            return True
+    return False
 
 
 class SismicCodeGen(PythonCodeGen):
@@ -203,18 +228,77 @@ class SismicCodeGen(PythonCodeGen):
     def _emit_feature_reference(
         self, expr: syside.FeatureReferenceExpression
     ) -> str:
-        """Emit a bare reference, applying transition-local aliases.
+        """Emit a bare reference, applying aliases and enum projection.
 
         A reference to the whole payload binding (``accept r : Reading`` then
         an effect using ``r`` on its own) renders as sismic's runtime
         ``event``, mirroring the field-access rewrite ``r.value`` ->
         ``event.value``.
+
+        A reference to an enumeration literal renders as the literal's
+        projected primitive value, never as a generated enum member; the
+        projection rules live on ``_emit_enum_literal``.
+
+        Raises:
+            UnsupportedConstructError: If the literal belongs to a structured
+                enumeration, whose per-literal attribute state has no single
+                primitive projection.
+            ValueError: If the referent has no resolved name.
         """
         ref = expr.referent
         alias = None if ref is None else self._feature_alias(ref)
         if alias is not None:
             return alias
+        if isinstance(ref, syside.EnumerationUsage):
+            return self._emit_enum_literal(ref)
         return super()._emit_feature_reference(expr)
+
+    def _emit_enum_literal(self, literal: syside.EnumerationUsage) -> str:
+        """Emit an enumeration literal as its projected primitive value.
+
+        A literal with a declared value projects to that value's source
+        (``LightColor::red`` -> ``"red"``, ``GradePoints::A`` -> ``4.0``);
+        a plain symbolic literal (one whose enumeration declares no
+        attributes) projects to its own name as a Python string
+        (``Mode::idle`` -> ``"idle"``). Because plain literals project by
+        name, two enumerations with same-named plain literals project to
+        equal strings.
+
+        Args:
+            literal: The enumeration literal referenced in an expression.
+
+        Returns:
+            Python source for the literal's projected value.
+
+        Raises:
+            UnsupportedConstructError: If the literal belongs to a structured
+                enumeration, whose per-literal attribute state has no single
+                primitive projection.
+            ValueError: If a plain literal has no resolved name.
+        """
+        value_expression = feature_value(literal)
+        if value_expression is not None:
+            # A literal with a declared value projects to that value's
+            # source, emitted through the general expression grammar.
+            return self._emit(
+                value_expression, parent_precedence=ATOM_PRECEDENCE
+            )
+        owner = literal.owner
+        if isinstance(
+            owner, syside.EnumerationDefinition
+        ) and _enumeration_is_structured(owner):
+            name = owner.name or "<anonymous>"
+            raise UnsupportedConstructError(
+                f"enumeration {name!r} is structured (its literals carry "
+                "attribute values); structured enumeration literals have no "
+                "single primitive projection and are not supported.",
+                node=literal,
+            )
+        # A plain symbolic literal projects to its own name as a string.
+        if literal.name is None:
+            raise ValueError("enumeration literal has no resolved name")
+        delimiter = self._context.string_delimiter
+        return f"{delimiter}{literal.name}{delimiter}"
 
     @override
     def _emit_feature_chain(self, expr: syside.FeatureChainExpression) -> str:

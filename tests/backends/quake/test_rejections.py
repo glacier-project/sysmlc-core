@@ -66,3 +66,9 @@ def test_deep_initial_targets_are_rejected(
     """Initial targets must resolve to direct substates."""
     with pytest.raises(UnsupportedConstructError, match="direct substate"):
         build_statechart(model, machine_qn)
+
+
+def test_structured_enum_literal_is_rejected(model: syside.Model) -> None:
+    """A structured enum literal has no single primitive projection."""
+    with pytest.raises(UnsupportedConstructError, match="is structured"):
+        build_statechart(model, "Rejections::MachineStructuredEnum")

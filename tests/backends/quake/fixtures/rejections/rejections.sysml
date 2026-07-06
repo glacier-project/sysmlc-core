@@ -81,4 +81,24 @@ package Rejections {
             state hot;
         }
     }
+
+    // A structured enumeration (the official ClassificationKind shape,
+    // reduced to one field and one literal): the enum def specializes an
+    // attribute def, so each literal carries `:>>` attribute redefinitions
+    // instead of a single primitive value.
+    attribute def ClassificationLevel {
+        attribute code : String;
+    }
+    enum def ClassificationKind specializes ClassificationLevel {
+        secret {
+            :>> code = "secr";
+        }
+    }
+
+    state def MachineStructuredEnum {
+        attribute k : ClassificationKind := ClassificationKind::secret;
+        entry;
+            then idle;
+        state idle;
+    }
 }
