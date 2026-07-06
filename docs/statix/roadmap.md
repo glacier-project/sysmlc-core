@@ -131,7 +131,7 @@ rosetta.
 
 ## Feature realizations (summary)
 
-- **A Composite states (**landed**)** — table `parent`/`initial_child` columns
+- **A Composite states** (landed) — table `parent`/`initial_child` columns
   walked by bounded LCA dispatch in `sc/sc_machine.h`; parallel and history
   remain out of scope.
 - **B `then done` / final** — a generated `FINAL`-kind state per scope; entering

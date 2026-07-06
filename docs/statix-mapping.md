@@ -168,7 +168,7 @@ iteration 1:
 
 | Construct                                         | Status                                 |
 | ------------------------------------------------- | -------------------------------------- |
-| parallel / history states, deep entry | rejected (composite/leaf supported) |
+| parallel / history states                         | rejected (composite/leaf supported)    |
 | `after` / `at` / `when` triggers                  | rejected (no timers/change events yet) |
 | `send` effects, reading `accept` payload data     | rejected (send/RTC family)             |
 | `then done` completion targets                    | rejected (no final-state model yet)    |
