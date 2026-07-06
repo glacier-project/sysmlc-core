@@ -135,6 +135,22 @@ declaration order. Firing order follows the Sismic/SCXML reference:
 
 `send` effects are rejected (§9).
 
+## 6a. Asserted constraints (invariants)
+
+An `assert constraint { <expr> }` becomes an invariant: a guard (the lowered C
+boolean, reusing the `guard_eval` mechanism) plus a row in the generated
+`sc_invariant_t[]` table pairing a **scope** with that guard. A root constraint
+uses `SC_STATE_INVALID` (always active); a state-scoped constraint uses its owning
+state id. `assert not constraint` wraps the expression as `!( <expr> )`.
+
+After `<prefix>_init` and every `<prefix>_dispatch` settle (run-to-completion
+done), the runtime evaluates the invariants whose scope is active — root always,
+state-scoped only while the owning state is on the active configuration's ancestor
+chain. The first false active invariant makes the call return
+`SC_STATUS_CONSTRAINT_VIOLATED` (matching Sismic's `InvariantError` at the
+macro-step boundary, including on a no-transition dispatch). Constraints whose
+expression contains a function call are rejected (§9).
+
 ## 7. Attributes and the context struct
 
 Machine attributes become fields of the generated `<prefix>_context_t`, passed
@@ -181,7 +197,6 @@ iteration 1:
 | `send` effects, `do send`, reading `accept` payload data | rejected (send/RTC family)             |
 | machine-level (state def) entry/do/exit actions          | rejected (put on states)               |
 | non-inline / referenced `do` activities                  | rejected                               |
-| asserted constraints                                     | rejected                               |
 | `String` / non-scalar, non-composite attributes          | rejected                               |
 | external / library function calls in expressions         | rejected                               |
 

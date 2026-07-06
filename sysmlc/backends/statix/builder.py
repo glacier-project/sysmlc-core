@@ -125,7 +125,7 @@ class StatixBuilder:
         self._transition_facts.append(transition)
 
     def result(self) -> CProgram:
-        """Assemble and return the flat C statechart program."""
+        """Assemble and return the C statechart program."""
         root = self._root
         if root is None or root.kind is StateKind.PARALLEL:
             raise UnsupportedConstructError(
@@ -371,7 +371,7 @@ class StatixBuilder:
 
 
 def build_statix(model: syside.Model, state_def_qn: str) -> CProgram:
-    """Build a flat C statechart program from a SysML state definition."""
+    """Build a C statechart program from a SysML state definition."""
     result = StateMachineDriver(model).run(
         state_def_qn, StatixBuilder(state_def_qn)
     )
