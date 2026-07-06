@@ -20,7 +20,7 @@ def _paths(program: CProgram) -> tuple[str, str]:
 
 
 def _const(prefix: str, kind: str, name: str) -> str:
-    return f"{prefix.upper()}_{kind}_{name.upper()}"
+    return f"{prefix.upper()}_{kind}_{_c_identifier(name).upper()}"
 
 
 def _banner(filename: str, name: str) -> str:
@@ -241,7 +241,17 @@ def emit_source(program: CProgram) -> str:
             if s.exit_action_id is None
             else _const(p, "ACTION", s.exit_action_id)
         )
-        parts.append(f"    {{{entry}, {exit_}}},")
+        parent = (
+            "SC_STATE_INVALID"
+            if s.parent is None
+            else _const(p, "STATE", s.parent)
+        )
+        initial_child = (
+            "SC_STATE_INVALID"
+            if s.initial_child is None
+            else _const(p, "STATE", s.initial_child)
+        )
+        parts.append(f"    {{{entry}, {exit_}, {parent}, {initial_child}}},")
     parts += [
         "};",
         "",
@@ -269,6 +279,7 @@ def emit_source(program: CProgram) -> str:
         "    (uint16_t)(sizeof(transitions) / sizeof(transitions[0])),",
         f"    {p.upper()}_STATE_COUNT,",
         f"    {_const(p, 'STATE', program.initial)},",
+        f"    (sc_state_id_t){program.max_depth}u,",
         "};",
         "",
         "/* Generated guard/action dispatch. */",

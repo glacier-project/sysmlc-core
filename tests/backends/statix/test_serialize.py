@@ -51,3 +51,27 @@ def test_deterministic(sm_models: dict) -> None:
     a = emit_files(build_statix(sm_models["sm01"], "SM01::Machine"))
     b = emit_files(build_statix(sm_models["sm01"], "SM01::Machine"))
     assert a == b
+
+
+def test_composite_state_rows_and_max_depth(sm_models: dict) -> None:
+    files, d, s = _files_for(sm_models["sm08"], "SM08::MachineNested")
+    config = files[f"src/{d}/{s}.c"]
+    # running is composite: descends into warming; top-level so parent INVALID.
+    assert (
+        "{SC_ACTION_NONE, SC_ACTION_NONE, SC_STATE_INVALID, "
+        "SM08_MACHINE_NESTED_STATE_RUNNING_WARMING}," in config
+    )
+    # warming is a leaf under running.
+    assert (
+        "{SC_ACTION_NONE, SC_ACTION_NONE, SM08_MACHINE_NESTED_STATE_RUNNING, "
+        "SC_STATE_INVALID}," in config
+    )
+    # Depth of running::warming is 2.
+    assert "(sc_state_id_t)2u," in config
+
+
+def test_composite_state_name_is_dotted(sm_models: dict) -> None:
+    files, d, s = _files_for(sm_models["sm08"], "SM08::MachineNested")
+    config = files[f"src/{d}/{s}.c"]
+    # The display name returned by state_name matches Sismic's dotted path.
+    assert 'return "running::warming";' in config

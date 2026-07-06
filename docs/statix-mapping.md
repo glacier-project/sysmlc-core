@@ -61,11 +61,9 @@ Every leaf state becomes an `enum` constant (`<PREFIX>_STATE_<NAME>`), numbered
 from 0 in declaration order. `<PREFIX>_STATE_COUNT` gives the total.
 
 Each state also gets a row in the per-state table `sc_state_def_t[]`, holding its
-entry-action and exit-action ids (`SC_ACTION_NONE` when absent). The runtime uses
-this table to run `exit(source) → effect → entry(target)` on every transition.
-
-**Only flat, leaf states are supported.** A composite or parallel state is
-rejected (see §9).
+entry-action and exit-action ids, `parent`, and `initial_child`. For a composite
+state, `initial_child` is set and entered by descent; nested names are
+root-relative dotted paths. Parallel or history states remain rejected (see §9).
 
 ## 3. Initial state and completion (eventless) transitions
 
@@ -168,17 +166,17 @@ statix **never silently drops** a construct: anything outside the supported flat
 subset raises `UnsupportedConstructError` with a clear message. Rejected in
 iteration 1:
 
-| Construct                                         | Status                                 |
-| ------------------------------------------------- | -------------------------------------- |
-| composite / parallel / history states, deep entry | rejected (flat only)                   |
-| `after` / `at` / `when` triggers                  | rejected (no timers/change events yet) |
-| `send` effects, reading `accept` payload data     | rejected (send/RTC family)             |
-| `then done` completion targets                    | rejected (no final-state model yet)    |
-| machine-level (state def) entry/do/exit actions   | rejected (put on states)               |
-| non-inline / referenced `do` activities           | rejected                               |
-| asserted constraints                              | rejected                               |
-| `String` / non-scalar, non-composite attributes   | rejected                               |
-| external / library function calls in expressions  | rejected                               |
+| Construct                                        | Status                                 |
+| ------------------------------------------------ | -------------------------------------- |
+| parallel / history states                        | rejected (composite/leaf supported)    |
+| `after` / `at` / `when` triggers                 | rejected (no timers/change events yet) |
+| `send` effects, reading `accept` payload data    | rejected (send/RTC family)             |
+| `then done` completion targets                   | rejected (no final-state model yet)    |
+| machine-level (state def) entry/do/exit actions  | rejected (put on states)               |
+| non-inline / referenced `do` activities          | rejected                               |
+| asserted constraints                             | rejected                               |
+| `String` / non-scalar, non-composite attributes  | rejected                               |
+| external / library function calls in expressions | rejected                               |
 
 ## 10. Forward notes (not settled)
 

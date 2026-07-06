@@ -43,19 +43,50 @@ list this roadmap shrinks, phase by phase.
 Each row is a construct statix rejects today; the front-end delivers all of them.
 "Oracle" is how quake/Sismic realizes it (what statix must match).
 
-| #   | Construct                              | Example model | Oracle (quake/Sismic)                 | rosetta (LF)                  |
-| --- | -------------------------------------- | ------------- | ------------------------------------- | ----------------------------- |
-| A   | Composite (hierarchical) states        | sm08          | `CompoundState`, RTC entry/exit order | child reactor per scope       |
-| B   | `then done` / final states             | sm10          | `FinalState` + completion             | `done` mode / `completed`     |
-| C   | `do` activity (one-shot)               | sm12          | fused into `on_entry`                 | fused into entry reaction     |
-| D   | Asserted constraints                   | sm17          | state `invariants`                    | Python `assert` woven in      |
-| E   | Library + external function calls      | sm14, sm15    | whitelist → `math`; `--python`        | same; `--python`              |
-| F   | `send` + internal-event RTC + payloads | sm11          | delayed/internal events, `event.x`    | self-scheduled action         |
-| G   | Timers `after` / `at`                  | sm13, sm14    | delayed event + activation counter    | mode timer / scheduled action |
-| H   | Change trigger `when`                  | sm16          | armed-flag + guarded consumer         | armed self-event (planned)    |
-| I   | Parallel / orthogonal regions          | sm09          | `OrthogonalState`                     | one reactor per region        |
-| J   | History (shallow/deep)                 | *(none yet)*  | Sismic history states                 | *(not in rosetta)*            |
-| K   | String / state-scoped attributes       | sm11, sm17    | flat context / per-state              | companion dataclass / planned |
+- **A. Composite (hierarchical) states**
+  - Example model: sm08
+  - Oracle (quake/Sismic): `CompoundState`, RTC entry/exit order
+  - rosetta (LF): child reactor per scope
+- **B. `then done` / final states**
+  - Example model: sm10
+  - Oracle (quake/Sismic): `FinalState` + completion
+  - rosetta (LF): `done` mode / `completed`
+- **C. `do` activity (one-shot)**
+  - Example model: sm12
+  - Oracle (quake/Sismic): fused into `on_entry`
+  - rosetta (LF): fused into entry reaction
+- **D. Asserted constraints**
+  - Example model: sm17
+  - Oracle (quake/Sismic): state `invariants`
+  - rosetta (LF): Python `assert` woven in
+- **E. Library + external function calls**
+  - Example model: sm14, sm15
+  - Oracle (quake/Sismic): whitelist → `math`; `--python`
+  - rosetta (LF): same; `--python`
+- **F. `send` + internal-event RTC + payloads**
+  - Example model: sm11
+  - Oracle (quake/Sismic): delayed/internal events, `event.x`
+  - rosetta (LF): self-scheduled action
+- **G. Timers `after` / `at`**
+  - Example model: sm13, sm14
+  - Oracle (quake/Sismic): delayed event + activation counter
+  - rosetta (LF): mode timer / scheduled action
+- **H. Change trigger `when`**
+  - Example model: sm16
+  - Oracle (quake/Sismic): armed-flag + guarded consumer
+  - rosetta (LF): armed self-event (planned)
+- **I. Parallel / orthogonal regions**
+  - Example model: sm09
+  - Oracle (quake/Sismic): `OrthogonalState`
+  - rosetta (LF): one reactor per region
+- **J. History (shallow/deep)**
+  - Example model: *(none yet)*
+  - Oracle (quake/Sismic): Sismic history states
+  - rosetta (LF): *(not in rosetta)*
+- **K. String / state-scoped attributes**
+  - Example model: sm11, sm17
+  - Oracle (quake/Sismic): flat context / per-state
+  - rosetta (LF): companion dataclass / planned
 
 ## The emission model: one self-contained unit per statechart (foundational)
 
@@ -131,8 +162,9 @@ rosetta.
 
 ## Feature realizations (summary)
 
-- **A Composite states** — the tree + LCA dispatch above; builder emits the tree,
-  `MAX_DEPTH`, and initial-child descent.
+- **A Composite states** (landed) — table `parent`/`initial_child` columns
+  walked by bounded LCA dispatch in `sc/sc_machine.h`; parallel and history
+  remain out of scope.
 - **B `then done` / final** — a generated `FINAL`-kind state per scope; entering
   it marks the enclosing composite complete and the completion micro-step fires
   its eventless exit; at the root, "complete" is a settled/terminal status the
@@ -179,14 +211,30 @@ rosetta.
 
 Conformance-gated, hierarchy before advanced features, untimed before timed.
 
-| Phase   | Theme                      | Features                                                                                                                       | Corpus                                                   | Runtime delta                                                                                        |
-| ------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| **A.0** | Emission model             | **landed:** one prefixed `.c`/`.h` per statechart; whole-model build; host runners; no global dispatch symbols                 | SM01 multi-`state def` project compiles, links, and runs | prefixed public API; static guard/action; shared `sc/sc_machine.h` dispatch template                 |
-| **A**   | UML core (untimed)         | composite, `then done`/final, one-shot `do`, constraints, functions/extern                                                     | sm08, sm10, sm12, sm14, sm17                             | state tree + LCA dispatch + `MAX_DEPTH`; final states; invariant check + new status                  |
-| **B**   | Internal-event RTC         | `send` + internal queue drain + payloads                                                                                       | sm11                                                     | generalize the bounded micro-step; typed payloads in the event buffer                                |
-| **B.5** | Host execution & testbench | `sysmlc statix run`; virtual-time testbench DSL; state/context expectations; JSON/CSV traces; statix-vs-quake trace comparison | sm01-sm17 reusable scripted traces                       | hosted runner tooling only; board-clean generated units unchanged                                    |
-| **C**   | Timed subset               | `after`/`at`, `when`                                                                                                           | sm13, sm16, sm14(full)                                   | `sc_runtime_tick`; timer table + activation counters; armed-flag observers; documented LF divergence |
-| **D**   | Concurrency & memory       | parallel regions, history                                                                                                      | sm09, + a new history model                              | per-instance `active[]` / `history[]` arrays sized by generated `#define`s                           |
+- **Phase A.0: Emission model**
+  - Features: **landed:** one prefixed `.c`/`.h` per statechart; whole-model build; host runners; no global dispatch symbols
+  - Corpus: SM01 multi-`state def` project compiles, links, and runs
+  - Runtime delta: prefixed public API; static guard/action; shared `sc/sc_machine.h` dispatch template
+- **Phase A: UML core (untimed)**
+  - Features: **composite (landed)**, then done/final, one-shot do, constraints, functions/extern
+  - Corpus: sm08, sm10, sm12, sm14, sm17
+  - Runtime delta: state tree + LCA dispatch + MAX_DEPTH; final states; invariant check + new status
+- **Phase B: Internal-event RTC**
+  - Features: `send` + internal queue drain + payloads
+  - Corpus: sm11
+  - Runtime delta: generalize the bounded micro-step; typed payloads in the event buffer
+- **Phase B.5: Host execution & testbench**
+  - Features: `sysmlc statix run`; virtual-time testbench DSL; state/context expectations; JSON/CSV traces; statix-vs-quake trace comparison
+  - Corpus: sm01-sm17 reusable scripted traces
+  - Runtime delta: hosted runner tooling only; board-clean generated units unchanged
+- **Phase C: Timed subset**
+  - Features: `after`/`at`, `when`
+  - Corpus: sm13, sm16, sm14(full)
+  - Runtime delta: `sc_runtime_tick`; timer table + activation counters; armed-flag observers; documented LF divergence
+- **Phase D: Concurrency & memory**
+  - Features: parallel regions, history
+  - Corpus: sm09, + a new history model
+  - Runtime delta: per-instance `active[]` / `history[]` arrays sized by generated `#define`s
 
 Cross-cutting every phase: a trace-equivalence test vs Sismic ships with each
 feature; each transition table row carries a comment tracing it to its SysML

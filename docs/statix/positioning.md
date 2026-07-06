@@ -51,11 +51,15 @@ way across backends.*
 
 Each backend answers a different question about the *same* model:
 
-| Backend     | Target          | Question it answers                              | Model of computation                              |
-| ----------- | --------------- | ------------------------------------------------ | ------------------------------------------------- |
-| **quake**   | Sismic (Python) | "Is the design correct? What does it do?"        | SCXML / UML statecharts, run-to-completion        |
-| **rosetta** | Lingua Franca   | "How does it behave in real time, concurrently?" | Reactors: logical time, deterministic concurrency |
-| **statix**  | C on MCU        | "How do we ship it on tiny hardware?"            | Synchronous statechart dispatch, static memory    |
+- **quake** (Target: Sismic / Python)
+  - Question it answers: "Is the design correct? What does it do?"
+  - Model of computation: SCXML / UML statecharts, run-to-completion.
+- **rosetta** (Target: Lingua Franca)
+  - Question it answers: "How does it behave in real time, concurrently?"
+  - Model of computation: Reactors: logical time, deterministic concurrency.
+- **statix** (Target: C on MCU)
+  - Question it answers: "How do we ship it on tiny hardware?"
+  - Model of computation: Synchronous statechart dispatch, static memory.
 
 statix's job is **fidelity + frugality**: reproduce the verified behavior, on the
 smallest possible target, with the strongest possible auditability.
@@ -83,16 +87,46 @@ investment.
 
 boost::sml is a red herring. The tools that actually occupy statix's niche:
 
-| Tool                            | Kind                                            | Source model                 | Memory / dispatch                                   | Notes (verify current details)                                                                    |
-| ------------------------------- | ----------------------------------------------- | ---------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| **StateSmith**                  | codegen, open (MIT)                             | PlantUML / draw.io / YAML    | static, single switch fn                            | Closest open peer *in spirit*. Mature-ish, active.                                                |
-| **itemis CREATE** (YAKINDU SCT) | modeling tool + codegen, commercial + community | own statechart notation      | static, generated C/C++/Java                        | SCXML-ish semantics, simulation, established in industry.                                         |
-| **IAR visualSTATE**             | commercial                                      | own notation                 | generated C + formal checks                         | Automotive/industrial; verification story.                                                        |
-| **Stateflow + Embedded Coder**  | commercial (MathWorks)                          | Simulink/Stateflow           | generated C                                         | Dominant in automotive/aero; huge, heavy.                                                         |
-| **QP/QM** (Quantum Leaps)       | framework + free modeling tool                  | QM diagrams                  | **function-pointer** state handlers, active objects | Very embedded-focused; dual GPL/commercial. *Uses function pointers — which Power of 10 forbids.* |
-| **Zephyr SMF**                  | C framework (no codegen)                        | hand-written tables          | static                                              | Part of Zephyr RTOS; not model-driven.                                                            |
-| **Ragel**                       | state machine compiler                          | regex-like                   | generated C                                         | Protocol/lexer FSMs, not UML statecharts.                                                         |
-| **statix**                      | codegen, open                                   | **SysML v2** (via shared IR) | **static, no function pointers, Power of 10**       | Pipeline member + strict safety posture.                                                          |
+- **StateSmith**
+  - Kind: codegen, open (MIT)
+  - Source model: PlantUML / draw.io / YAML
+  - Memory / dispatch: static, single switch fn
+  - Notes: Closest open peer *in spirit*. Mature-ish, active.
+- **itemis CREATE** (YAKINDU SCT)
+  - Kind: modeling tool + codegen, commercial + community
+  - Source model: own statechart notation
+  - Memory / dispatch: static, generated C/C++/Java
+  - Notes: SCXML-ish semantics, simulation, established in industry.
+- **IAR visualSTATE**
+  - Kind: commercial
+  - Source model: own notation
+  - Memory / dispatch: generated C + formal checks
+  - Notes: Automotive/industrial; verification story.
+- **Stateflow + Embedded Coder**
+  - Kind: commercial (MathWorks)
+  - Source model: Simulink/Stateflow
+  - Memory / dispatch: generated C
+  - Notes: Dominant in automotive/aero; huge, heavy.
+- **QP/QM** (Quantum Leaps)
+  - Kind: framework + free modeling tool
+  - Source model: QM diagrams
+  - Memory / dispatch: **function-pointer** state handlers, active objects
+  - Notes: Very embedded-focused; dual GPL/commercial. *Uses function pointers — which Power of 10 forbids.*
+- **Zephyr SMF**
+  - Kind: C framework (no codegen)
+  - Source model: hand-written tables
+  - Memory / dispatch: static
+  - Notes: Part of Zephyr RTOS; not model-driven.
+- **Ragel**
+  - Kind: state machine compiler
+  - Source model: regex-like
+  - Memory / dispatch: generated C
+  - Notes: Protocol/lexer FSMs, not UML statecharts.
+- **statix**
+  - Kind: codegen, open
+  - Source model: **SysML v2** (via shared IR)
+  - Memory / dispatch: **static, no function pointers, Power of 10**
+  - Notes: Pipeline member + strict safety posture.
 
 Honest reading of this table:
 
@@ -203,11 +237,18 @@ to a SysML v2 element."** No competitor in §4 can say all of that.
 Three viable shapes; statix is currently a hybrid of the first two. Choose
 deliberately.
 
-| Model                              | What it is                                                           | Pros                                                                           | Cons                                                                    |
-| ---------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
-| **(A) Interpreter + data tables**  | one generic `sc_runtime` + `const` machine tables (current design)   | one audited core; tiny per-model data; many models cheap; matches TFLite-Micro | a (small) generic interpreter loop                                      |
-| **(B) Per-model full codegen**     | emit a bespoke goto-free `switch` machine per model; no generic core | nothing to interpret; fully inlined; each artifact self-contained              | more generated code; less shared audited core; harder cross-model reuse |
-| **(C) Amalgamation single-header** | ship (A) or (B) collapsed into one `.h`/`.c` (or one header)         | *the* "drop-on-Arduino" ergonomic; trivial integration                         | build-time concatenation step; care with include-once                   |
+- **(A) Interpreter + data tables** (one generic `sc_runtime` + `const` tables)
+  - What it is: one generic runtime core + constant tables (current design).
+  - Pros: one audited core; tiny per-model data; many models cheap; matches TFLite-Micro.
+  - Cons: a (small) generic interpreter loop.
+- **(B) Per-model full codegen** (bespoke `switch` machine per model)
+  - What it is: emit a bespoke goto-free `switch` machine per model; no generic core.
+  - Pros: nothing to interpret; fully inlined; each artifact self-contained.
+  - Cons: more generated code; less shared audited core; harder cross-model reuse.
+- **(C) Amalgamation single-header** (collapsed into one file)
+  - What it is: ship (A) or (B) collapsed into one `.h`/`.c` (or one header).
+  - Pros: *the* "drop-on-Arduino" ergonomic; trivial integration.
+  - Cons: build-time concatenation step; care with include-once.
 
 **Recommendation:**
 

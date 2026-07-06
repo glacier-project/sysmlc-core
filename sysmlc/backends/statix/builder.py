@@ -56,11 +56,6 @@ def _c_prefix(qualified_name: str) -> str:
     return _c_identifier(qualified_name.replace("::", "_"))
 
 
-def _simple(path: str) -> str:
-    """The last ``::`` segment of a state path."""
-    return path.rpartition("::")[2]
-
-
 class StatixBuilder:
     """Assemble a flat C statechart (:class:`CProgram`) from neutral facts.
 
@@ -112,14 +107,14 @@ class StatixBuilder:
         )
 
     def add_state(self, state: StateFact) -> None:
-        """Buffer a leaf state; the root is remembered, non-leaves rejected."""
+        """Buffer a state; remember the root, reject parallel/final states."""
         if state.parent is None:
             self._root = state
             return
-        if state.kind is not StateKind.LEAF:
+        if state.kind in (StateKind.PARALLEL, StateKind.FINAL):
             raise UnsupportedConstructError(
                 f"state {state.name!r} is {state.kind.name}; statix supports "
-                "flat machines with leaf states only (no hierarchy/parallel)."
+                "composite and leaf states only (no parallel/history yet)."
             )
         self._state_facts.append(state)
 
@@ -151,6 +146,7 @@ class StatixBuilder:
             raise UnsupportedConstructError(
                 "the machine declares no initial state."
             )
+        max_depth = max((s.name.count("::") + 1 for s in states), default=1)
         return CProgram(
             name=self._name,
             qualified_name=self._qualified_name,
@@ -162,7 +158,8 @@ class StatixBuilder:
             transitions=transitions,
             context=context,
             queue_capacity=_DEFAULT_QUEUE_CAPACITY,
-            initial=_simple(root.initial_substate),
+            initial=root.initial_substate,
+            max_depth=max_depth,
         )
 
     def _reject_machine_level_actions(self, root: StateFact) -> None:
@@ -239,13 +236,20 @@ class StatixBuilder:
     # -- states / transitions --
 
     def _build_state(self, fact: StateFact) -> CState:
-        simple = _simple(fact.name)
+        # Display name is the driver's root-relative dotted path; the C
+        # identifier is derived from it by the serializer.
+        name = fact.name
+        stem = _c_identifier(name)
+        root_name = self._root.name if self._root is not None else None
+        parent = None if fact.parent == root_name else fact.parent
         return CState(
-            name=simple,
+            name=name,
             entry_action_id=self._action_for(
-                fact.entry_action, f"{simple}_entry"
+                fact.entry_action, f"{stem}_entry"
             ),
-            exit_action_id=self._action_for(fact.exit_action, f"{simple}_exit"),
+            exit_action_id=self._action_for(fact.exit_action, f"{stem}_exit"),
+            parent=parent,
+            initial_child=fact.initial_substate,
         )
 
     def _build_transition(self, t: TransitionFact) -> CTransition:
@@ -256,10 +260,13 @@ class StatixBuilder:
             )
         event = self._event_of(t.trigger)
         guard = self._guard_for(t.guard)
-        source = _simple(t.source)
+        source = t.source
         label = "completion" if event == COMPLETION_EVENT else event
-        action = self._action_for(t.effect, f"{source}_{label}_effect")
-        return CTransition(source, event, guard, action, _simple(t.target))
+        action = self._action_for(
+            t.effect, f"{_c_identifier(source)}_{label}_effect"
+        )
+        assert not isinstance(t.target, CompletionTarget)
+        return CTransition(source, event, guard, action, t.target)
 
     def _event_of(self, trigger: object | None) -> str:
         if trigger is None:

@@ -21,31 +21,95 @@ which *statechart semantics* we can adopt without breaking those rules.
 
 ## At a glance
 
-| #   | Statechart feature                            |             boost::sml              |               statix today                | Direction                            |
-| --- | --------------------------------------------- | :---------------------------------: | :---------------------------------------: | ------------------------------------ |
-| 1   | Flat states + event-triggered transitions     |                 ✅                  |                    ✅                     | —                                    |
-| 2   | Initial state                                 |           ✅ (`*` prefix)           |                    ✅                     | —                                    |
-| 3   | Guards                                        |    ✅ composable `&&` `\|\|` `!`    |            ◐ one guard id/row             | composite guards (gen-side)          |
-| 4   | Transition effect / action                    |         ✅ multiple via `,`         |            ◐ one action id/row            | action lists                         |
-| 5   | First-match / ordering semantics              |                 ✅                  |           ✅ declaration order            | —                                    |
-| 6   | Unexpected event handling                     |      ✅ `unexpected_event<E>`       |       ✅ `SC_STATUS_NO_TRANSITION`        | + wildcard catch-all (#11)           |
-| 7   | Terminal state                                |      ✅ `X`, `is_terminated()`      |                    ❌                     | **near-term**                        |
-| 8   | Anonymous / completion transitions            |                 ✅                  |                    ❌                     | **near-term** (bounded RTC)          |
-| 9   | Internal transitions                          |           ✅ (no `= dst`)           |                    ❌                     | with entry/exit (Stage 1)            |
-| 10  | Self-transition (external)                    |             ✅ `= src`              | ◐ target==source works, no exit/entry yet | with entry/exit                      |
-| 11  | Wildcard source state                         |               ✅ `_`                |                    ❌                     | **near-term** (`SC_STATE_ANY`)       |
-| 12  | Entry / exit actions                          |      ✅ `on_entry` / `on_exit`      |                    ❌                     | Stage 1                              |
-| 13  | Hierarchical / composite states (submachine)  |            ✅ `sm<...>`             |                    ❌                     | Stage 1                              |
-| 14  | Orthogonal / parallel regions                 |      ✅ multiple `*` initials       |                    ❌                     | Stage 3                              |
-| 15  | History (shallow)                             |                 ✅                  |                    ❌                     | Stage 3                              |
-| 16  | Event deferral                                |             ✅ `defer`              |                    ❌                     | bounded defer (later)                |
-| 17  | Queue / re-post events                        |    ✅ `process` (dynamic queue)     |       ◐ fixed queue, caller-driven        | mature in-action posting             |
-| 18  | Typed event payload                           |          ✅ full C++ types          |    ◐ bounded byte payload placeholder     | typed payload in generator           |
-| 19  | Logging / visiting current states             | ✅ `logger`, `visit_current_states` |                    ❌                     | optional link-time trace hooks       |
-| 20  | Exception handling                            |          ✅ `exception<E>`          |                    ❌                     | **out of scope** (no C++ exceptions) |
-| 21  | Dependency injection                          |        ✅ `pool` / `try_get`        |          ❌ (single `user_data`)          | **out of scope** (different model)   |
-| 22  | Thread safety                                 |       ✅ `thread_safe<lock>`        |       ❌ (caller's responsibility)        | **out of scope** for the runtime     |
-| 23  | Selectable dispatch (jump/switch/branch/fold) |              ✅ policy              |          ◐ one generated switch           | optional jump-table emission         |
+1. **Flat states + event-triggered transitions**
+   - boost::sml: ✅
+   - statix today: ✅
+1. **Initial state**
+   - boost::sml: ✅ (`*` prefix)
+   - statix today: ✅
+1. **Guards**
+   - boost::sml: ✅ composable `&&` `||` `!`
+   - statix today: ◐ one guard id/row
+   - Direction: composite guards (gen-side)
+1. **Transition effect / action**
+   - boost::sml: ✅ multiple via `,`
+   - statix today: ◐ one action id/row
+   - Direction: action lists
+1. **First-match / ordering semantics**
+   - boost::sml: ✅
+   - statix today: ✅ declaration order
+1. **Unexpected event handling**
+   - boost::sml: ✅ `unexpected_event<E>`
+   - statix today: ✅ `SC_STATUS_NO_TRANSITION`
+   - Direction: + wildcard catch-all (#11)
+1. **Terminal state**
+   - boost::sml: ✅ `X`, `is_terminated()`
+   - statix today: ❌
+   - Direction: **near-term**
+1. **Anonymous / completion transitions**
+   - boost::sml: ✅
+   - statix today: ❌
+   - Direction: **near-term** (bounded RTC)
+1. **Internal transitions**
+   - boost::sml: ✅ (no `= dst`)
+   - statix today: ❌
+   - Direction: with entry/exit (Stage 1)
+1. **Self-transition (external)**
+   - boost::sml: ✅ `= src`
+   - statix today: ◐ target==source works, no exit/entry yet
+   - Direction: with entry/exit
+1. **Wildcard source state**
+   - boost::sml: ✅ `_`
+   - statix today: ❌
+   - Direction: **near-term** (`SC_STATE_ANY`)
+1. **Entry / exit actions**
+   - boost::sml: ✅ `on_entry` / `on_exit`
+   - statix today: ❌
+   - Direction: Stage 1
+1. **Hierarchical / composite states (submachine)**
+   - boost::sml: ✅ `sm<...>`
+   - statix today: ❌
+   - Direction: Stage 1
+1. **Orthogonal / parallel regions**
+   - boost::sml: ✅ multiple `*` initials
+   - statix today: ❌
+   - Direction: Stage 3
+1. **History (shallow)**
+   - boost::sml: ✅
+   - statix today: ❌
+   - Direction: Stage 3
+1. **Event deferral**
+   - boost::sml: ✅ `defer`
+   - statix today: ❌
+   - Direction: bounded defer (later)
+1. **Queue / re-post events**
+   - boost::sml: ✅ `process` (dynamic queue)
+   - statix today: ◐ fixed queue, caller-driven
+   - Direction: mature in-action posting
+1. **Typed event payload**
+   - boost::sml: ✅ full C++ types
+   - statix today: ◐ bounded byte payload placeholder
+   - Direction: typed payload in generator
+1. **Logging / visiting current states**
+   - boost::sml: ✅ `logger`, `visit_current_states`
+   - statix today: ❌
+   - Direction: optional link-time trace hooks
+1. **Exception handling**
+   - boost::sml: ✅ `exception<E>`
+   - statix today: ❌
+   - Direction: **out of scope** (no C++ exceptions)
+1. **Dependency injection**
+   - boost::sml: ✅ `pool` / `try_get`
+   - statix today: ❌ (single `user_data`)
+   - Direction: **out of scope** (different model)
+1. **Thread safety**
+   - boost::sml: ✅ `thread_safe<lock>`
+   - statix today: ❌ (caller's responsibility)
+   - Direction: **out of scope** for the runtime
+1. **Selectable dispatch (jump/switch/branch/fold)**
+   - boost::sml: ✅ policy
+   - statix today: ◐ one generated switch
+   - Direction: optional jump-table emission
 
 ✅ supported · ◐ partial / different mechanism · ❌ not yet
 
@@ -111,24 +175,32 @@ generated bodies that the compiler still sees as ordinary bounded switches.
 Not gaps to close — these conflict with the safety constraints and have a
 statix-native alternative:
 
-| boost::sml feature                                     | Why excluded                                      | statix alternative                                             |
-| ------------------------------------------------------ | ------------------------------------------------- | -------------------------------------------------------------- |
-| Exceptions (`exception<E>`)                            | C, and Power of 10 forbids non-local control flow | explicit `sc_status_t` returns from actions                    |
-| Dependency injection (`pool`, `try_get`)               | template machinery, hidden wiring                 | one explicit `user_data` context pointer                       |
-| `thread_safe<lock>`                                    | the runtime takes no policy on concurrency        | caller owns locking around `sc_runtime_dispatch` (document it) |
-| Dynamic `defer_queue` / `process_queue` (`std::queue`) | dynamic allocation                                | fixed-size `sc_event_queue` over caller storage                |
-| Inline C++ DSL / generic lambdas                       | requires a C++ compiler & TMP at the call site    | external IR + ahead-of-time C codegen                          |
-| Runtime-selectable dispatch strategies                 | extra surface; one strategy is enough             | (optional) generator may emit a jump table later               |
+- **Exceptions (`exception<E>`)**
+  - Why excluded: C, and Power of 10 forbids non-local control flow.
+  - statix alternative: explicit `sc_status_t` returns from actions.
+- **Dependency injection (`pool`, `try_get`)**
+  - Why excluded: template machinery, hidden wiring.
+  - statix alternative: one explicit `user_data` context pointer.
+- **`thread_safe<lock>`**
+  - Why excluded: the runtime takes no policy on concurrency.
+  - statix alternative: caller owns locking around `sc_runtime_dispatch` (document it).
+- **Dynamic `defer_queue` / `process_queue` (`std::queue`)**
+  - Why excluded: dynamic allocation.
+  - statix alternative: fixed-size `sc_event_queue` over caller storage.
+- **Inline C++ DSL / generic lambdas**
+  - Why excluded: requires a C++ compiler & TMP at the call site.
+  - statix alternative: external IR + ahead-of-time C codegen.
+- **Runtime-selectable dispatch strategies**
+  - Why excluded: extra surface; one strategy is enough.
+  - statix alternative: (optional) generator may emit a jump table later.
 
 ## The deeper difference: authoring model
 
-|                         | boost::sml                              | statix                                      |
-| ----------------------- | --------------------------------------- | ------------------------------------------- |
-| Where the machine lives | inline C++ transition table             | external `*.ir.json` IR (→ future SysML v2) |
-| When it's resolved      | compile time (template metaprogramming) | build time (Python generator → C)           |
-| What ships              | template-instantiated C++               | plain, reviewable generated C99             |
-| Target toolchain        | C++14/17                                | C99 (freestanding-friendly)                 |
-| Certification story     | inspect C++ + trust the compiler        | **audit the generated C directly**          |
+- **Where the machine lives**: boost::sml uses inline C++ transition table; statix uses external `*.ir.json` IR (→ future SysML v2).
+- **When it's resolved**: boost::sml resolves at compile time (template metaprogramming); statix resolves at build time (Python generator → C).
+- **What ships**: boost::sml ships template-instantiated C++; statix ships plain, reviewable generated C99.
+- **Target toolchain**: boost::sml targets C++14/17; statix targets C99 (freestanding-friendly).
+- **Certification story**: boost::sml requires inspecting C++ + trusting the compiler; statix allows you to **audit the generated C directly**.
 
 For safety-critical work, generating auditable C from a small, validated model is
 a feature, not a limitation: the artifact that runs on the target is exactly what

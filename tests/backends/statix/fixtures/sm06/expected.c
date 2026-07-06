@@ -8,9 +8,9 @@
 
 /* Static state and transition tables (file-local). */
 static const sc_state_def_t states[] = {
-    {SC_ACTION_NONE, SC_ACTION_NONE},
-    {SC_ACTION_NONE, SC_ACTION_NONE},
-    {SC_ACTION_NONE, SC_ACTION_NONE},
+    {SC_ACTION_NONE, SC_ACTION_NONE, SC_STATE_INVALID, SC_STATE_INVALID},
+    {SC_ACTION_NONE, SC_ACTION_NONE, SC_STATE_INVALID, SC_STATE_INVALID},
+    {SC_ACTION_NONE, SC_ACTION_NONE, SC_STATE_INVALID, SC_STATE_INVALID},
 };
 
 static const sc_transition_t transitions[] = {
@@ -24,6 +24,7 @@ static const sc_machine_t machine_def = {
     (uint16_t)(sizeof(transitions) / sizeof(transitions[0])),
     SM06_MACHINE_EFFECT_STATE_COUNT,
     SM06_MACHINE_EFFECT_STATE_IDLE,
+    (sc_state_id_t)1u,
 };
 
 /* Generated guard/action dispatch. */

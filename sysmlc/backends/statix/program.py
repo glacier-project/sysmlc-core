@@ -52,11 +52,18 @@ class CAction:
 
 @dataclass(frozen=True)
 class CState:
-    """A flat state with optional entry/exit action names (None == no slot)."""
+    """A state row with optional entry/exit actions and tree links.
+
+    ``name`` is the root-relative dotted display path (``"running::hot"``);
+    ``parent``/``initial_child`` are other states' display names, or ``None``
+    for a top-level state / a leaf (serialized as ``SC_STATE_INVALID``).
+    """
 
     name: str
     entry_action_id: str | None
     exit_action_id: str | None
+    parent: str | None = None
+    initial_child: str | None = None
 
 
 @dataclass(frozen=True)
@@ -90,6 +97,7 @@ class CProgram:
     context: CContext
     queue_capacity: int
     initial: str
+    max_depth: int = 1
 
 
 @dataclass(frozen=True)

@@ -22,10 +22,13 @@ def test_event_trigger_makes_a_signal_event(sm_models: dict) -> None:
 def test_guard_becomes_a_cguard(sm_models: dict) -> None:
     program = build_statix(sm_models["sm03"], "SM03::MachineRef")
     assert program.transitions[0].guard is not None
-    guard = next(g for g in program.guards if g.name == program.transitions[0].guard)
+    guard = next(
+        g for g in program.guards if g.name == program.transitions[0].guard
+    )
     assert guard.expr == "ctx->enabled"
     assert any(
-        f.name == "enabled" and f.c_type == "bool" for f in program.context.fields
+        f.name == "enabled" and f.c_type == "bool"
+        for f in program.context.fields
     )
 
 
@@ -39,23 +42,68 @@ def test_entry_action_is_captured(sm_models: dict) -> None:
 
 def test_integer_and_real_types(sm_models: dict) -> None:
     program = build_statix(sm_models["sm03"], "SM03::MachineRealLiteral")
-    assert any(f.name == "x" and f.c_type == "double" for f in program.context.fields)
+    assert any(
+        f.name == "x" and f.c_type == "double" for f in program.context.fields
+    )
 
 
 def test_composite_struct_and_chain(sm_models: dict) -> None:
     program = build_statix(sm_models["sm05"], "SM05::MachineChainNested")
     # nested structs registered inner-first (Inner before Box)
     struct_names = [s.name for s in program.context.structs]
-    assert struct_names.index("sm05_machine_chain_nested_inner_t") < struct_names.index(
-        "sm05_machine_chain_nested_box_t"
-    )
+    assert struct_names.index(
+        "sm05_machine_chain_nested_inner_t"
+    ) < struct_names.index("sm05_machine_chain_nested_box_t")
     guard = program.guards[0]
     assert guard.expr == "ctx->box.inner.z > 0.0"
 
 
-def test_rejects_composite_state(sm_models: dict) -> None:
-    with pytest.raises(UnsupportedConstructError):
-        build_statix(sm_models["sm08"], "SM08::MachineNested")
+def test_composite_state_tree_is_wired(sm_models: dict) -> None:
+    program = build_statix(sm_models["sm08"], "SM08::MachineNested")
+    by_name = {s.name: s for s in program.states}
+    # Composite running descends into initial child; top-level parent None.
+    assert by_name["running"].initial_child == "running::warming"
+    assert by_name["running"].parent is None
+    # Nested leaves carry their dotted display name and parent.
+    assert by_name["running::warming"].parent == "running"
+    assert by_name["running::hot"].parent == "running"
+    assert by_name["running::warming"].initial_child is None
+    assert program.initial == "idle"
+    assert program.max_depth == 2
+
+
+def test_deep_nesting_sets_max_depth(sm_models: dict) -> None:
+    program = build_statix(sm_models["sm08"], "SM08::MachineDeep")
+    assert program.max_depth == 3
+    by_name = {s.name: s for s in program.states}
+    assert by_name["running::warming"].initial_child == "running::warming::low"
+
+
+def test_name_collision_kept_distinct(sm_models: dict) -> None:
+    program = build_statix(sm_models["sm08"], "SM08::MachineNameCollision")
+    names = {s.name for s in program.states}
+    expected = {
+        "groupA::active",
+        "groupA::paused",
+        "groupB::active",
+        "groupB::paused",
+    }
+    assert expected <= names
+
+
+def test_cross_boundary_transitions_use_dotted_endpoints(
+    sm_models: dict,
+) -> None:
+    out = build_statix(sm_models["sm08"], "SM08::MachineCrossOut")
+    assert any(
+        t.source == "running::hot" and t.target == "stopped"
+        for t in out.transitions
+    )
+    into = build_statix(sm_models["sm08"], "SM08::MachineCrossIn")
+    assert any(
+        t.source == "idle" and t.target == "running::hot"
+        for t in into.transitions
+    )
 
 
 def test_rejects_parallel_state(sm_models: dict) -> None:
