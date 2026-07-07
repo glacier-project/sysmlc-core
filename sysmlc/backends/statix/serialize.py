@@ -222,7 +222,7 @@ def _source_view(program: CProgram) -> dict[str, object]:
                 "statements": [
                     (
                         "return sc_runtime_enqueue"
-                        f"(rt, {_event_token(program, s.event)});"
+                        f"(runtime, {_event_token(program, s.event)});"
                     )
                     if isinstance(s, CSend)
                     else s

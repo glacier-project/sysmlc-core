@@ -170,7 +170,7 @@ def test_serializer_emits_queue_and_send(sm_models: dict) -> None:
     assert '#include "sc/sc_machine.h"' in code.source
     # The action body calls sc_runtime_enqueue with the generated event id.
     assert (
-        "return sc_runtime_enqueue(rt, SM11_MACHINE_SELF_SEND_EVENT_PING);"
+        "return sc_runtime_enqueue(runtime, SM11_MACHINE_SELF_SEND_EVENT_PING);"
         in code.source
     )
     assert "sc_event_queue.h" in code.header
