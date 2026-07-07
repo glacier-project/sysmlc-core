@@ -14,6 +14,11 @@
 /// - SC_MACHINE_GUARD: the static guard evaluator.
 /// - SC_MACHINE_ACTION: the static action executor.
 ///
+/// Optional macros:
+/// - SC_MACHINE_HAS_QUEUE: define when the machine's <prefix>_t embeds
+///   `sc_event_queue_t queue` and `sc_event_t queue_storage[N]`; _init then
+///   binds them as the internal-event queue used by send effects.
+///
 /// No include guard on purpose. Do not include this header directly.
 #if !defined(SC_MACHINE_PREFIX) || !defined(SC_MACHINE_DEF) || \
     !defined(SC_MACHINE_GUARD) || !defined(SC_MACHINE_ACTION)
@@ -271,6 +276,48 @@ static sc_status_t SC__FN(_run_completion)(SC__T *sm)
     return SC_STATUS_STEP_LIMIT;
 }
 
+/// @brief Drain internally queued events (send effects), bounded.
+///
+/// Pops one queued event per step: unmatched events are dropped (Sismic drops
+/// unmatched internal events); a matched one is taken and its completion
+/// transitions settled before the next pop. SC_MAX_RTC_STEPS bounds the loop;
+/// with _run_completion's own bound the worst case is quadratic in
+/// SC_MAX_RTC_STEPS -- still a compile-time constant.
+static sc_status_t SC__FN(_drain_internal)(SC__T *sm)
+{
+    const sc_machine_t *machine = sm->runtime.machine;
+    uint16_t step;
+    if (sm->runtime.queue == NULL) {
+        return SC_STATUS_OK;
+    }
+    for (step = 0u; step < (uint16_t)SC_MAX_RTC_STEPS; ++step) {
+        sc_event_t event;
+        sc_status_t status;
+        int32_t idx;
+        if (sc_event_queue_is_empty(sm->runtime.queue)) {
+            return SC_STATUS_OK;
+        }
+        status = sc_event_queue_pop(sm->runtime.queue, &event);
+        if (status != SC_STATUS_OK) {
+            return status;
+        }
+        idx = SC__FN(_find_transition)(machine, sm->runtime.current_state,
+                                       event.id, sm, &event);
+        if (idx < 0) {
+            continue; /* Unmatched internal event: dropped. */
+        }
+        status = SC__FN(_take_transition)(sm, &machine->transitions[idx], &event);
+        if (status != SC_STATUS_OK) {
+            return status;
+        }
+        status = SC__FN(_run_completion)(sm);
+        if (status != SC_STATUS_OK) {
+            return status;
+        }
+    }
+    return SC_STATUS_STEP_LIMIT;
+}
+
 /// @brief Whether `scope` is on the active configuration (ancestor chain of leaf).
 static bool SC__FN(_is_ancestor)(const sc_machine_t *machine, sc_state_id_t scope,
                                  sc_state_id_t leaf)
@@ -323,6 +370,15 @@ sc_status_t SC__FN(_init)(SC__T *sm, SC__CTX *ctx)
     if (status != SC_STATUS_OK) {
         return status;
     }
+#ifdef SC_MACHINE_HAS_QUEUE
+    status = sc_event_queue_init(
+        &sm->queue, sm->queue_storage,
+        (uint16_t)(sizeof(sm->queue_storage) / sizeof(sm->queue_storage[0])));
+    if (status != SC_STATUS_OK) {
+        return status;
+    }
+    sm->runtime.queue = &sm->queue;
+#endif
     (void)sc_event_init(&completion, SC_EVENT_COMPLETION);
     status = SC__FN(_run_state_action)(
         sm, SC_MACHINE_DEF.states[SC_MACHINE_DEF.initial_state].entry_action,
@@ -339,6 +395,10 @@ sc_status_t SC__FN(_init)(SC__T *sm, SC__CTX *ctx)
         sm->runtime.current_state = leaf;
     }
     status = SC__FN(_run_completion)(sm);
+    if (status != SC_STATUS_OK) {
+        return status;
+    }
+    status = SC__FN(_drain_internal)(sm);
     if (status != SC_STATUS_OK) {
         return status;
     }
@@ -373,6 +433,10 @@ sc_status_t SC__FN(_dispatch)(SC__T *sm, const sc_event_t *event)
         return status;
     }
     status = SC__FN(_run_completion)(sm);
+    if (status != SC_STATUS_OK) {
+        return status;
+    }
+    status = SC__FN(_drain_internal)(sm);
     if (status != SC_STATUS_OK) {
         return status;
     }
@@ -434,3 +498,6 @@ bool SC__FN(_is_final)(const SC__T *sm)
 #undef SC_MACHINE_DEF
 #undef SC_MACHINE_GUARD
 #undef SC_MACHINE_ACTION
+#ifdef SC_MACHINE_HAS_QUEUE
+#undef SC_MACHINE_HAS_QUEUE
+#endif
