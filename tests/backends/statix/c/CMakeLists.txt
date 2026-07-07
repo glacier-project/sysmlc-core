@@ -36,3 +36,7 @@ add_test(NAME test_runtime_enqueue COMMAND test_runtime_enqueue)
 add_executable(test_runtime_send test_runtime_send.c)
 target_link_libraries(test_runtime_send sc_runtime)
 add_test(NAME test_runtime_send COMMAND test_runtime_send)
+
+add_executable(test_payload_f64 test_payload_f64.c)
+target_link_libraries(test_payload_f64 sc_runtime)
+add_test(NAME test_payload_f64 COMMAND test_payload_f64)
