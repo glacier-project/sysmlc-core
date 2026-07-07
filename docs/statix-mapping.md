@@ -99,10 +99,7 @@ When a machine includes a self-send (`send new E()` or `do send new E()`), stati
 
 `accept E [via port]` is a **signal trigger**: `E` becomes an `enum` event id
 (`<PREFIX>_EVENT_E`, numbered from 1), and the transition matches that id in
-`<prefix>_dispatch` / `<prefix>_post`. A named binding (`accept reading : E`) is
-accepted only
-when the payload data is never read; **reading payload data** (`reading.value`)
-is rejected — it belongs to the deferred send/RTC family (§9).
+`<prefix>_dispatch` / `<prefix>_post`. A named binding (`accept reading : E`) may read the event's **single marshalled Real attribute** (`reading.value`) in the transition's guard and effect; chained reads (`reading.sample.value`), whole-payload capture, and non-Real payload data remain rejected (§9).
 
 `after` / `at` / `when` triggers are rejected (§9).
 
@@ -157,6 +154,19 @@ expression contains a function call are rejected (§9).
 
 Allowlisted `NumericalFunctions::abs/max/min` → `fabs`/`fmax`/`fmin` and `TrigFunctions::sin/cos/tan` → `sin`/`cos`/`tan`, all double-typed via `<math.h>` (linked with `-lm` when used). Real-only — a library result assigned to a non-Real attribute is rejected; external calc-defs and non-allowlist functions are rejected.
 
+## 6c. Self-sends and payload marshalling
+
+When a machine *reads* an event's payload, every `send` of that event must
+marshal it: the constructor's single Real argument is copied into the event's
+inline byte buffer (`sc_runtime_enqueue_f64`) and read back as
+`sc_event_payload_f64(event)` in the accepting transition's guard/effect — a
+scalar Real payload slot over the existing event buffer, same machine on both
+ends. Sends of events whose payload is never read stay id-only with their
+constructor arguments dropped, exactly as before. A read event with no
+marshalling send, a send with the wrong argument shape, or a non-Real
+argument is rejected loudly. `_post` and the host runner remain id-only:
+payload-bearing events exist only as internal self-sends.
+
 ## 7. Attributes and the context struct
 
 Machine attributes become fields of the generated `<prefix>_context_t`, passed
@@ -196,15 +206,15 @@ statix **never silently drops** a construct: anything outside the supported flat
 subset raises `UnsupportedConstructError` with a clear message. Rejected in
 iteration 1:
 
-| Construct                                              | Status                                                            |
-| ------------------------------------------------------ | ----------------------------------------------------------------- |
-| parallel / history states                              | rejected (composite/leaf supported)                               |
-| `after` / `at` / `when` triggers                       | rejected (no timers/change events yet)                            |
-| reading `accept` payload data, external/payload sends  | rejected (self-sends / internal events without payload supported) |
-| machine-level (state def) entry/do/exit actions        | rejected (put on states)                                          |
-| non-inline / referenced `do` activities                | rejected                                                          |
-| `String` / non-scalar, non-composite attributes        | rejected                                                          |
-| external / non-allowlist function calls in expressions | rejected (allowlisted library calls supported)                    |
+| Construct                                              | Status                                                 |
+| ------------------------------------------------------ | ------------------------------------------------------ |
+| parallel / history states                              | rejected (composite/leaf supported)                    |
+| `after` / `at` / `when` triggers                       | rejected (no timers/change events yet)                 |
+| chained / whole / non-Real payload reads               | rejected (single Real attribute readable; rest is B.3) |
+| machine-level (state def) entry/do/exit actions        | rejected (put on states)                               |
+| non-inline / referenced `do` activities                | rejected                                               |
+| `String` / non-scalar, non-composite attributes        | rejected                                               |
+| external / non-allowlist function calls in expressions | rejected (allowlisted library calls supported)         |
 
 ## 10. Forward notes (not settled)
 

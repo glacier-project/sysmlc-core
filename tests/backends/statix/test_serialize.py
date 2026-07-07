@@ -1,9 +1,15 @@
+import dataclasses
 from collections import namedtuple
 
 import syside
 
 from sysmlc.backends.statix.builder import build_statix
-from sysmlc.backends.statix.program import CProgram, CProject
+from sysmlc.backends.statix.program import (
+    CAction,
+    CProgram,
+    CProject,
+    CSend,
+)
 from sysmlc.backends.statix.serialize import (
     _paths,
     emit_cmakelists,
@@ -170,9 +176,11 @@ def test_serializer_emits_queue_and_send(sm_models: dict) -> None:
     assert '#include "sc/sc_machine.h"' in code.source
     # The action body calls sc_runtime_enqueue with the generated event id.
     assert (
-        "return sc_runtime_enqueue(runtime, SM11_MACHINE_SELF_SEND_EVENT_PING);"
-        in code.source
+        "sc_runtime_enqueue(\n"
+        "                runtime, "
+        "(sc_event_id_t)SM11_MACHINE_SELF_SEND_EVENT_PING);" in code.source
     )
+    assert "return send_status;" in code.source
     assert "sc_event_queue.h" in code.header
 
 
@@ -182,3 +190,61 @@ def test_serializer_no_send_omits_queue(sm_models: dict) -> None:
     assert "sc_event_queue_t" not in code.header
     assert "SC_MACHINE_HAS_QUEUE" not in code.source
     assert "sc_event_queue.h" not in code.header
+
+
+def test_send_block_preserves_statement_order(sm_models: dict) -> None:
+    # A statement AFTER a send must still execute: the send renders as a
+    # scoped status-check block, never as a bare `return`.
+    program = build_statix(sm_models["sm11"], "SM11::MachineMixed")
+    synthetic = dataclasses.replace(
+        program,
+        actions=(
+            CAction(
+                name="probe",
+                statements=(CSend(event="Ping"), "ctx->count = 1;"),
+            ),
+        ),
+    )
+    source = emit_source(synthetic)
+    send_at = source.index("sc_runtime_enqueue")
+    assign_at = source.index("ctx->count = 1;")
+    assert send_at < assign_at
+    between = source[send_at:assign_at]
+    # The enqueue's status check returns only on error; the success path
+    # must fall through to the next statement.
+    assert "return send_status;" in between
+    assert "return SC_STATUS_OK;" not in between
+
+
+def test_marshalled_send_renders_enqueue_f64(sm_models: dict) -> None:
+    program = build_statix(
+        sm_models["sm11"], "SM11::MachineReadablePayloadGuard"
+    )
+    source = emit_source(program)
+    assert (
+        "sc_runtime_enqueue_f64(\n"
+        "                runtime, (sc_event_id_t)"
+        "SM11_MACHINE_READABLE_PAYLOAD_GUARD_EVENT_MEASUREMENT,\n"
+        "                ctx->current);" in source
+    )
+    assert "return send_status;" in source
+
+
+def test_payload_only_guard_omits_unused_ctx(sm_models: dict) -> None:
+    # MachineReadablePayloadGuard's only guard reads the payload: guard_eval
+    # must not declare an unused ctx (fatal under the project's -Werror).
+    program = build_statix(
+        sm_models["sm11"], "SM11::MachineReadablePayloadGuard"
+    )
+    source = emit_source(program)
+    body = source[source.index("static bool guard_eval") :]
+    body = body[: body.index("}")]
+    assert "context_t *ctx" not in body
+    assert "(void)runtime;" in body
+
+
+def test_ctx_using_guards_keep_the_cast(sm_models: dict) -> None:
+    program = build_statix(sm_models["sm03"], "SM03::MachineRef")
+    source = emit_source(program)
+    body = source[source.index("static bool guard_eval") :]
+    assert "const sm03_machine_ref_context_t *ctx" in body

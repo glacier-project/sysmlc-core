@@ -47,7 +47,11 @@ static const sc_machine_t machine_def = {
 static bool guard_eval(sc_guard_id_t guard_id, const sc_runtime_t *runtime, const sc_event_t *event)
 {
 {% if guards %}
+{% if guards_use_ctx %}
     const {{ prefix }}_context_t *ctx = (const {{ prefix }}_context_t *)runtime->user_data;
+{% else %}
+    (void)runtime;
+{% endif %}
     (void)event;
     switch (guard_id) {
 {% for g in guards %}

@@ -99,3 +99,38 @@ sc_status_t sc_runtime_enqueue(sc_runtime_t *runtime, sc_event_id_t event_id)
     }
     return sc_event_queue_push(runtime->queue, &event);
 }
+
+/// @brief Post an internal event carrying one Real (double) payload value.
+///
+/// The scalar Real payload slot: the double's object bytes are copied into
+/// the event's inline payload buffer (bounded loop, no allocation) and read
+/// back by sc_event_payload_f64 on the accepting side. Same contract as
+/// sc_runtime_enqueue otherwise.
+/// @param runtime Runtime instance to post into.
+/// @param event_id Event identifier to enqueue.
+/// @param value Payload value to marshal.
+/// @return SC_STATUS_OK, SC_STATUS_QUEUE_FULL, or SC_STATUS_INVALID_ARGUMENT
+///         (NULL runtime, a machine with no internal-event queue, or a
+///         double too large for the payload buffer).
+sc_status_t sc_runtime_enqueue_f64(sc_runtime_t *runtime, sc_event_id_t event_id, double value)
+{
+    sc_event_t event;
+    const uint8_t *bytes = (const uint8_t *)&value;
+    uint8_t i;
+    sc_status_t status;
+    if ((runtime == NULL) || (runtime->queue == NULL)) {
+        return SC_STATUS_INVALID_ARGUMENT;
+    }
+    if (sizeof(double) > (size_t)SC_EVENT_PAYLOAD_SIZE) {
+        return SC_STATUS_INVALID_ARGUMENT;
+    }
+    status = sc_event_init(&event, event_id);
+    if (status != SC_STATUS_OK) {
+        return status;
+    }
+    for (i = 0u; i < (uint8_t)sizeof(double); ++i) {
+        event.payload[i] = bytes[i];
+    }
+    event.payload_len = (uint8_t)sizeof(double);
+    return sc_event_queue_push(runtime->queue, &event);
+}

@@ -149,18 +149,6 @@ def test_send_only_event_still_registered(sm_models: dict) -> None:
     assert "Ping" in program.events
 
 
-def test_reading_payload_data_stays_rejected(sm_models: dict) -> None:
-    for qn in (
-        "SM11::MachineReadablePayloadGuard",
-        "SM11::MachineReadablePayloadRejected",
-        "SM11::MachineReadablePayloadEffect",
-        "SM11::MachineReadablePayloadChain",
-        "SM11::MachineReadablePayloadWhole",
-    ):
-        with pytest.raises(UnsupportedConstructError):
-            build_statix(sm_models["sm11"], qn)
-
-
 def test_non_send_machine_has_no_send(sm_models: dict) -> None:
     program = build_statix(sm_models["sm01"], "SM01::Machine")
     assert not program.has_send
@@ -330,3 +318,51 @@ def test_integer_library_assignment_is_rejected() -> None:
     model = load_model(_INTCALL)
     with pytest.raises(UnsupportedConstructError):
         build_statix(model, "INTCALL::Machine")
+
+
+def test_readable_guard_machine_builds(sm_models: dict) -> None:
+    program = build_statix(
+        sm_models["sm11"], "SM11::MachineReadablePayloadGuard"
+    )
+    # The guard reads the payload...
+    guard = next(g for g in program.guards)
+    assert guard.expr == "sc_event_payload_f64(event) > 0.5"
+    # ...so the send marshals ctx->current.
+    effect = next(a for a in program.actions if "idle_completion" in a.name)
+    assert effect.statements == (
+        CSend(event="Measurement", value_expr="ctx->current"),
+    )
+
+
+def test_readable_effect_machine_builds(sm_models: dict) -> None:
+    program = build_statix(
+        sm_models["sm11"], "SM11::MachineReadablePayloadEffect"
+    )
+    # The action id hint embeds the raw event name: "armed_Measurement_effect".
+    capture = next(
+        a for a in program.actions if a.name == "armed_Measurement_effect"
+    )
+    assert capture.statements == (
+        "ctx->captured = sc_event_payload_f64(event);",
+    )
+
+
+def test_unread_payload_sends_stay_id_only(sm_models: dict) -> None:
+    # Integer / String constructor args must never be rendered: these
+    # machines' payloads are not read, so their sends stay id-only.
+    for qn, event in (
+        ("SM11::MachinePayload", "Reading"),
+        ("SM11::MachineStringPayload", "Note"),
+    ):
+        program = build_statix(sm_models["sm11"], qn)
+        effect = next(a for a in program.actions if "idle_completion" in a.name)
+        assert effect.statements == (CSend(event=event, value_expr=None),)
+
+
+def test_chain_and_whole_payload_reads_stay_rejected(sm_models: dict) -> None:
+    for qn in (
+        "SM11::MachineReadablePayloadChain",
+        "SM11::MachineReadablePayloadWhole",
+    ):
+        with pytest.raises(UnsupportedConstructError):
+            build_statix(sm_models["sm11"], qn)

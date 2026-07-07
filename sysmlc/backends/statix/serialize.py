@@ -173,6 +173,30 @@ def _source_view(program: CProgram) -> dict[str, object]:
             else _const(p, "STATE", state_name)
         )
 
+    def stmt_lines(statement: str | CSend) -> list[str]:
+        if isinstance(statement, CSend):
+            token = _event_token(program, statement.event)
+            if statement.value_expr is None:
+                call = [
+                    "    sc_status_t send_status = sc_runtime_enqueue(",
+                    f"        runtime, (sc_event_id_t){token});",
+                ]
+            else:
+                call = [
+                    "    sc_status_t send_status = sc_runtime_enqueue_f64(",
+                    f"        runtime, (sc_event_id_t){token},",
+                    f"        {statement.value_expr});",
+                ]
+            return [
+                "{",
+                *call,
+                "    if (send_status != SC_STATUS_OK) {",
+                "        return send_status;",
+                "    }",
+                "}",
+            ]
+        return [statement]
+
     state_rows = [
         {
             "entry": act(s.entry_action_id),
@@ -216,17 +240,12 @@ def _source_view(program: CProgram) -> dict[str, object]:
             {"const": _const(p, "GUARD", g.name), "expr": g.expr}
             for g in program.guards
         ],
+        "guards_use_ctx": any("ctx->" in g.expr for g in program.guards),
         "actions": [
             {
                 "const": _const(p, "ACTION", a.name),
                 "statements": [
-                    (
-                        "return sc_runtime_enqueue"
-                        f"(runtime, {_event_token(program, s.event)});"
-                    )
-                    if isinstance(s, CSend)
-                    else s
-                    for s in a.statements
+                    line for s in a.statements for line in stmt_lines(s)
                 ],
             }
             for a in program.actions

@@ -58,12 +58,14 @@ class CInvariant:
 class CSend:
     """A send effect: enqueue an internal event, by event display name.
 
-    Rendered by the serializer as an ``sc_runtime_enqueue`` call with the
-    event's generated id constant. Id-only: payload arguments were already
-    dropped by the builder (B.1 -- no supported machine reads payload data).
+    ``value_expr`` is the rendered C expression for the one marshalled Real
+    payload value (``sc_runtime_enqueue_f64``), or ``None`` for an id-only
+    send (``sc_runtime_enqueue``) -- sends of events whose payload is never
+    read stay id-only, their constructor arguments dropped unrendered.
     """
 
     event: str
+    value_expr: str | None = None
 
 
 @dataclass(frozen=True)

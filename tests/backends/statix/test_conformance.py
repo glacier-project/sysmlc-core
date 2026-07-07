@@ -98,7 +98,12 @@ def test_sm10_final_states_match_sismic(
 
 SM11_CASES = [
     ("SM11::MachineSelfSend", ()),
+    ("SM11::MachinePayload", ()),
+    ("SM11::MachineStringPayload", ()),
     ("SM11::MachineMixed", ()),
+    ("SM11::MachineReadablePayloadGuard", ()),
+    ("SM11::MachineReadablePayloadRejected", ()),
+    ("SM11::MachineReadablePayloadEffect", ()),
     ("SM12::MachineDoSend", ()),
 ]
 

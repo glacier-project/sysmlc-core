@@ -68,11 +68,12 @@ class StatixBuilder:
     :data:`COMPLETION_EVENT`; signal triggers become events; guards/effects/
     attributes lower via :class:`CCodeGen` into a generated context struct.
     Composite states, ``then done`` finals, one-shot ``do`` actions, asserted
-    constraints (invariants), and ``send`` self-events (id-only, payload
-    arguments ignored) are supported. Parallel, history, timers
-    (``after``/``at``/``when``), sends to other parts, reading accept payload
-    data, external function calls in expressions, and non-scalar/non-composite
-    attributes are rejected loudly.
+    constraints (invariants), and ``send`` self-events (id-only, or including a
+    readable scalar Real payload like ``reading.value``) are supported.
+    Parallel, history, timers (``after``/``at``/``when``), sends to other
+    parts, reading accept payload data beyond the single marshalled Real
+    attribute, external function calls in expressions, and
+    non-scalar/non-composite attributes are rejected loudly.
     """
 
     def __init__(self, qualified_name: str) -> None:
@@ -97,6 +98,11 @@ class StatixBuilder:
         self._finals: dict[str, CState] = {}
         self._constraints: list[ConstraintFact] = []
         self._has_send = False
+        self._sends: list[CSend] = []
+        self._payload_reads: dict[str, str] = {}
+        self._scoped_gens: list[CCodeGen] = []
+        self._real_attribute_names: frozenset[str] = frozenset()
+        self._attribute_names: frozenset[str] = frozenset()
 
     # -- TargetBuilder protocol --
 
@@ -143,16 +149,26 @@ class StatixBuilder:
             )
         self._reject_machine_level_actions(root)
         context = self._build_context()
-        self._gen = CCodeGen(
-            attribute_names=frozenset(f.name for f in context.fields),
-            real_attributes=frozenset(
-                f.name for f in context.fields if f.c_type == "double"
-            ),
+        self._real_attribute_names = frozenset(
+            f.name for f in context.fields if f.c_type == "double"
         )
+        self._attribute_names = frozenset(f.name for f in context.fields)
+        self._gen = CCodeGen(
+            attribute_names=self._attribute_names,
+            real_attributes=self._real_attribute_names,
+        )
+        self._payload_reads = self._detect_payload_reads()
         real_states = tuple(self._build_state(f) for f in self._state_facts)
         transitions = tuple(
             self._build_transition(t) for t in self._transition_facts
         )
+        for event in self._payload_reads:
+            if not any(s.event == event for s in self._sends):
+                raise UnsupportedConstructError(
+                    f"the payload of event {event!r} is read, but no `send` "
+                    "in this machine marshals it; statix cannot receive "
+                    "payload-bearing events from outside yet."
+                )
         states = real_states + tuple(self._finals.values())
         invariants = tuple(self._build_invariant(c) for c in self._constraints)
         if root.initial_substate is None:
@@ -160,7 +176,9 @@ class StatixBuilder:
                 "the machine declares no initial state."
             )
         max_depth = max((s.name.count("::") + 1 for s in states), default=1)
-        needs_math = self._gen.needs_math
+        needs_math = self._gen.needs_math or any(
+            g.needs_math for g in self._scoped_gens
+        )
         return CProgram(
             name=self._name,
             qualified_name=self._qualified_name,
@@ -178,6 +196,48 @@ class StatixBuilder:
             needs_math=needs_math,
             has_send=self._has_send,
         )
+
+    def _payload_gen(self, payload_feature: syside.Feature) -> CCodeGen:
+        return CCodeGen(
+            attribute_names=frozenset(
+                self._attribute_names | {b.name for b in self._bindings}
+            ),
+            real_attributes=self._real_attribute_names,
+            payload_feature=payload_feature,
+        )
+
+    def _detect_payload_reads(self) -> dict[str, str]:
+        """Map event name -> read payload attribute, before lowering sends.
+
+        Renders each payload-bound transition's guard and assignment RHSs
+        with a throwaway scoped codegen whose only job is to flag (and
+        shape-check) payload reads; the text is discarded. Runs before any
+        action lowering so `_csend_for` can decide marshalled vs id-only
+        without ever rendering an unread constructor argument.
+        """
+        reads: dict[str, str] = {}
+        for t in self._transition_facts:
+            trigger = t.trigger
+            if (
+                not isinstance(trigger, SignalTrigger)
+                or trigger.payload_feature is None
+            ):
+                continue
+            probe = self._payload_gen(trigger.payload_feature)
+            if t.guard is not None:
+                probe.render_expression(t.guard)
+            for a in actions.inline_actions(t.effect):
+                if isinstance(a, syside.AssignmentActionUsage):
+                    probe.render_action(a)
+            for name in sorted(probe.payload_reads):
+                known = reads.setdefault(trigger.signal_name, name)
+                if known != name:
+                    raise UnsupportedConstructError(
+                        f"event {trigger.signal_name!r} payload is read as "
+                        f"both .{known} and .{name}; statix supports one "
+                        "readable Real attribute per event."
+                    )
+        return reads
 
     def _reject_machine_level_actions(self, root: StateFact) -> None:
         """Reject inline entry/do/exit actions on the state def itself."""
@@ -288,11 +348,18 @@ class StatixBuilder:
 
     def _build_transition(self, t: TransitionFact) -> CTransition:
         event = self._event_of(t.trigger)
-        guard = self._guard_for(t.guard)
+        gen = self._gen
+        if (
+            isinstance(t.trigger, SignalTrigger)
+            and t.trigger.payload_feature is not None
+        ):
+            gen = self._payload_gen(t.trigger.payload_feature)
+            self._scoped_gens.append(gen)
+        guard = self._guard_for(t.guard, gen)
         source = t.source
         label = "completion" if event == COMPLETION_EVENT else event
         action = self._action_for(
-            t.effect, f"{_c_identifier(source)}_{label}_effect"
+            t.effect, f"{_c_identifier(source)}_{label}_effect", gen
         )
         if isinstance(t.target, CompletionTarget):
             target = self._final_for(t.target.scope)
@@ -333,10 +400,14 @@ class StatixBuilder:
             self._guards.append(CGuard(name=name, expr=rendered))
         return self._guard_names[rendered]
 
-    def _guard_for(self, guard: syside.Expression | None) -> str | None:
+    def _guard_for(
+        self, guard: syside.Expression | None, gen: CCodeGen | None = None
+    ) -> str | None:
         if guard is None:
             return None
-        return self._register_rendered_guard(self._gen.render_expression(guard))
+        return self._register_rendered_guard(
+            (gen or self._gen).render_expression(guard)
+        )
 
     def _register_action(
         self, statements: tuple[str | CSend, ...], id_hint: str
@@ -353,20 +424,15 @@ class StatixBuilder:
         self._actions.append(CAction(name=name, statements=statements))
         return name
 
-    def _render_inline_action(self, a: syside.ActionUsage) -> str | CSend:
+    def _render_inline_action(
+        self, a: syside.ActionUsage, gen: CCodeGen
+    ) -> str | CSend:
         """Lower one inline action: a send becomes a CSend, rest goes to C."""
         if isinstance(a, syside.SendActionUsage):
             return self._csend_for(a)
-        return self._gen.render_action(a)
+        return gen.render_action(a)
 
     def _csend_for(self, send: syside.SendActionUsage) -> CSend:
-        """Lower a send effect to an id-only internal-event enqueue.
-
-        Only a self-directed send (receiver is the machine's own port) is an
-        internal event; payload constructor arguments are ignored -- B.1
-        enqueues the id only, and machines that read payload data are
-        rejected elsewhere.
-        """
         if not send_receiver_is_own_port(send):
             raise UnsupportedConstructError(
                 "statix only supports `send` to the machine's own port "
@@ -374,20 +440,63 @@ class StatixBuilder:
                 "supported yet."
             )
         try:
-            event_name, _ = payload_signature(send)
+            event_name, pairs = payload_signature(send)
         except ValueError as exc:
             raise UnsupportedConstructError(
                 f"unsupported send payload: {exc}"
             ) from exc
+        value_expr = (
+            self._marshal_expr(event_name, pairs)
+            if event_name in self._payload_reads
+            else None  # unread event: drop raw args without rendering them
+        )
         self._events.setdefault(event_name, None)
         self._has_send = True
-        return CSend(event=event_name)
+        result = CSend(event=event_name, value_expr=value_expr)
+        self._sends.append(result)
+        return result
+
+    def _marshal_expr(
+        self,
+        event_name: str,
+        pairs: list[tuple[str, syside.Expression]],
+    ) -> str:
+        """Render the one provably-Real constructor argument, or reject.
+
+        `payload_signature` binds arguments positionally, so requiring
+        exactly one pair whose attribute equals the read attribute enforces
+        both "single value" and "position 0". Real-ness is established
+        mechanically: a Real literal, or a bare reference to a context
+        attribute whose C type is double.
+        """
+        read_attr = self._payload_reads[event_name]
+        if len(pairs) != 1 or pairs[0][0] != read_attr:
+            raise UnsupportedConstructError(
+                f"the payload of event {event_name!r} is read as "
+                f".{read_attr}; every `send` of it must marshal exactly "
+                "that one attribute (a single constructor argument)."
+            )
+        expr = pairs[0][1]
+        if isinstance(expr, syside.LiteralRational):
+            return repr(expr.value)
+        if isinstance(expr, syside.FeatureReferenceExpression):
+            ref = expr.referent
+            if ref is not None and ref.name in self._real_attribute_names:
+                return f"ctx->{ref.name}"
+        raise UnsupportedConstructError(
+            f"the marshalled payload of event {event_name!r} must be "
+            "provably Real: a Real literal or a Real machine attribute; "
+            "other expressions are unsupported by statix yet."
+        )
 
     def _action_for(
-        self, action: syside.ActionUsage | None, id_hint: str
+        self,
+        action: syside.ActionUsage | None,
+        id_hint: str,
+        gen: CCodeGen | None = None,
     ) -> str | None:
         statements = tuple(
-            self._render_inline_action(a)
+            self._render_inline_action(a, gen or self._gen)
             for a in actions.inline_actions(action)
         )
         return self._register_action(statements, id_hint)
@@ -402,13 +511,13 @@ class StatixBuilder:
         (an internal self-event).
         """
         statements = [
-            self._render_inline_action(a)
+            self._render_inline_action(a, self._gen)
             for a in actions.inline_actions(fact.entry_action)
         ]
         if fact.do_action is not None:
             actions.require_inline_one_shot(fact.do_action)
             statements += [
-                self._render_inline_action(a)
+                self._render_inline_action(a, self._gen)
                 for a in actions.inline_actions(fact.do_action)
             ]
         return self._register_action(tuple(statements), f"{stem}_entry")

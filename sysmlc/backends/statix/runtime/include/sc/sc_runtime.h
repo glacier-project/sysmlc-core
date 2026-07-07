@@ -131,6 +131,20 @@ sc_status_t sc_runtime_get_state(const sc_runtime_t *runtime, sc_state_id_t *out
 ///         (NULL runtime, or a machine with no internal-event queue).
 sc_status_t sc_runtime_enqueue(sc_runtime_t *runtime, sc_event_id_t event_id);
 
+/// @brief Post an internal event carrying one Real (double) payload value.
+///
+/// The scalar Real payload slot: the double's object bytes are copied into
+/// the event's inline payload buffer (bounded loop, no allocation) and read
+/// back by sc_event_payload_f64 on the accepting side. Same contract as
+/// sc_runtime_enqueue otherwise.
+/// @param runtime Runtime instance to post into.
+/// @param event_id Event identifier to enqueue.
+/// @param value Payload value to marshal.
+/// @return SC_STATUS_OK, SC_STATUS_QUEUE_FULL, or SC_STATUS_INVALID_ARGUMENT
+///         (NULL runtime, a machine with no internal-event queue, or a
+///         double too large for the payload buffer).
+sc_status_t sc_runtime_enqueue_f64(sc_runtime_t *runtime, sc_event_id_t event_id, double value);
+
 #ifdef __cplusplus
 }
 #endif
