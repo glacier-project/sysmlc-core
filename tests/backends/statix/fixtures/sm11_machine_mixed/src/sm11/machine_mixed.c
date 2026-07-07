@@ -48,7 +48,13 @@ static sc_status_t action_exec(sc_action_id_t action_id, sc_runtime_t *runtime, 
     switch (action_id) {
     case SM11_MACHINE_MIXED_ACTION_IDLE_COMPLETION_EFFECT:
         ctx->count = ctx->count + 1;
-        return sc_runtime_enqueue(runtime, SM11_MACHINE_MIXED_EVENT_PING);
+        {
+            sc_status_t send_status = sc_runtime_enqueue(
+                runtime, (sc_event_id_t)SM11_MACHINE_MIXED_EVENT_PING);
+            if (send_status != SC_STATUS_OK) {
+                return send_status;
+            }
+        }
         return SC_STATUS_OK;
     default:
         return SC_STATUS_ERROR;

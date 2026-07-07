@@ -173,6 +173,20 @@ def _source_view(program: CProgram) -> dict[str, object]:
             else _const(p, "STATE", state_name)
         )
 
+    def stmt_lines(statement: str | CSend) -> list[str]:
+        if isinstance(statement, CSend):
+            token = _event_token(program, statement.event)
+            return [
+                "{",
+                "    sc_status_t send_status = sc_runtime_enqueue(",
+                f"        runtime, (sc_event_id_t){token});",
+                "    if (send_status != SC_STATUS_OK) {",
+                "        return send_status;",
+                "    }",
+                "}",
+            ]
+        return [statement]
+
     state_rows = [
         {
             "entry": act(s.entry_action_id),
@@ -220,13 +234,7 @@ def _source_view(program: CProgram) -> dict[str, object]:
             {
                 "const": _const(p, "ACTION", a.name),
                 "statements": [
-                    (
-                        "return sc_runtime_enqueue"
-                        f"(runtime, {_event_token(program, s.event)});"
-                    )
-                    if isinstance(s, CSend)
-                    else s
-                    for s in a.statements
+                    line for s in a.statements for line in stmt_lines(s)
                 ],
             }
             for a in program.actions
