@@ -76,6 +76,14 @@ class CCodeGen:
     that has no context field), rather than emitting ``ctx->reading`` that only
     fails at C-compile time. An empty set disables the check (used where the
     valid names are not known to the caller).
+
+    When ``payload_feature`` is provided (the signal feature bound by the active
+    transition's trigger, such as ``reading`` on ``Measurement``), a reference to
+    a sub-feature of that payload (such as ``reading.value``, where ``reading``
+    is the bound feature and ``value`` is an attribute of the payload type)
+    renders as ``sc_event_payload_f64(event)``, and the read sub-feature name is
+    recorded in ``payload_reads``. References to the whole payload without a
+    sub-feature, or to deeper feature chains (``reading.a.b``), are rejected.
     """
 
     def __init__(
@@ -85,11 +93,14 @@ class CCodeGen:
         allow_context: bool = True,
         attribute_names: frozenset[str] = frozenset(),
         real_attributes: frozenset[str] = frozenset(),
+        payload_feature: syside.Feature | None = None,
     ) -> None:
         self._ctx = context_var
         self._allow_context = allow_context
         self._attribute_names = attribute_names
         self._real_attributes = real_attributes
+        self._payload_feature = payload_feature
+        self.payload_reads: set[str] = set()
         self.needs_math = False
         self._used_math = False
 
@@ -169,6 +180,11 @@ class CCodeGen:
             raise CCodeGenError(
                 "feature reference has no resolved referent", node=expr
             )
+        if self._payload_feature is not None and ref == self._payload_feature:
+            raise CCodeGenError(
+                "whole payload reference without a sub-feature is unsupported by statix yet.",
+                node=expr,
+            )
         if not self._allow_context:
             raise CCodeGenError(
                 f"reference to {ref.name!r} in a context initializer is "
@@ -206,7 +222,26 @@ class CCodeGen:
         return f"{target}({args})"
 
     def _emit_feature_chain(self, expr: syside.FeatureChainExpression) -> str:
-        base = self._emit(expr.operands.collect()[0], 0)
+        op0 = expr.operands.collect()[0]
+        if (
+            self._payload_feature is not None
+            and isinstance(op0, syside.FeatureReferenceExpression)
+            and op0.referent == self._payload_feature
+        ):
+            target = expr.target_feature
+            if target is None:
+                raise CCodeGenError(
+                    "feature chain has no target feature", node=expr
+                )
+            chain = target.chaining_features.collect() or [target]
+            if len(chain) != 1 or chain[0].name is None:
+                raise CCodeGenError(
+                    "deep or unnamed payload chains are unsupported by statix yet.",
+                    node=expr,
+                )
+            self.payload_reads.add(chain[0].name)
+            return "sc_event_payload_f64(event)"
+        base = self._emit(op0, 0)
         target = expr.target_feature
         if target is None:
             raise CCodeGenError(

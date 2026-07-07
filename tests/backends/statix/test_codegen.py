@@ -6,6 +6,7 @@ from sysmlc.codegen.python import LIBRARY_FUNCTIONS
 from sysmlc.errors import UnsupportedConstructError
 from sysmlc.semantics.statemachine import actions
 from sysmlc.semantics.statemachine.driver import StateMachineDriver
+from sysmlc.semantics.statemachine.facts import SignalTrigger
 
 
 class _FactSink:
@@ -88,3 +89,77 @@ def test_library_max_lowers_to_fmax(sm_models: dict) -> None:
 def test_external_calc_def_call_is_rejected(sm_models: dict) -> None:
     with pytest.raises(UnsupportedConstructError):
         _effect_values(sm_models["sm15"], "SM15::Ramp")
+
+
+def _payload_facts(model: syside.Model, qn: str) -> list:
+    """Transition facts whose trigger binds a payload feature."""
+    facts: list = []
+    StateMachineDriver(model).run(qn, _FactSink(facts))
+    return [
+        t
+        for t in facts
+        if isinstance(t.trigger, SignalTrigger)
+        and t.trigger.payload_feature is not None
+    ]
+
+
+def _payload_gen(trigger: SignalTrigger) -> CCodeGen:
+    return CCodeGen(
+        attribute_names=frozenset({"current", "captured"}),
+        real_attributes=frozenset({"current", "captured"}),
+        payload_feature=trigger.payload_feature,
+    )
+
+
+def test_payload_read_renders_f64_accessor(sm_models: dict) -> None:
+    (t,) = _payload_facts(
+        sm_models["sm11"], "SM11::MachineReadablePayloadGuard"
+    )
+    gen = _payload_gen(t.trigger)
+    assert gen.render_expression(t.guard) == "sc_event_payload_f64(event) > 0.5"
+    assert gen.payload_reads == {"value"}
+
+
+def test_payload_read_in_effect_assignment(sm_models: dict) -> None:
+    (t,) = _payload_facts(
+        sm_models["sm11"], "SM11::MachineReadablePayloadEffect"
+    )
+    gen = _payload_gen(t.trigger)
+    (assign,) = actions.inline_actions(t.effect)
+    assert (
+        gen.render_action(assign)
+        == "ctx->captured = sc_event_payload_f64(event);"
+    )
+    assert gen.payload_reads == {"value"}
+
+
+def test_chained_payload_read_rejected(sm_models: dict) -> None:
+    (t,) = _payload_facts(
+        sm_models["sm11"], "SM11::MachineReadablePayloadChain"
+    )
+    gen = _payload_gen(t.trigger)
+    with pytest.raises(UnsupportedConstructError):
+        gen.render_expression(t.guard)
+
+
+def test_whole_payload_reference_rejected(sm_models: dict) -> None:
+    (t,) = _payload_facts(
+        sm_models["sm11"], "SM11::MachineReadablePayloadWhole"
+    )
+    gen = _payload_gen(t.trigger)
+    (assign,) = actions.inline_actions(t.effect)
+    with pytest.raises(UnsupportedConstructError):
+        gen.render_action(assign)
+
+
+def test_payload_read_without_binding_still_rejected(sm_models: dict) -> None:
+    # Same expression, no payload_feature bound: the pre-B.2 rejection holds.
+    (t,) = _payload_facts(
+        sm_models["sm11"], "SM11::MachineReadablePayloadGuard"
+    )
+    gen = CCodeGen(
+        attribute_names=frozenset({"current"}),
+        real_attributes=frozenset({"current"}),
+    )
+    with pytest.raises(UnsupportedConstructError):
+        gen.render_expression(t.guard)
