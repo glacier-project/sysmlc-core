@@ -91,6 +91,10 @@ state marks the machine (or enclosing composite) complete.
 `<prefix>_is_final(const <prefix>_t *sm)` reports whether the machine has
 *terminated* — that is, the active leaf is a root-scope final state.
 
+## 3a. Internal event queue and self-sends (RTC)
+
+When a machine includes a self-send (`send new E()` or `do send new E()`), statix generates an internal FIFO event queue (`sc_event_queue_t queue` with storage `sc_event_t queue_storage[8]`) inside `<prefix>_t`, and sets `#define SC_MACHINE_HAS_QUEUE 1` before including `sc/sc_machine.h`. The queue capacity defaults to 8 (`<PREFIX>_QUEUE_CAPACITY`). During `<prefix>_init`, `<prefix>_dispatch`, and `<prefix>_post`, an internal drain loop (`_drain_internal`) automatically dequeues and dispatches internal events until the queue is empty or the RTC step limit is reached. If an action enqueues an event when the queue is full, `sc_runtime_enqueue` returns `SC_STATUS_QUEUE_FULL` (drop-when-full semantics).
+
 ## 4. Triggers and signals
 
 `accept E [via port]` is a **signal trigger**: `E` becomes an `enum` event id
@@ -126,14 +130,12 @@ generation (loud), not silently mis-rendered.
 
 State entry/exit actions and transition effects become `<PREFIX>_ACTION_*` ids
 whose bodies are lowered C statements in the generated static
-`<prefix>_action_exec`. Only `assign` is supported today; each
+`<prefix>_action_exec`. Only `assign` is supported for general statements; each
 `assign target := expr` becomes
 `ctx->target = <expr>;`. A state's inline `do` activity runs **once** at
-entry — its `assign` statements are appended after the entry action's, in
-declaration order. Firing order follows the Sismic/SCXML reference:
+entry — its statements are appended after the entry action's, in
+declaration order. Self-send statements (`send new E()`) and `do send new E()` are supported for internal events without payloads; each renders as `sc_runtime_enqueue(runtime, <EVENT_ID>);` after any assignment statements. External sends and payload-carrying sends remain rejected. Firing order follows the Sismic/SCXML reference:
 `exit(source) → transition effect → entry(target)`.
-
-`send` effects are rejected (§9).
 
 ## 6a. Asserted constraints (invariants)
 
@@ -198,7 +200,7 @@ iteration 1:
 | -------------------------------------------------------- | ---------------------------------------------- |
 | parallel / history states                                | rejected (composite/leaf supported)            |
 | `after` / `at` / `when` triggers                         | rejected (no timers/change events yet)         |
-| `send` effects, `do send`, reading `accept` payload data | rejected (send/RTC family)                     |
+| reading `accept` payload data, external/payload sends    | rejected (self-sends / internal events without payload supported) |
 | machine-level (state def) entry/do/exit actions          | rejected (put on states)                       |
 | non-inline / referenced `do` activities                  | rejected                                       |
 | `String` / non-scalar, non-composite attributes          | rejected                                       |
@@ -213,8 +215,7 @@ iteration 1:
   so such a path can slot in without a rewrite.
 - **`Real` representation** — see §8; `double` vs `float` vs fixed-point is a
   target decision, not a settled one.
-- **Growth** — hierarchy, parallel, history, timers, and send→accept
-  internal-event RTC are tracked future work for the runtime and the backend.
+- **Growth** — parallel, history, and timers are tracked future work for the runtime and the backend.
 
 ## 11. Cross-backend conformance
 
