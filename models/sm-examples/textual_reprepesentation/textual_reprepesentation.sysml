@@ -1,4 +1,4 @@
-package TextRepExample {
+package TextualRepresentationExample {
     private import ScalarValues::*;
     private import SI::*;
 
@@ -12,8 +12,8 @@ package TextRepExample {
 
         rep impl language "Python"
         /*
-def addOne(value):
-    return value + 1
+         *  def addOne(value):
+         *      return value + 1
         */
     }
 
