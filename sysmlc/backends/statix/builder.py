@@ -138,7 +138,10 @@ class StatixBuilder:
         self._reject_machine_level_actions(root)
         context = self._build_context()
         self._gen = CCodeGen(
-            attribute_names=frozenset(f.name for f in context.fields)
+            attribute_names=frozenset(f.name for f in context.fields),
+            real_attributes=frozenset(
+                f.name for f in context.fields if f.c_type == "double"
+            ),
         )
         real_states = tuple(self._build_state(f) for f in self._state_facts)
         transitions = tuple(
@@ -151,6 +154,7 @@ class StatixBuilder:
                 "the machine declares no initial state."
             )
         max_depth = max((s.name.count("::") + 1 for s in states), default=1)
+        needs_math = self._gen.needs_math
         return CProgram(
             name=self._name,
             qualified_name=self._qualified_name,
@@ -165,6 +169,7 @@ class StatixBuilder:
             initial=root.initial_substate,
             max_depth=max_depth,
             invariants=invariants,
+            needs_math=needs_math,
         )
 
     def _reject_machine_level_actions(self, root: StateFact) -> None:

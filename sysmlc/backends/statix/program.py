@@ -113,6 +113,7 @@ class CProgram:
     initial: str
     max_depth: int = 1
     invariants: tuple[CInvariant, ...] = ()
+    needs_math: bool = False
 
 
 @dataclass(frozen=True)

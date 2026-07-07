@@ -114,12 +114,14 @@ serializer renders it to C.
 - **`builder.py`** — consumes the neutral facts and assembles `CProgram`. Every
   representational choice and every rejection lives here: parallel, history,
   timers, `after`/`at`/`when`, `send` (including `do send`), non-inline `do`,
-  function calls in expressions, and non-scalar / non-composite attributes are
-  rejected loudly (never silently dropped). Composite states, `then done` finals,
+  external/non-allowlist function calls in expressions, and non-scalar / non-composite
+  attributes are rejected loudly (never silently dropped). Composite states, `then done` finals,
   one-shot `do`, and asserted constraints are supported.
 - **`codegen.py`** — a precedence-driven emitter that lowers guard/effect/
   attribute expression nodes to C, with attribute references resolved against
-  the generated context struct.
+  the generated context struct, and allowlisted library function calls lowered
+  to `<math.h>` C (rejecting external calc-defs and Integer-narrowing library
+  assignments).
 - **`program.py`** — the frozen `CProgram` / `CProject` dataclasses (states,
   events, guards, actions, transitions, context) — the neutral C model before
   text.

@@ -59,7 +59,7 @@ Each row is a construct statix rejects today; the front-end delivers all of them
   - Example model: sm17
   - Oracle (quake/Sismic): state `invariants`
   - rosetta (LF): Python `assert` woven in
-- **E. Library + external function calls**
+- **E. Library + external function calls (partially landed)**
   - Example model: sm14, sm15
   - Oracle (quake/Sismic): whitelist → `math`; `--python`
   - rosetta (LF): same; `--python`
@@ -186,12 +186,7 @@ rosetta.
   `SC_STATUS_CONSTRAINT_VIOLATED` (a status return, not C `assert()`).
   `assert not constraint` wraps `!(...)`. Function-call constraints stay rejected
   until the functions increment.
-- **E Functions + external** — reuse the shared `LIBRARY_FUNCTIONS` table
-  re-targeted to C `math.h` (`fabs`/`fmax`/`fmin`/`sin`/`cos`/`tan`, mindful of
-  `-Wdouble-promotion`); external `calc def`s become user-supplied C functions
-  matched by name and declared in a generated `<prefix>_extern.h`. This is also
-  the escape hatch for non-assignment hardware effects (a `do` that pokes GPIO is
-  a call to a firmware-provided extern) — one feature covers both.
+- **E Functions + external (partially landed)** — allowlisted `NumericalFunctions`/`TrigFunctions` calls lower to `<math.h>` C (`fmax`/`cos`/…) in guards/effects/constraints, with conditional `#include <math.h>` + `-lm`; external calc-defs and the timer-gated sm14/sm15 whole-model conformance remain out of scope.
 - **F send / internal-event RTC / payloads** — `send` pushes to the internal
   queue; the macro-step drains it bounded by `SC_MAX_RTC_STEPS`; payload structs
   ride in the event's fixed inline buffer, `memcpy`d in on send and read typed on
@@ -225,7 +220,7 @@ Conformance-gated, hierarchy before advanced features, untimed before timed.
   - Corpus: SM01 multi-`state def` project compiles, links, and runs
   - Runtime delta: prefixed public API; static guard/action; shared `sc/sc_machine.h` dispatch template
 - **Phase A: UML core (untimed)**
-  - Features: **composite (landed)**, **then done/final (landed)**, **one-shot do (landed)**, **constraints (landed)**, functions/extern
+  - Features: **composite (landed)**, **then done/final (landed)**, **one-shot do (landed)**, **constraints (landed)**, **functions/extern (partially landed)**
   - Corpus: sm08, sm10, sm12, sm14, sm17
   - Runtime delta: state tree + LCA dispatch + MAX_DEPTH; final states; invariant check + new status
 - **Phase B: Internal-event RTC**
