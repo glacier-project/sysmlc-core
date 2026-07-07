@@ -187,10 +187,11 @@ rosetta.
   `assert not constraint` wraps `!(...)`. Function-call constraints stay rejected
   until the functions increment.
 - **E Functions + external (partially landed)** — allowlisted `NumericalFunctions`/`TrigFunctions` calls lower to `<math.h>` C (`fmax`/`cos`/…) in guards/effects/constraints, with conditional `#include <math.h>` + `-lm`; external calc-defs and the timer-gated sm14/sm15 whole-model conformance remain out of scope.
-- **F send / internal-event RTC / payloads** — `send` pushes to the internal
-  queue; the macro-step drains it bounded by `SC_MAX_RTC_STEPS`; payload structs
-  ride in the event's fixed inline buffer, `memcpy`d in on send and read typed on
-  accept (reject payloads over `SC_EVENT_PAYLOAD_SIZE`).
+- **F send / internal-event RTC / payloads (partially landed)** — `send` pushes to the internal
+  queue; the macro-step drains it bounded by `SC_MAX_RTC_STEPS` (B.1 landed); readable scalar
+  Real payloads use a marshal-on-demand f64 slot (`sc_event_payload_f64`), with sm11
+  Guard/Rejected/Effect conformance-gated and a captured-value harness (B.2 landed); B.3
+  (chained/whole/multi-field/Integer/String payload data) remains deferred.
 - **G Timers `after`/`at`** — `sc_runtime_tick(rt, elapsed)`; timers armed on
   entry, disarmed on exit, stale expiries invalidated by a per-source activation
   counter (Sismic's mechanism); expiry posts a synthetic event. Per-instance
@@ -223,8 +224,8 @@ Conformance-gated, hierarchy before advanced features, untimed before timed.
   - Features: **composite (landed)**, **then done/final (landed)**, **one-shot do (landed)**, **constraints (landed)**, **functions/extern (partially landed)**
   - Corpus: sm08, sm10, sm12, sm14, sm17
   - Runtime delta: state tree + LCA dispatch + MAX_DEPTH; final states; invariant check + new status
-- **Phase B: Internal-event RTC**
-  - Features: `send` + internal queue drain + payloads
+- **Phase B: Internal-event RTC (partially landed)**
+  - Features: **`send` + internal queue drain (landed)**, **readable scalar Real payloads (landed)**, chained/whole/multi-field payloads
   - Corpus: sm11
   - Runtime delta: generalize the bounded micro-step; typed payloads in the event buffer
 - **Phase B.5: Host execution & testbench**
