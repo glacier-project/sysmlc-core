@@ -55,11 +55,28 @@ class CInvariant:
 
 
 @dataclass(frozen=True)
+class CSend:
+    """A send effect: enqueue an internal event, by event display name.
+
+    Rendered by the serializer as an ``sc_runtime_enqueue`` call with the
+    event's generated id constant. Id-only: payload arguments were already
+    dropped by the builder (B.1 -- no supported machine reads payload data).
+    """
+
+    event: str
+
+
+@dataclass(frozen=True)
 class CAction:
-    """An action id backed by rendered C statements (each ends in ';')."""
+    """An action id backed by ordered statements.
+
+    Each statement is either a rendered C statement string (ends in ';') or a
+    :class:`CSend`; declaration order is preserved so mixed assign/send
+    bodies fire in model order.
+    """
 
     name: str
-    statements: tuple[str, ...]
+    statements: tuple[str | CSend, ...]
 
 
 @dataclass(frozen=True)
@@ -114,6 +131,7 @@ class CProgram:
     max_depth: int = 1
     invariants: tuple[CInvariant, ...] = ()
     needs_math: bool = False
+    has_send: bool = False
 
 
 @dataclass(frozen=True)

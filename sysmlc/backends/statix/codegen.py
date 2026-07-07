@@ -102,8 +102,10 @@ class CCodeGen:
         if isinstance(action, syside.AssignmentActionUsage):
             return self._render_assignment(action)
         if isinstance(action, syside.SendActionUsage):
-            raise CCodeGenError(
-                "`send` effects are not supported by statix yet.", node=action
+            raise UnsupportedConstructError(
+                "internal error: send actions must be lowered by the "
+                "statix builder, not the expression codegen.",
+                node=action,
             )
         raise CCodeGenError("unsupported action type", node=action)
 

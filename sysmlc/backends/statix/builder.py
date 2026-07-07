@@ -14,10 +14,12 @@ from sysmlc.backends.statix.program import (
     CInvariant,
     CProgram,
     CProject,
+    CSend,
     CState,
     CStruct,
     CTransition,
 )
+from sysmlc.codegen.python import payload_signature
 from sysmlc.errors import UnsupportedConstructError
 from sysmlc.semantics.statemachine import actions
 from sysmlc.semantics.statemachine.driver import StateMachineDriver
@@ -35,6 +37,7 @@ from sysmlc.semantics.statemachine.facts import (
     TransitionFact,
     WhenTrigger,
 )
+from sysmlc.semantics.statemachine.interface import send_receiver_is_own_port
 
 _DEFAULT_QUEUE_CAPACITY = 8
 
@@ -64,10 +67,12 @@ class StatixBuilder:
     states become an enum + a per-state table; eventless transitions carry
     :data:`COMPLETION_EVENT`; signal triggers become events; guards/effects/
     attributes lower via :class:`CCodeGen` into a generated context struct.
-    Composite states, ``then done`` finals, one-shot ``do`` actions, and
-    asserted constraints (invariants) are supported. Parallel, history, timers
-    (``after``/``at``/``when``), ``send``, function calls in expressions, and
-    non-scalar/non-composite attributes are rejected loudly.
+    Composite states, ``then done`` finals, one-shot ``do`` actions, asserted
+    constraints (invariants), and ``send`` self-events (id-only, payload
+    arguments ignored) are supported. Parallel, history, timers
+    (``after``/``at``/``when``), sends to other parts, reading accept payload
+    data, external function calls in expressions, and non-scalar/non-composite
+    attributes are rejected loudly.
     """
 
     def __init__(self, qualified_name: str) -> None:
@@ -91,6 +96,7 @@ class StatixBuilder:
         self._structs: dict[str, CStruct] = {}
         self._finals: dict[str, CState] = {}
         self._constraints: list[ConstraintFact] = []
+        self._has_send = False
 
     # -- TargetBuilder protocol --
 
@@ -170,6 +176,7 @@ class StatixBuilder:
             max_depth=max_depth,
             invariants=invariants,
             needs_math=needs_math,
+            has_send=self._has_send,
         )
 
     def _reject_machine_level_actions(self, root: StateFact) -> None:
@@ -332,7 +339,7 @@ class StatixBuilder:
         return self._register_rendered_guard(self._gen.render_expression(guard))
 
     def _register_action(
-        self, statements: tuple[str, ...], id_hint: str
+        self, statements: tuple[str | CSend, ...], id_hint: str
     ) -> str | None:
         """Register a CAction from statements; return its id or None."""
         if not statements:
@@ -346,11 +353,42 @@ class StatixBuilder:
         self._actions.append(CAction(name=name, statements=statements))
         return name
 
+    def _render_inline_action(self, a: syside.ActionUsage) -> str | CSend:
+        """Lower one inline action: a send becomes a CSend, rest goes to C."""
+        if isinstance(a, syside.SendActionUsage):
+            return self._csend_for(a)
+        return self._gen.render_action(a)
+
+    def _csend_for(self, send: syside.SendActionUsage) -> CSend:
+        """Lower a send effect to an id-only internal-event enqueue.
+
+        Only a self-directed send (receiver is the machine's own port) is an
+        internal event; payload constructor arguments are ignored -- B.1
+        enqueues the id only, and machines that read payload data are
+        rejected elsewhere.
+        """
+        if not send_receiver_is_own_port(send):
+            raise UnsupportedConstructError(
+                "statix only supports `send` to the machine's own port "
+                "(an internal self-event); sending to another part is not "
+                "supported yet."
+            )
+        try:
+            event_name, _ = payload_signature(send)
+        except ValueError as exc:
+            raise UnsupportedConstructError(
+                f"unsupported send payload: {exc}"
+            ) from exc
+        self._events.setdefault(event_name, None)
+        self._has_send = True
+        return CSend(event=event_name)
+
     def _action_for(
         self, action: syside.ActionUsage | None, id_hint: str
     ) -> str | None:
         statements = tuple(
-            self._gen.render_action(a) for a in actions.inline_actions(action)
+            self._render_inline_action(a)
+            for a in actions.inline_actions(action)
         )
         return self._register_action(statements, id_hint)
 
@@ -360,16 +398,17 @@ class StatixBuilder:
         SysML ``do`` has no separate runtime slot; like quake, statix runs it
         once at entry by appending its statements after the entry statements. A
         ``do`` that references another action or holds non-``assign``/``send``
-        bodies is rejected; ``do send`` is rejected downstream by the codegen.
+        bodies is rejected; a ``do send`` lowers like any other send
+        (an internal self-event).
         """
         statements = [
-            self._gen.render_action(a)
+            self._render_inline_action(a)
             for a in actions.inline_actions(fact.entry_action)
         ]
         if fact.do_action is not None:
             actions.require_inline_one_shot(fact.do_action)
             statements += [
-                self._gen.render_action(a)
+                self._render_inline_action(a)
                 for a in actions.inline_actions(fact.do_action)
             ]
         return self._register_action(tuple(statements), f"{stem}_entry")
