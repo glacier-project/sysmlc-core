@@ -14,6 +14,9 @@ typedef enum {{ e.base }}_e {
 
 {{ banner }}
 #include "sc/sc_runtime.h"
+{% if has_send %}
+#include "sc/sc_event_queue.h"
+{% endif %}
 
 #ifdef __cplusplus
 extern "C" {
@@ -58,6 +61,10 @@ typedef struct {{ prefix }}_context_s {
 /// @brief Runtime instance for {{ qn }}.
 typedef struct {{ prefix }}_s {
     sc_runtime_t runtime;
+{% if has_send %}
+    sc_event_queue_t queue;
+    sc_event_t queue_storage[{{ queue_capacity }}];
+{% endif %}
 } {{ prefix }}_t;
 
 /// @brief Initialize a generated context object with model default values.

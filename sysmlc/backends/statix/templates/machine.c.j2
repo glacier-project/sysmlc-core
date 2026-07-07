@@ -133,4 +133,7 @@ const char *{{ prefix }}_event_name(sc_event_id_t event)
 #define SC_MACHINE_DEF machine_def
 #define SC_MACHINE_GUARD guard_eval
 #define SC_MACHINE_ACTION action_exec
+{% if has_send %}
+#define SC_MACHINE_HAS_QUEUE 1
+{% endif %}
 #include "sc/sc_machine.h"
