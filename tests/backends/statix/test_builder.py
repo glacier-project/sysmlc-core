@@ -355,9 +355,7 @@ def test_unread_payload_sends_stay_id_only(sm_models: dict) -> None:
         ("SM11::MachineStringPayload", "Note"),
     ):
         program = build_statix(sm_models["sm11"], qn)
-        effect = next(
-            a for a in program.actions if "idle_completion" in a.name
-        )
+        effect = next(a for a in program.actions if "idle_completion" in a.name)
         assert effect.statements == (CSend(event=event, value_expr=None),)
 
 

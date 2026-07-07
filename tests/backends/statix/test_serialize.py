@@ -178,8 +178,7 @@ def test_serializer_emits_queue_and_send(sm_models: dict) -> None:
     assert (
         "sc_runtime_enqueue(\n"
         "                runtime, "
-        "(sc_event_id_t)SM11_MACHINE_SELF_SEND_EVENT_PING);"
-        in code.source
+        "(sc_event_id_t)SM11_MACHINE_SELF_SEND_EVENT_PING);" in code.source
     )
     assert "return send_status;" in code.source
     assert "sc_event_queue.h" in code.header

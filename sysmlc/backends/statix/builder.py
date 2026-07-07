@@ -200,8 +200,7 @@ class StatixBuilder:
     def _payload_gen(self, payload_feature: syside.Feature) -> CCodeGen:
         return CCodeGen(
             attribute_names=frozenset(
-                self._attribute_names
-                | {b.name for b in self._bindings}
+                self._attribute_names | {b.name for b in self._bindings}
             ),
             real_attributes=self._real_attribute_names,
             payload_feature=payload_feature,
