@@ -26,6 +26,7 @@ def test_generated_c_matches_fixture(
     program = build_statix(sm_models[stem], qn)
     files = emit_files(program)
     d, s = _paths(program)
+    checks: tuple[tuple[str, str], ...]
     if fix_dir == "sm11_machine_mixed":
         checks = (
             (f"include/{d}/{s}.h", f"include/{d}/{s}.h"),

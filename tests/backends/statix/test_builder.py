@@ -27,13 +27,10 @@ def test_event_trigger_makes_a_signal_event(sm_models: dict) -> None:
 def test_guard_becomes_a_cguard(sm_models: dict) -> None:
     program = build_statix(sm_models["sm03"], "SM03::MachineRef")
     assert program.transitions[0].guard is not None
-    guard = next(
-        g for g in program.guards if g.name == program.transitions[0].guard
-    )
+    guard = next(g for g in program.guards if g.name == program.transitions[0].guard)
     assert guard.expr == "ctx->enabled"
     assert any(
-        f.name == "enabled" and f.c_type == "bool"
-        for f in program.context.fields
+        f.name == "enabled" and f.c_type == "bool" for f in program.context.fields
     )
 
 
@@ -47,18 +44,16 @@ def test_entry_action_is_captured(sm_models: dict) -> None:
 
 def test_integer_and_real_types(sm_models: dict) -> None:
     program = build_statix(sm_models["sm03"], "SM03::MachineRealLiteral")
-    assert any(
-        f.name == "x" and f.c_type == "double" for f in program.context.fields
-    )
+    assert any(f.name == "x" and f.c_type == "double" for f in program.context.fields)
 
 
 def test_composite_struct_and_chain(sm_models: dict) -> None:
     program = build_statix(sm_models["sm05"], "SM05::MachineChainNested")
     # nested structs registered inner-first (Inner before Box)
     struct_names = [s.name for s in program.context.structs]
-    assert struct_names.index(
-        "sm05_machine_chain_nested_inner_t"
-    ) < struct_names.index("sm05_machine_chain_nested_box_t")
+    assert struct_names.index("sm05_machine_chain_nested_inner_t") < struct_names.index(
+        "sm05_machine_chain_nested_box_t"
+    )
     guard = program.guards[0]
     assert guard.expr == "ctx->box.inner.z > 0.0"
 
@@ -101,13 +96,11 @@ def test_cross_boundary_transitions_use_dotted_endpoints(
 ) -> None:
     out = build_statix(sm_models["sm08"], "SM08::MachineCrossOut")
     assert any(
-        t.source == "running::hot" and t.target == "stopped"
-        for t in out.transitions
+        t.source == "running::hot" and t.target == "stopped" for t in out.transitions
     )
     into = build_statix(sm_models["sm08"], "SM08::MachineCrossIn")
     assert any(
-        t.source == "idle" and t.target == "running::hot"
-        for t in into.transitions
+        t.source == "idle" and t.target == "running::hot" for t in into.transitions
     )
 
 
@@ -174,8 +167,7 @@ def test_root_done_synthesizes_final(sm_models: dict) -> None:
     assert done.initial_child is None
     # The `running then done` transition targets the final.
     assert any(
-        t.source == "running" and t.target == "done"
-        for t in program.transitions
+        t.source == "running" and t.target == "done" for t in program.transitions
     )
 
 
@@ -202,7 +194,7 @@ def test_parallel_done_is_rejected(sm_models: dict) -> None:
         build_statix(sm_models["sm10"], "SM10::MachineParallelDone")
 
 
-def _entry_statements(program: CProgram, state_name: str) -> tuple[str, ...]:
+def _entry_statements(program: CProgram, state_name: str) -> tuple[str | CSend, ...]:
     """The statements of a state's entry action, or () if it has none."""
     state = next(s for s in program.states if s.name == state_name)
     if state.entry_action_id is None:
