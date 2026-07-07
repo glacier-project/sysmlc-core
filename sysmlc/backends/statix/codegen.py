@@ -77,13 +77,14 @@ class CCodeGen:
     fails at C-compile time. An empty set disables the check (used where the
     valid names are not known to the caller).
 
-    When ``payload_feature`` is provided (the signal feature bound by the active
-    transition's trigger, such as ``reading`` on ``Measurement``), a reference to
-    a sub-feature of that payload (such as ``reading.value``, where ``reading``
-    is the bound feature and ``value`` is an attribute of the payload type)
-    renders as ``sc_event_payload_f64(event)``, and the read sub-feature name is
-    recorded in ``payload_reads``. References to the whole payload without a
-    sub-feature, or to deeper feature chains (``reading.a.b``), are rejected.
+    When ``payload_feature`` is provided (the signal feature bound by the
+    active transition's trigger, such as ``reading`` on ``Measurement``), a
+    reference to a sub-feature of that payload (such as ``reading.value``, where
+    ``reading`` is the bound feature and ``value`` is an attribute of the
+    payload type) renders as ``sc_event_payload_f64(event)``, and the read
+    sub-feature name is recorded in ``payload_reads``. References to the
+    whole payload without a sub-feature, or to deeper feature chains
+    (``reading.a.b``), are rejected.
     """
 
     def __init__(
@@ -101,6 +102,7 @@ class CCodeGen:
         self._real_attributes = real_attributes
         self._payload_feature = payload_feature
         self.payload_reads: set[str] = set()
+        self._used_payload = False
         self.needs_math = False
         self._used_math = False
 
@@ -138,13 +140,15 @@ class CCodeGen:
                 "assignment has no value expression", node=assign
             )
         self._used_math = False
+        self._used_payload = False
         rhs = self._emit(value)
-        if self._used_math and (
+        if (self._used_math or self._used_payload) and (
             base is not None or target.name not in self._real_attributes
         ):
             raise CCodeGenError(
-                "library-function results are double; assigning one to a "
-                "non-Real attribute is unsupported by statix yet.",
+                "library-function and payload-read results are double; "
+                "assigning one to a non-Real attribute is unsupported by "
+                "statix yet.",
                 node=assign,
             )
         return f"{lhs} = {rhs};"
@@ -182,7 +186,8 @@ class CCodeGen:
             )
         if self._payload_feature is not None and ref == self._payload_feature:
             raise CCodeGenError(
-                "whole payload reference without a sub-feature is unsupported by statix yet.",
+                "whole payload reference without a sub-feature is unsupported "
+                "by statix yet.",
                 node=expr,
             )
         if not self._allow_context:
@@ -236,10 +241,12 @@ class CCodeGen:
             chain = target.chaining_features.collect() or [target]
             if len(chain) != 1 or chain[0].name is None:
                 raise CCodeGenError(
-                    "deep or unnamed payload chains are unsupported by statix yet.",
+                    "deep or unnamed payload chains are unsupported by statix "
+                    "yet.",
                     node=expr,
                 )
             self.payload_reads.add(chain[0].name)
+            self._used_payload = True
             return "sc_event_payload_f64(event)"
         base = self._emit(op0, 0)
         target = expr.target_feature

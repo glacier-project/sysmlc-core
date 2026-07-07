@@ -177,7 +177,8 @@ def test_serializer_emits_queue_and_send(sm_models: dict) -> None:
     # The action body calls sc_runtime_enqueue with the generated event id.
     assert (
         "sc_runtime_enqueue(\n"
-        "                runtime, (sc_event_id_t)SM11_MACHINE_SELF_SEND_EVENT_PING);"
+        "                runtime, "
+        "(sc_event_id_t)SM11_MACHINE_SELF_SEND_EVENT_PING);"
         in code.source
     )
     assert "return send_status;" in code.source
