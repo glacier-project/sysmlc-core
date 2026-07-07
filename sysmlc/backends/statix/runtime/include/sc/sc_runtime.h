@@ -10,6 +10,7 @@
 /// record that generated code embeds in its public <prefix>_t type.
 
 #include "sc/sc_event.h"
+#include "sc/sc_event_queue.h"
 #include "sc/sc_status.h"
 #include "sc/sc_types.h"
 
@@ -28,7 +29,11 @@ extern "C" {
 /// @brief Upper bound on completion micro-steps after init and dispatch.
 ///
 /// The generated dispatcher reports SC_STATUS_STEP_LIMIT when the bound is
-/// exceeded.
+/// exceeded. This is a nested bound, not a single macro-step budget: the
+/// internal-event drain processes up to SC_MAX_RTC_STEPS queued events, and
+/// each may settle up to SC_MAX_RTC_STEPS completion micro-steps, so the
+/// worst case per dispatch is SC_MAX_RTC_STEPS * SC_MAX_RTC_STEPS transition
+/// takes -- still a compile-time constant.
 #ifndef SC_MAX_RTC_STEPS
 #define SC_MAX_RTC_STEPS 64u
 #endif
@@ -92,6 +97,7 @@ typedef struct sc_machine_s {
 typedef struct sc_runtime_s {
     const sc_machine_t *machine; ///< @brief Borrowed immutable machine definition.
     void *user_data; ///< @brief Opaque caller-owned context pointer.
+    sc_event_queue_t *queue; ///< @brief Internal-event queue, or NULL if the machine sends nothing.
     sc_state_id_t current_state; ///< @brief Current active state id.
     bool initialized; ///< @brief True after successful runtime binding.
 } sc_runtime_t;
@@ -111,6 +117,19 @@ sc_status_t sc_runtime_bind(sc_runtime_t *runtime, const sc_machine_t *machine, 
 /// @param out_state Destination for the current state id.
 /// @return SC_STATUS_OK on success, or SC_STATUS_INVALID_ARGUMENT.
 sc_status_t sc_runtime_get_state(const sc_runtime_t *runtime, sc_state_id_t *out_state);
+
+/// @brief Post an internal event to the runtime's queue (send effect support).
+///
+/// Meant for action bodies during a step: the generated dispatch drains the
+/// queue before returning, so it is empty at dispatch boundaries. An event
+/// hand-posted between dispatches is consumed at the start of the next
+/// successful init/dispatch drain; a no-transition dispatch does not drain.
+/// The event is id-only: its payload buffer is not populated.
+/// @param runtime Runtime instance to post into.
+/// @param event_id Event identifier to enqueue.
+/// @return SC_STATUS_OK, SC_STATUS_QUEUE_FULL, or SC_STATUS_INVALID_ARGUMENT
+///         (NULL runtime, or a machine with no internal-event queue).
+sc_status_t sc_runtime_enqueue(sc_runtime_t *runtime, sc_event_id_t event_id);
 
 #ifdef __cplusplus
 }

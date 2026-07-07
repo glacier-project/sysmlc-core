@@ -56,6 +56,7 @@ sc_status_t sc_runtime_bind(sc_runtime_t *runtime, const sc_machine_t *machine, 
     }
     runtime->machine = machine;
     runtime->user_data = user_data;
+    runtime->queue = NULL;
     runtime->current_state = machine->initial_state;
     runtime->initialized = true;
     return SC_STATUS_OK;
@@ -72,4 +73,29 @@ sc_status_t sc_runtime_get_state(const sc_runtime_t *runtime, sc_state_id_t *out
     }
     *out_state = runtime->current_state;
     return SC_STATUS_OK;
+}
+
+/// @brief Post an internal event to the runtime's queue (send effect support).
+///
+/// Meant for action bodies during a step: the generated dispatch drains the
+/// queue before returning, so it is empty at dispatch boundaries. An event
+/// hand-posted between dispatches is consumed at the start of the next
+/// successful init/dispatch drain; a no-transition dispatch does not drain.
+/// The event is id-only: its payload buffer is not populated.
+/// @param runtime Runtime instance to post into.
+/// @param event_id Event identifier to enqueue.
+/// @return SC_STATUS_OK, SC_STATUS_QUEUE_FULL, or SC_STATUS_INVALID_ARGUMENT
+///         (NULL runtime, or a machine with no internal-event queue).
+sc_status_t sc_runtime_enqueue(sc_runtime_t *runtime, sc_event_id_t event_id)
+{
+    sc_event_t event;
+    sc_status_t status;
+    if ((runtime == NULL) || (runtime->queue == NULL)) {
+        return SC_STATUS_INVALID_ARGUMENT;
+    }
+    status = sc_event_init(&event, event_id);
+    if (status != SC_STATUS_OK) {
+        return status;
+    }
+    return sc_event_queue_push(runtime->queue, &event);
 }
