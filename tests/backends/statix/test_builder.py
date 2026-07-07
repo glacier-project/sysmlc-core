@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from sysmlc.backends.statix.builder import build_statix
-from sysmlc.backends.statix.program import COMPLETION_EVENT, CProgram
+from sysmlc.backends.statix.program import COMPLETION_EVENT, CProgram, CSend
 from sysmlc.errors import UnsupportedConstructError
 from sysmlc.sysml.loading import load_model
 
@@ -116,9 +116,54 @@ def test_rejects_parallel_state(sm_models: dict) -> None:
         build_statix(sm_models["sm09"], "SM09::MachineParallel")
 
 
-def test_rejects_send_effect(sm_models: dict) -> None:
-    with pytest.raises(UnsupportedConstructError):
-        build_statix(sm_models["sm11"], "SM11::MachineSelfSend")
+def test_self_send_lowers_to_csend(sm_models: dict) -> None:
+    program = build_statix(sm_models["sm11"], "SM11::MachineSelfSend")
+    assert program.has_send
+    # The sent Ping is a registered event even on the send side.
+    assert "Ping" in program.events
+    effect = next(a for a in program.actions if "idle_completion" in a.name)
+    assert effect.statements == (CSend(event="Ping"),)
+
+
+def test_send_payload_args_are_ignored(sm_models: dict) -> None:
+    # `send new Reading(current)`: id-only enqueue, argument dropped.
+    program = build_statix(sm_models["sm11"], "SM11::MachinePayload")
+    assert program.has_send
+    assert "Reading" in program.events
+    effect = next(a for a in program.actions if "idle_completion" in a.name)
+    assert effect.statements == (CSend(event="Reading"),)
+
+
+def test_mixed_effect_preserves_assign_then_send_order(sm_models: dict) -> None:
+    program = build_statix(sm_models["sm11"], "SM11::MachineMixed")
+    effect = next(a for a in program.actions if "idle_completion" in a.name)
+    assert len(effect.statements) == 2
+    assert isinstance(effect.statements[0], str)  # the assign
+    assert "count" in effect.statements[0]
+    assert effect.statements[1] == CSend(event="Ping")
+
+
+def test_send_only_event_still_registered(sm_models: dict) -> None:
+    # MachineMixed sends Ping but never accepts it: the id must still exist.
+    program = build_statix(sm_models["sm11"], "SM11::MachineMixed")
+    assert "Ping" in program.events
+
+
+def test_reading_payload_data_stays_rejected(sm_models: dict) -> None:
+    for qn in (
+        "SM11::MachineReadablePayloadGuard",
+        "SM11::MachineReadablePayloadRejected",
+        "SM11::MachineReadablePayloadEffect",
+        "SM11::MachineReadablePayloadChain",
+        "SM11::MachineReadablePayloadWhole",
+    ):
+        with pytest.raises(UnsupportedConstructError):
+            build_statix(sm_models["sm11"], qn)
+
+
+def test_non_send_machine_has_no_send(sm_models: dict) -> None:
+    program = build_statix(sm_models["sm01"], "SM01::Machine")
+    assert not program.has_send
 
 
 def test_root_done_synthesizes_final(sm_models: dict) -> None:
@@ -157,7 +202,10 @@ def test_parallel_done_is_rejected(sm_models: dict) -> None:
         build_statix(sm_models["sm10"], "SM10::MachineParallelDone")
 
 
-def _entry_statements(program: CProgram, state_name: str) -> tuple[str, ...]:
+def _entry_statements(
+    program: CProgram,
+    state_name: str,
+) -> tuple[str | CSend, ...]:
     """The statements of a state's entry action, or () if it has none."""
     state = next(s for s in program.states if s.name == state_name)
     if state.entry_action_id is None:
@@ -220,14 +268,18 @@ def test_root_empty_do_is_a_noop(sm_models: dict) -> None:
     assert all(s.entry_action_id is None for s in program.states)
 
 
-def test_do_send_is_rejected(sm_models: dict) -> None:
-    with pytest.raises(UnsupportedConstructError):
-        build_statix(sm_models["sm12"], "SM12::MachineDoSend")
+def test_do_send_lowers_to_entry_csend(sm_models: dict) -> None:
+    # A `do send` fuses into the entry action like any other do body.
+    program = build_statix(sm_models["sm12"], "SM12::MachineDoSend")
+    assert program.has_send
+    working = next(a for a in program.actions if "working_entry" in a.name)
+    assert working.statements == (CSend(event="Ping"),)
 
 
-def test_do_send_shorthand_is_rejected(sm_models: dict) -> None:
-    with pytest.raises(UnsupportedConstructError):
-        build_statix(sm_models["sm12"], "SM12::MachineDoSendShorthand")
+def test_do_send_shorthand_lowers_to_entry_csend(sm_models: dict) -> None:
+    program = build_statix(sm_models["sm12"], "SM12::MachineDoSendShorthand")
+    working = next(a for a in program.actions if "working_entry" in a.name)
+    assert working.statements == (CSend(event="Ping"),)
 
 
 def test_machine_level_do_is_rejected(sm_models: dict) -> None:

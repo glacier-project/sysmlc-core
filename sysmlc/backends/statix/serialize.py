@@ -7,6 +7,7 @@ from sysmlc.backends.statix.program import (
     COMPLETION_EVENT,
     CProgram,
     CProject,
+    CSend,
 )
 
 _env = Environment(
@@ -127,6 +128,7 @@ def _header_view(program: CProgram) -> dict[str, object]:
         "qn": program.qualified_name,
         "state_count": len(program.states),
         "queue_capacity": program.queue_capacity,
+        "has_send": program.has_send,
         "enums": [
             _enum_view(f"{p}_state", _state_entries(program), state_docs),
             _enum_view(f"{p}_event", _event_entries(program), event_docs),
@@ -199,6 +201,7 @@ def _source_view(program: CProgram) -> dict[str, object]:
         "stem": stem,
         "prefix": p,
         "needs_math": program.needs_math,
+        "has_send": program.has_send,
         "state_rows": state_rows,
         "transition_rows": transition_rows,
         "state_count_macro": f"{p.upper()}_STATE_COUNT",
@@ -216,7 +219,15 @@ def _source_view(program: CProgram) -> dict[str, object]:
         "actions": [
             {
                 "const": _const(p, "ACTION", a.name),
-                "statements": list(a.statements),
+                "statements": [
+                    (
+                        "return sc_runtime_enqueue"
+                        f"(runtime, {_event_token(program, s.event)});"
+                    )
+                    if isinstance(s, CSend)
+                    else s
+                    for s in a.statements
+                ],
             }
             for a in program.actions
         ],

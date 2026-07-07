@@ -1,8 +1,24 @@
+from collections import namedtuple
+
 import syside
 
 from sysmlc.backends.statix.builder import build_statix
-from sysmlc.backends.statix.program import CProject
-from sysmlc.backends.statix.serialize import _paths, emit_cmakelists, emit_files
+from sysmlc.backends.statix.program import CProgram, CProject
+from sysmlc.backends.statix.serialize import (
+    _paths,
+    emit_cmakelists,
+    emit_files,
+    emit_header,
+    emit_source,
+)
+
+SerializedCode = namedtuple("SerializedCode", ["header", "source"])
+
+
+def serialize_statix(program: CProgram) -> SerializedCode:
+    return SerializedCode(
+        header=emit_header(program), source=emit_source(program)
+    )
 
 
 def _files_for(model: syside.Model, qn: str) -> tuple[dict[str, str], str, str]:
@@ -141,3 +157,28 @@ def test_cmakelists_is_byte_stable(sm_models: dict) -> None:
         " statix_statecharts)\n"
     )
     assert emit_cmakelists(project) == expected
+
+
+def test_serializer_emits_queue_and_send(sm_models: dict) -> None:
+    program = build_statix(sm_models["sm11"], "SM11::MachineSelfSend")
+    code = serialize_statix(program)
+    # Header: queue storage and SC_MACHINE_HAS_QUEUE define.
+    assert "sc_event_queue_t queue;" in code.header
+    assert "sc_event_t queue_storage[8];" in code.header
+    # Source: SC_MACHINE_HAS_QUEUE set before template include.
+    assert "#define SC_MACHINE_HAS_QUEUE 1" in code.source
+    assert '#include "sc/sc_machine.h"' in code.source
+    # The action body calls sc_runtime_enqueue with the generated event id.
+    assert (
+        "return sc_runtime_enqueue(runtime, SM11_MACHINE_SELF_SEND_EVENT_PING);"
+        in code.source
+    )
+    assert "sc_event_queue.h" in code.header
+
+
+def test_serializer_no_send_omits_queue(sm_models: dict) -> None:
+    program = build_statix(sm_models["sm01"], "SM01::Machine")
+    code = serialize_statix(program)
+    assert "sc_event_queue_t" not in code.header
+    assert "SC_MACHINE_HAS_QUEUE" not in code.source
+    assert "sc_event_queue.h" not in code.header

@@ -96,6 +96,36 @@ def test_sm10_final_states_match_sismic(
         )
 
 
+SM11_CASES = [
+    ("SM11::MachineSelfSend", ()),
+    ("SM11::MachineMixed", ()),
+    ("SM12::MachineDoSend", ()),
+]
+
+
+@pytest.mark.parametrize("qn,events", SM11_CASES)
+def test_sm11_send_matches_sismic(
+    sm_models: dict,
+    statix_run: Callable,
+    qn: str,
+    events: tuple[str, ...],
+) -> None:
+    stem = qn.split("::")[0].lower()
+    interpreter = Interpreter(build_statechart(sm_models[stem], qn))
+    interpreter.execute()
+    for e in events:
+        interpreter.queue(e)
+        interpreter.execute()
+    sismic_leaf = sorted(interpreter.configuration)[-1]
+
+    program = build_statix(sm_models[stem], qn)
+    statix_leaf = statix_run(program, events)
+
+    assert statix_leaf == sismic_leaf, (
+        f"{qn}: statix {statix_leaf!r} != sismic {sismic_leaf!r}"
+    )
+
+
 # do-action machines that settle deterministically on init. Every supported
 # variant reaches `finished`; MachineDoEnablesCompletion is the discriminating
 # case -- it only reaches `finished` if the do body ran at entry (setting the
