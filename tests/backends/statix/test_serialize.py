@@ -215,3 +215,37 @@ def test_send_block_preserves_statement_order(sm_models: dict) -> None:
     # must fall through to the next statement.
     assert "return send_status;" in between
     assert "return SC_STATUS_OK;" not in between
+
+
+def test_marshalled_send_renders_enqueue_f64(sm_models: dict) -> None:
+    program = build_statix(
+        sm_models["sm11"], "SM11::MachineReadablePayloadGuard"
+    )
+    source = emit_source(program)
+    assert (
+        "sc_runtime_enqueue_f64(\n"
+        "                runtime, (sc_event_id_t)"
+        "SM11_MACHINE_READABLE_PAYLOAD_GUARD_EVENT_MEASUREMENT,\n"
+        "                ctx->current);" in source
+    )
+    assert "return send_status;" in source
+
+
+def test_payload_only_guard_omits_unused_ctx(sm_models: dict) -> None:
+    # MachineReadablePayloadGuard's only guard reads the payload: guard_eval
+    # must not declare an unused ctx (fatal under the project's -Werror).
+    program = build_statix(
+        sm_models["sm11"], "SM11::MachineReadablePayloadGuard"
+    )
+    source = emit_source(program)
+    body = source[source.index("static bool guard_eval") :]
+    body = body[: body.index("}")]
+    assert "context_t *ctx" not in body
+    assert "(void)runtime;" in body
+
+
+def test_ctx_using_guards_keep_the_cast(sm_models: dict) -> None:
+    program = build_statix(sm_models["sm03"], "SM03::MachineRef")
+    source = emit_source(program)
+    body = source[source.index("static bool guard_eval") :]
+    assert "const sm03_machine_ref_context_t *ctx" in body
