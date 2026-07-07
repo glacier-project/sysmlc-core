@@ -134,4 +134,3 @@ sc_status_t sc_runtime_enqueue_f64(sc_runtime_t *runtime, sc_event_id_t event_id
     event.payload_len = (uint8_t)sizeof(double);
     return sc_event_queue_push(runtime->queue, &event);
 }
-

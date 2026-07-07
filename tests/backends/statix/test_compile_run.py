@@ -56,7 +56,7 @@ int main(void)
 """
 
 
-def test_effect_captures_payload_value(sm_models: dict, tmp_path) -> None:
+def test_effect_captures_payload_value(sm_models: dict, tmp_path: Path) -> None:
     program = build_statix(
         sm_models["sm11"], "SM11::MachineReadablePayloadEffect"
     )
