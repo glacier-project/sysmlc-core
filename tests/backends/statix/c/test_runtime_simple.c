@@ -27,8 +27,8 @@ static const sc_transition_t k_transitions[] = {
 };
 
 static const sc_state_def_t k_states[] = {
-    {SC_ACTION_NONE, SC_ACTION_NONE},
-    {SC_ACTION_NONE, SC_ACTION_NONE},
+    {SC_ACTION_NONE, SC_ACTION_NONE, SC_STATE_INVALID, SC_STATE_INVALID, false},
+    {SC_ACTION_NONE, SC_ACTION_NONE, SC_STATE_INVALID, SC_STATE_INVALID, false},
 };
 
 static const sc_machine_t k_machine = {
@@ -37,6 +37,9 @@ static const sc_machine_t k_machine = {
     (uint16_t)(sizeof(k_transitions) / sizeof(k_transitions[0])),
     TS_COUNT,
     TS_OFF,
+    1u,
+    NULL,
+    0u,
 };
 
 static void test_bind_and_get_state(void)
@@ -55,14 +58,14 @@ static void test_bind_and_get_state(void)
 static void test_bad_initial_state(void)
 {
     static const sc_machine_t bad = {k_transitions, k_states, 1u, TS_COUNT,
-                                     (sc_state_id_t)TS_COUNT};
+                                     (sc_state_id_t)TS_COUNT, 1u, NULL, 0u};
     sc_runtime_t rt;
     CHECK(sc_runtime_bind(&rt, &bad, NULL) == SC_STATUS_INVALID_ARGUMENT);
 }
 
 static void test_uninitialized_and_null(void)
 {
-    sc_runtime_t rt = {NULL, NULL, 0u, false};
+    sc_runtime_t rt = {0};
     sc_state_id_t state;
 
     CHECK(sc_runtime_get_state(&rt, &state) == SC_STATUS_INVALID_ARGUMENT);
