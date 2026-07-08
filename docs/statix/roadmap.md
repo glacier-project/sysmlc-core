@@ -190,8 +190,10 @@ rosetta.
 - **F send / internal-event RTC / payloads (partially landed)** — `send` pushes to the internal
   queue; the macro-step drains it bounded by `SC_MAX_RTC_STEPS` (B.1 landed); readable scalar
   Real payloads use a marshal-on-demand f64 slot (`sc_event_payload_f64`), with sm11
-  Guard/Rejected/Effect conformance-gated and a captured-value harness (B.2 landed); B.3
-  (chained/whole/multi-field/Integer/String payload data) remains deferred.
+  Guard/Rejected/Effect conformance-gated and a captured-value harness (B.2 landed); 2-segment
+  chained Real payload reads landed (one composite hop, `reading.sample.value`, sm11
+  `MachineReadablePayloadChain` conformance-gated); 3+ segment chains and whole-payload capture
+  (`MachineReadablePayloadWhole`) remain deferred to a future increment.
 - **G Timers `after`/`at`** — `sc_runtime_tick(rt, elapsed)`; timers armed on
   entry, disarmed on exit, stale expiries invalidated by a per-source activation
   counter (Sismic's mechanism); expiry posts a synthetic event. Per-instance

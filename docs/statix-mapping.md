@@ -99,7 +99,11 @@ When a machine includes a self-send (`send new E()` or `do send new E()`), stati
 
 `accept E [via port]` is a **signal trigger**: `E` becomes an `enum` event id
 (`<PREFIX>_EVENT_E`, numbered from 1), and the transition matches that id in
-`<prefix>_dispatch` / `<prefix>_post`. A named binding (`accept reading : E`) may read the event's **single marshalled Real attribute** (`reading.value`) in the transition's guard and effect; chained reads (`reading.sample.value`), whole-payload capture, and non-Real payload data remain rejected (§9).
+`<prefix>_dispatch` / `<prefix>_post`. A named binding (`accept reading : E`) may read the event's single
+marshalled Real value — either directly (`reading.value`) or one composite
+hop deep (`reading.sample.value`) — in the transition's guard and effect;
+deeper chains, whole-payload capture, and non-Real payload data remain
+rejected (§9).
 
 `after` / `at` / `when` triggers are rejected (§9).
 
@@ -167,6 +171,15 @@ marshalling send, a send with the wrong argument shape, or a non-Real
 argument is rejected loudly. `_post` and the host runner remain id-only:
 payload-bearing events exist only as internal self-sends.
 
+The readable path may also be **one composite hop deep**
+(`reading.sample.value`, where `sample` is itself a composite machine
+attribute): the marshalling `send` must pass that same composite attribute
+as a bare argument (`send new Measurement(current, sample) to commPort`),
+and the nested field it resolves to must be Real — checked mechanically
+against the generated struct's own field types, not inferred. A chain three
+or more segments deep (`reading.a.b.c`), or resolving to a non-Real field, is
+rejected.
+
 ## 7. Attributes and the context struct
 
 Machine attributes become fields of the generated `<prefix>_context_t`, passed
@@ -210,7 +223,7 @@ iteration 1:
 | ------------------------------------------------------ | ------------------------------------------------------ |
 | parallel / history states                              | rejected (composite/leaf supported)                    |
 | `after` / `at` / `when` triggers                       | rejected (no timers/change events yet)                 |
-| chained / whole / non-Real payload reads               | rejected (single Real attribute readable; rest is B.3) |
+| chains 3+ segments deep, whole, or non-Real payload reads | rejected (2-segment Real chains supported; whole capture is future work) |
 | machine-level (state def) entry/do/exit actions        | rejected (put on states)                               |
 | non-inline / referenced `do` activities                | rejected                                               |
 | `String` / non-scalar, non-composite attributes        | rejected                                               |
