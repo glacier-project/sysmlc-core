@@ -79,12 +79,12 @@ class CCodeGen:
 
     When ``payload_feature`` is provided (the signal feature bound by the
     active transition's trigger, such as ``reading`` on ``Measurement``), a
-    reference to a sub-feature of that payload (such as ``reading.value``, where
-    ``reading`` is the bound feature and ``value`` is an attribute of the
-    payload type) renders as ``sc_event_payload_f64(event)``, and the read
-    sub-feature name is recorded in ``payload_reads``. References to the
-    whole payload without a sub-feature, or to deeper feature chains
-    (``reading.a.b``), are rejected.
+    reference to a sub-feature of that payload (such as ``reading.value``, one
+    segment) or one composite hop into it (``reading.sample.value``, two
+    segments) renders as ``sc_event_payload_f64(event)``, and the read path
+    (as a tuple of segment names) is recorded in ``payload_reads``. A
+    reference to the whole payload without a sub-feature, or a chain three or
+    more segments deep, is rejected.
     """
 
     def __init__(
@@ -101,7 +101,7 @@ class CCodeGen:
         self._attribute_names = attribute_names
         self._real_attributes = real_attributes
         self._payload_feature = payload_feature
-        self.payload_reads: set[str] = set()
+        self.payload_reads: set[tuple[str, ...]] = set()
         self._used_payload = False
         self.needs_math = False
         self._used_math = False
@@ -239,13 +239,20 @@ class CCodeGen:
                     "feature chain has no target feature", node=expr
                 )
             chain = target.chaining_features.collect() or [target]
-            if len(chain) != 1 or chain[0].name is None:
+            names: list[str] = []
+            for feature in chain:
+                if feature.name is None:
+                    raise CCodeGenError(
+                        "payload chain has an unnamed segment", node=expr
+                    )
+                names.append(feature.name)
+            if len(names) not in (1, 2):
                 raise CCodeGenError(
-                    "deep or unnamed payload chains are unsupported by statix "
-                    "yet.",
+                    "payload reads deeper than one composite hop (e.g. "
+                    "reading.a.b) are unsupported by statix yet.",
                     node=expr,
                 )
-            self.payload_reads.add(chain[0].name)
+            self.payload_reads.add(tuple(names))
             self._used_payload = True
             return "sc_event_payload_f64(event)"
         base = self._emit(op0, 0)
