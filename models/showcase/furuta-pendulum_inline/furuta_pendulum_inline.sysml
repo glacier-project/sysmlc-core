@@ -36,42 +36,42 @@ package FurutaPendulum {
     // External pure functions (backed by furuta_physics.py at run time).
     // Matched by simple name against furuta_physics module functions.
     // -----------------------------------------------------------------------
-    calc def step             { 
-        in x : PendulumState; 
-        in u : Real; 
-        in dt : Real; 
-        return : PendulumState; 
-    
+    calc def step             {
+        in x : PendulumState;
+        in u : Real;
+        in dt : Real;
+        return : PendulumState;
+
         rep impl language "Python"
             /*
              * import math
-             * 
+             *
              * # Inertia / coupling coefficients (Liu et al. 2002 notation)
              * ALPHA = 0.00260569
              * BETA = 0.05165675
              * GAMMA = 9.7055e-4
              * EPSILON = 0.08103060
-             * 
+             *
              * # Gravitational acceleration [m/s^2]
              * G = 9.81
-             * 
+             *
              * def step(x, u, dt):
              *     from furutaSystem_types import PendulumState
-             *     
+             *
              *     x0 = x.theta
              *     x1 = x.d_theta
              *     x3 = x.d_phi
-             * 
+             *
              *     sin0 = math.sin(x0)
              *     cos0 = math.cos(x0)
-             * 
+             *
              *     # Common denominator
              *     denom = ALPHA * BETA + (ALPHA * sin0) ** 2 - (GAMMA * cos0) ** 2
-             * 
+             *
              *     ab_asq = ALPHA * BETA + (ALPHA * sin0) ** 2
-             * 
+             *
              *     x0_dot = x1
-             * 
+             *
              *     x1_dot = (1.0 / denom) * (
              *         ab_asq * (x3 ** 2) * sin0 * cos0
              *         - (GAMMA * x1) ** 2 * sin0 * cos0
@@ -79,9 +79,9 @@ package FurutaPendulum {
              *         - GAMMA * cos0 * G * u
              *         + ab_asq * EPSILON / ALPHA * sin0
              *     )
-             * 
+             *
              *     x2_dot = x3
-             * 
+             *
              *     # NOTE: the original LF source used cos(d_theta) here, a transcription
              *     # error. Corrected to cos(theta) = cos0, matching the standard Furuta
              *     # derivation and the Ptolemy II reference model.
@@ -92,7 +92,7 @@ package FurutaPendulum {
              *         - 2.0 * (ALPHA ** 2) * x1 * x3 * sin0 * cos0
              *         + ALPHA * G * u
              *     )
-             * 
+             *
              *     return PendulumState(
              *         theta=x.theta + x0_dot * dt,
              *         d_theta=x.d_theta + x1_dot * dt,
@@ -108,26 +108,26 @@ package FurutaPendulum {
         rep impl language "Python"
             /*
              * import math
-             * 
+             *
              * # Natural frequency used in energy calculation
              * W0 = 6.3
-             * 
+             *
              * # Swing-up energy multiplier
              * K = 0.5
-             * 
+             *
              * # Swing-up control magnitude bound
              * N = 0.5
-             * 
+             *
              * def _sign(x):
              *     return float((x > 0.0) - (x < 0.0))
-             * 
+             *
              * def _restrict_angle(theta):
              *     pi = math.pi
              *     return (math.fmod(math.fabs(theta) + pi, 2 * pi) - pi) * _sign(theta)
-             * 
+             *
              * def _energy(theta, d_theta):
              *     return 0.5 * d_theta * d_theta / (W0 * W0) + math.cos(theta) - 1.0
-             * 
+             *
              * def swingup_torque(r):
              *     th = _restrict_angle(r.theta)
              *     e = _energy(th, r.d_theta)
@@ -143,23 +143,23 @@ package FurutaPendulum {
         rep impl language "Python"
             /*
              * import math
-             * 
+             *
              * # Catch-mode linear-feedback gains
              * CI1 = -1.04945717118225
              * CI2 = -0.20432286791216
              * CI3 = -0.00735846749875
              * CI4 = -0.00735846749875
-             * 
+             *
              * # Arm angle set-point used by Catch mode [rad]
              * PHI2 = -7.0124562
-             * 
+             *
              * def _sign(x):
              *     return float((x > 0.0) - (x < 0.0))
-             * 
+             *
              * def _restrict_angle(theta):
              *     pi = math.pi
              *     return (math.fmod(math.fabs(theta) + pi, 2 * pi) - pi) * _sign(theta)
-             * 
+             *
              * def catch_torque(r):
              *     th = _restrict_angle(r.theta)
              *     return -1.0 * (
@@ -175,23 +175,23 @@ package FurutaPendulum {
         rep impl language "Python"
             /*
              * import math
-             * 
+             *
              * # Stabilize-mode linear-feedback gains
              * SI1 = -1.70871686211144
              * SI2 = -0.30395427746831
              * SI3 = -0.03254225945714
              * SI4 = -0.05808270221773
-             * 
+             *
              * # Arm angle set-point used by Stabilize mode [rad]
              * PHI0 = 0.0
-             * 
+             *
              * def _sign(x):
              *     return float((x > 0.0) - (x < 0.0))
-             * 
+             *
              * def _restrict_angle(theta):
              *     pi = math.pi
              *     return (math.fmod(math.fabs(theta) + pi, 2 * pi) - pi) * _sign(theta)
-             * 
+             *
              * def stabilize_torque(r):
              *     th = _restrict_angle(r.theta)
              *     return -1.0 * (
@@ -207,10 +207,10 @@ package FurutaPendulum {
         rep impl language "Python"
             /*
              * import math
-             * 
+             *
              * def _sign(x):
              *     return float((x > 0.0) - (x < 0.0))
-             * 
+             *
              * def restrict_angle(theta):
              *     pi = math.pi
              *     return (math.fmod(math.fabs(theta) + pi, 2 * pi) - pi) * _sign(theta)
