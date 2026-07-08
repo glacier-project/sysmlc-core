@@ -219,15 +219,15 @@ statix **never silently drops** a construct: anything outside the supported flat
 subset raises `UnsupportedConstructError` with a clear message. Rejected in
 iteration 1:
 
-| Construct                                              | Status                                                 |
-| ------------------------------------------------------ | ------------------------------------------------------ |
-| parallel / history states                              | rejected (composite/leaf supported)                    |
-| `after` / `at` / `when` triggers                       | rejected (no timers/change events yet)                 |
+| Construct                                                 | Status                                                                   |
+| --------------------------------------------------------- | ------------------------------------------------------------------------ |
+| parallel / history states                                 | rejected (composite/leaf supported)                                      |
+| `after` / `at` / `when` triggers                          | rejected (no timers/change events yet)                                   |
 | chains 3+ segments deep, whole, or non-Real payload reads | rejected (2-segment Real chains supported; whole capture is future work) |
-| machine-level (state def) entry/do/exit actions        | rejected (put on states)                               |
-| non-inline / referenced `do` activities                | rejected                                               |
-| `String` / non-scalar, non-composite attributes        | rejected                                               |
-| external / non-allowlist function calls in expressions | rejected (allowlisted library calls supported)         |
+| machine-level (state def) entry/do/exit actions           | rejected (put on states)                                                 |
+| non-inline / referenced `do` activities                   | rejected                                                                 |
+| `String` / non-scalar, non-composite attributes           | rejected                                                                 |
+| external / non-allowlist function calls in expressions    | rejected (allowlisted library calls supported)                           |
 
 ## 10. Forward notes (not settled)
 
