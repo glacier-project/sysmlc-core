@@ -18,11 +18,19 @@
 /// - SC_MACHINE_HAS_QUEUE: define when the machine's <prefix>_t embeds
 ///   `sc_event_queue_t queue` and `sc_event_t queue_storage[N]`; _init then
 ///   binds them as the internal-event queue used by send effects.
+/// - SC_MACHINE_HAS_TIMER: define when the machine has a leaf-sourced
+///   after/at transition; paired with the required-when-present
+///   SC_MACHINE_TIMEOUT_DUE (a static bool(sc_state_id_t, const
+///   sc_runtime_t *) function, never an inline macro body -- exactly the
+///   SC_MACHINE_GUARD/_ACTION convention). Instantiates a public _tick.
 ///
 /// No include guard on purpose. Do not include this header directly.
 #if !defined(SC_MACHINE_PREFIX) || !defined(SC_MACHINE_DEF) || \
     !defined(SC_MACHINE_GUARD) || !defined(SC_MACHINE_ACTION)
 #error "sc/sc_machine.h: define SC_MACHINE_PREFIX/_DEF/_GUARD/_ACTION first"
+#endif
+#if defined(SC_MACHINE_HAS_TIMER) && !defined(SC_MACHINE_TIMEOUT_DUE)
+#error "sc/sc_machine.h: SC_MACHINE_HAS_TIMER requires SC_MACHINE_TIMEOUT_DUE"
 #endif
 
 #include "sc/sc_runtime.h"
@@ -251,6 +259,8 @@ static sc_status_t SC__FN(_take_transition)(SC__T *sm, const sc_transition_t *t,
         return status;
     }
     sm->runtime.current_state = leaf;
+    sm->runtime.state_entered_at = sm->runtime.now;
+    sm->runtime.timeout_delivered = false;
     return SC_STATUS_OK;
 }
 
@@ -393,6 +403,8 @@ sc_status_t SC__FN(_init)(SC__T *sm, SC__CTX *ctx)
             return status;
         }
         sm->runtime.current_state = leaf;
+        sm->runtime.state_entered_at = sm->runtime.now;
+        sm->runtime.timeout_delivered = false;
     }
     status = SC__FN(_run_completion)(sm);
     if (status != SC_STATUS_OK) {
@@ -457,6 +469,60 @@ sc_status_t SC__FN(_post)(SC__T *sm, sc_event_id_t event_id)
     return SC__FN(_dispatch)(sm, &event);
 }
 
+#ifdef SC_MACHINE_HAS_TIMER
+/// @brief Advance virtual time and deliver a due after/at occurrence, if any.
+///
+/// The host must call this with a current tick value immediately before
+/// dispatching any event that might enter a time-triggered state, whenever
+/// that timer's precision matters: state_entered_at is stamped from the
+/// last _tick call, not a live clock read.
+/// @param sm Statechart instance to advance.
+/// @param now Current absolute tick value; rejected as SC_STATUS_INVALID_ARGUMENT
+///        if less than the value passed to the last _tick call.
+/// @return SC_STATUS_OK if a transition fired, SC_STATUS_NO_TRANSITION if
+///         nothing was due (or its `if` guard failed), or an error status.
+sc_status_t SC__FN(_tick)(SC__T *sm, sc_time_t now)
+{
+    const sc_machine_t *machine;
+    sc_status_t status;
+    if ((sm == NULL) || (!sm->runtime.initialized)) {
+        return SC_STATUS_INVALID_ARGUMENT;
+    }
+    if (now < sm->runtime.now) {
+        return SC_STATUS_INVALID_ARGUMENT;
+    }
+    sm->runtime.now = now;
+    machine = sm->runtime.machine;
+    if (!sm->runtime.timeout_delivered &&
+        SC_MACHINE_TIMEOUT_DUE(sm->runtime.current_state, &sm->runtime)) {
+        sc_event_t timeout;
+        int32_t idx;
+        sm->runtime.timeout_delivered = true;
+        (void)sc_event_init(&timeout, SC_EVENT_TIMEOUT);
+        idx = SC__FN(_find_transition)(machine, sm->runtime.current_state,
+                                       SC_EVENT_TIMEOUT, sm, &timeout);
+        if (idx >= 0) {
+            status = SC__FN(_take_transition)(sm, &machine->transitions[idx], &timeout);
+            if (status != SC_STATUS_OK) {
+                return status;
+            }
+            status = SC__FN(_run_completion)(sm);
+            if (status != SC_STATUS_OK) {
+                return status;
+            }
+            status = SC__FN(_drain_internal)(sm);
+            if (status != SC_STATUS_OK) {
+                return status;
+            }
+            status = SC__FN(_check_invariants)(sm);
+            return (status != SC_STATUS_OK) ? status : SC_STATUS_OK;
+        }
+    }
+    status = SC__FN(_check_invariants)(sm);
+    return (status != SC_STATUS_OK) ? status : SC_STATUS_NO_TRANSITION;
+}
+#endif
+
 /// @brief Return the current active state id.
 /// @param sm Statechart instance to inspect.
 /// @return Active state id, or SC_STATE_INVALID before initialization.
@@ -500,4 +566,8 @@ bool SC__FN(_is_final)(const SC__T *sm)
 #undef SC_MACHINE_ACTION
 #ifdef SC_MACHINE_HAS_QUEUE
 #undef SC_MACHINE_HAS_QUEUE
+#endif
+#ifdef SC_MACHINE_HAS_TIMER
+#undef SC_MACHINE_HAS_TIMER
+#undef SC_MACHINE_TIMEOUT_DUE
 #endif
