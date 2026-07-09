@@ -7,6 +7,7 @@ import syside
 from sysmlc.backends.statix.codegen import CCodeGen
 from sysmlc.backends.statix.program import (
     COMPLETION_EVENT,
+    TIMEOUT_EVENT,
     CAction,
     CContext,
     CField,
@@ -17,6 +18,7 @@ from sysmlc.backends.statix.program import (
     CSend,
     CState,
     CStruct,
+    CTimeout,
     CTransition,
 )
 from sysmlc.codegen.python import payload_signature
@@ -40,6 +42,60 @@ from sysmlc.semantics.statemachine.facts import (
 from sysmlc.semantics.statemachine.interface import send_receiver_is_own_port
 
 _DEFAULT_QUEUE_CAPACITY = 8
+
+# Mirrors sc_runtime.h's SC_TICKS_PER_SECOND default (1000u); a project that
+# overrides that compile-time constant is responsible for its own literal
+# duration/instant range, exactly as it already is for SC_MAX_TRANSITIONS et
+# al. The builder can only validate against the documented default.
+#
+# CAVEAT: this check runs once, at build time, against the *default*
+# (1000). Literal durations/instants fold to a symbolic C expression
+# (`5u * SC_TICKS_PER_SECOND`) specifically so there is zero runtime cost --
+# the actual multiplication happens in the C compiler, using whatever
+# SC_TICKS_PER_SECOND value the project is *actually* compiled with. That
+# value is unknown here. A literal validated in-range at the default stays
+# safely in-range for any *larger* override (more ticks per second only
+# shrinks the maximum representable duration further below what was
+# checked). A project compiled with a *smaller* SC_TICKS_PER_SECOND (or one
+# that otherwise needs literals larger than ~4294967.295s) must re-validate
+# its own model: the generated multiplication is unsigned and wraps
+# silently in C rather than erroring at compile time. This is the same
+# override contract as SC_MAX_TRANSITIONS et al., stated loudly here because
+# unlike those bounds, a silent wrap here would corrupt a due-condition
+# rather than fail a loop guard.
+_TICKS_PER_SECOND_DEFAULT = 1000
+_MAX_TICKS = (1 << 32) - 1
+_MAX_LITERAL_SECONDS = _MAX_TICKS / _TICKS_PER_SECOND_DEFAULT
+
+# The top of the 16-bit sc_event_id_t space is reserved: SC_EVENT_TIMEOUT
+# (0xFFFE) and SC_EVENT_COMPLETION (0xFFFF). Signal events are numbered from
+# 1, so this bounds how many distinct signal events one machine may declare.
+# Latent before this increment (a machine could in principle already collide
+# with SC_EVENT_COMPLETION at 65535 events); adding a second reserved id
+# makes the boundary worth checking explicitly rather than leaving both
+# unchecked.
+_MAX_SIGNAL_EVENTS = 0xFFFD
+
+
+def _literal_ticks_expr(seconds: float) -> str:
+    """Render a literal after/at duration/instant as a compile-time tick expr.
+
+    Rejects a negative or out-of-representable-range literal at build time
+    (an unambiguous model error); an in-range value folds to a C expression
+    the compiler evaluates at compile time regardless of the actually
+    compiled SC_TICKS_PER_SECOND value (see the CAVEAT above the module
+    constants for what that implies for a `-DSC_TICKS_PER_SECOND` override).
+    """
+    if seconds < 0.0 or seconds > _MAX_LITERAL_SECONDS:
+        raise UnsupportedConstructError(
+            f"a time-triggered duration/instant of {seconds!r} [s] is out "
+            "of the representable tick range (0 <= seconds <= "
+            f"{_MAX_LITERAL_SECONDS!r}, at the default "
+            "SC_TICKS_PER_SECOND=1000); statix rejects it at build time."
+        )
+    if seconds == int(seconds):
+        return f"({int(seconds)}u * SC_TICKS_PER_SECOND)"
+    return f"((sc_time_t)({seconds!r} * (double)SC_TICKS_PER_SECOND))"
 
 
 def _c_identifier(name: str) -> str:
@@ -104,6 +160,11 @@ class StatixBuilder:
         self._real_attribute_names: frozenset[str] = frozenset()
         self._attribute_names: frozenset[str] = frozenset()
         self._attribute_c_types: dict[str, str] = {}
+        self._state_kinds: dict[str, StateKind] = {}
+        self._timeouts: list[CTimeout] = []
+        self._timeout_sources: set[str] = set()
+        self._has_timer = False
+        self._timeouts_use_ctx = False
 
     # -- TargetBuilder protocol --
 
@@ -131,6 +192,7 @@ class StatixBuilder:
                 f"state {state.name!r} is {state.kind.name}; statix supports "
                 "composite and leaf states only (no parallel/history yet)."
             )
+        self._state_kinds[state.name] = state.kind
         self._state_facts.append(state)
 
     def add_transition(self, transition: TransitionFact) -> None:
@@ -181,6 +243,13 @@ class StatixBuilder:
         needs_math = self._gen.needs_math or any(
             g.needs_math for g in self._scoped_gens
         )
+        if len(self._events) > _MAX_SIGNAL_EVENTS:
+            raise UnsupportedConstructError(
+                f"this machine declares {len(self._events)} distinct signal "
+                f"events, exceeding the representable range (at most "
+                f"{_MAX_SIGNAL_EVENTS}); the top of the 16-bit event id "
+                "space is reserved for SC_EVENT_TIMEOUT/SC_EVENT_COMPLETION."
+            )
         return CProgram(
             name=self._name,
             qualified_name=self._qualified_name,
@@ -197,6 +266,9 @@ class StatixBuilder:
             invariants=invariants,
             needs_math=needs_math,
             has_send=self._has_send,
+            timeouts=tuple(self._timeouts),
+            has_timer=self._has_timer,
+            timeouts_use_ctx=self._timeouts_use_ctx,
         )
 
     def _payload_gen(self, payload_feature: syside.Feature) -> CCodeGen:
@@ -350,7 +422,7 @@ class StatixBuilder:
         return name
 
     def _build_transition(self, t: TransitionFact) -> CTransition:
-        event = self._event_of(t.trigger)
+        event = self._event_of(t.trigger, t.source)
         gen = self._gen
         if (
             isinstance(t.trigger, SignalTrigger)
@@ -360,7 +432,13 @@ class StatixBuilder:
             self._scoped_gens.append(gen)
         guard = self._guard_for(t.guard, gen)
         source = t.source
-        label = "completion" if event == COMPLETION_EVENT else event
+        label = (
+            "completion"
+            if event == COMPLETION_EVENT
+            else "timeout"
+            if event == TIMEOUT_EVENT
+            else event
+        )
         action = self._action_for(
             t.effect, f"{_c_identifier(source)}_{label}_effect", gen
         )
@@ -370,7 +448,7 @@ class StatixBuilder:
             target = t.target
         return CTransition(source, event, guard, action, target)
 
-    def _event_of(self, trigger: object | None) -> str:
+    def _event_of(self, trigger: object | None, source: str) -> str:
         if trigger is None:
             return COMPLETION_EVENT
         if isinstance(trigger, SignalTrigger):
@@ -378,14 +456,50 @@ class StatixBuilder:
             # the codegen (the payload feature is not a context attribute).
             self._events.setdefault(trigger.signal_name, None)
             return trigger.signal_name
-        if isinstance(trigger, (AfterTrigger, AtTrigger, WhenTrigger)):
+        if isinstance(trigger, (AfterTrigger, AtTrigger)):
+            return self._register_timeout(source, trigger)
+        if isinstance(trigger, WhenTrigger):
             raise UnsupportedConstructError(
-                "time/change triggers (after/at/when) are not supported by "
-                "statix yet."
+                "change triggers (`when`) are not supported by statix yet."
             )
         raise UnsupportedConstructError(
             f"unsupported trigger: {type(trigger).__name__}"
         )
+
+    def _register_timeout(
+        self, source: str, trigger: AfterTrigger | AtTrigger
+    ) -> str:
+        """Build (or reject) the CTimeout row for one after/at transition.
+
+        Rejections (composite source, second timer on one state) are
+        implemented here in Task 4; this task only wires the happy path.
+        """
+        self._timeout_sources.add(source)
+        self._has_timer = True
+        if isinstance(trigger, AtTrigger):
+            is_at = True
+            value = trigger.instant
+        else:
+            is_at = False
+            value = trigger.duration
+        if isinstance(value, float):
+            self._timeouts.append(
+                CTimeout(
+                    source=source,
+                    is_at=is_at,
+                    literal_ticks=_literal_ticks_expr(value),
+                )
+            )
+        else:
+            self._timeouts_use_ctx = True
+            self._timeouts.append(
+                CTimeout(
+                    source=source,
+                    is_at=is_at,
+                    attr_expr=self._gen.render_expression(value),
+                )
+            )
+        return TIMEOUT_EVENT
 
     def _build_invariant(self, fact: ConstraintFact) -> CInvariant:
         rendered = self._gen.render_expression(fact.expression)
