@@ -48,6 +48,10 @@ Responsibilities:
 - Expose machine-agnostic helpers such as current-state access.
 - Provide a fixed-size FIFO event queue over caller storage
   (`sc_event_queue_*`).
+- Convert SI seconds to ticks safely for time-triggered (`after`/`at`)
+  transitions (`sc_seconds_to_ticks`), and define the project-wide
+  `SC_TICKS_PER_SECOND` tick resolution (default `1000u`, override with
+  `-D`, like `SC_MAX_TRANSITIONS`).
 - Define the shared vocabulary: fixed-width ids (`sc_types.h`), status codes
   (`sc_status.h`), and the event value type (`sc_event.h`).
 
@@ -64,7 +68,9 @@ dispatch orchestration** rather than runtime indirection:
 - The shared runtime never declares or calls global `sc_guard_eval()` /
   `sc_action_exec()` hooks.
 - Each generated `<prefix>.c` defines `static` guard/action switches and
-  includes `sc/sc_machine.h` after setting four `SC_MACHINE_*` macros.
+  includes `sc/sc_machine.h` after setting four required `SC_MACHINE_*`
+  macros (plus optional `SC_MACHINE_HAS_QUEUE`/`SC_MACHINE_HAS_TIMER` and
+  the paired `SC_MACHINE_TIMEOUT_DUE` for sending/timed machines).
 - `sc/sc_machine.h` is the single audited dispatch algorithm. It is instantiated
   once per generated unit and calls the file-local static guard/action switches
   directly.
@@ -96,9 +102,10 @@ diff cleanly.
   owns the flat dispatch algorithm (`init`, `dispatch`, `post`, `get_state`)
   and is included once per generated statechart unit.
 - **`<prefix>_runner.c`** — host-only smoke runner: initialize the machine, feed
-  no-payload event ids from command-line arguments, and print a state trace. It
-  may use hosted C facilities such as `<stdio.h>`; it is not part of the board
-  runtime.
+  no-payload event ids from command-line arguments, and print a state trace. A
+  timed machine also accepts `tick:<uint>` arguments, calling `<prefix>_tick`
+  instead of `_post`. It may use hosted C facilities such as `<stdio.h>`; it is
+  not part of the board runtime.
 - **`CMakeLists.txt`** — builds the bundled runtime, every generated statechart
   unit, a combined static library, and one host runner executable per machine.
 
@@ -113,10 +120,10 @@ serializer renders it to C.
 
 - **`builder.py`** — consumes the neutral facts and assembles `CProgram`. Every
   representational choice and every rejection lives here: parallel, history,
-  timers, `after`/`at`/`when`, non-inline `do`, external sends, reading accept payload data beyond one Real attribute,
+  `when` (change triggers), non-inline `do`, external sends, reading accept payload data beyond one Real attribute,
   external/non-allowlist function calls in expressions, and non-scalar / non-composite
   attributes are rejected loudly (never silently dropped). Composite states, `then done` finals,
-  one-shot `do`, `send` self-events (id-only, or marshalling one readable Real payload attribute), and asserted constraints are supported.
+  one-shot `do`, `send` self-events (id-only, or marshalling one readable Real payload attribute), asserted constraints, and leaf-sourced `after`/`at` time triggers (at most one per leaf) are supported.
 - **`codegen.py`** — a precedence-driven emitter that lowers guard/effect/
   attribute expression nodes to C, with attribute references resolved against
   the generated context struct, allowlisted library function calls lowered

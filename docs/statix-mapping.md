@@ -105,7 +105,55 @@ hop deep (`reading.sample.value`) — in the transition's guard and effect;
 deeper chains, whole-payload capture, and non-Real payload data remain
 rejected (§9).
 
-`after` / `at` / `when` triggers are rejected (§9).
+`after` / `at` triggers are supported (§4a); `when` (change) triggers remain
+rejected (§9).
+
+## 4a. Time triggers (`after`/`at`)
+
+`accept after <duration>` and `accept at <instant>` compile to a **latch**,
+not a scheduled event: a generated static `timeout_due(state, runtime)`
+function (hooked in via `#define SC_MACHINE_TIMEOUT_DUE timeout_due`,
+following the exact `guard_eval`/`action_exec` convention) recomputes the
+due-condition against `sc_runtime_t.now`/`state_entered_at` on every call to
+the new public `<prefix>_tick(sm, now)`. `after` is due once `now -
+entered_at >= duration`; `at` is due once `entered_at <= instant && now >=
+instant` (entering exactly at the instant still fires, as a zero-delay
+occurrence). A `bool timeout_delivered` latch, set *before* any `if` guard
+on the transition is evaluated, ensures the occurrence is checked **at most
+once per state activation** — a false guard permanently consumes it for
+that activation, exactly like an ordinary transition guard.
+
+A literal duration/instant (`5 [s]`) folds to a compile-time tick constant
+(`5u * SC_TICKS_PER_SECOND`); an attribute-driven one (`after pickDuration`,
+`at deadline`) is converted at runtime via `sc_seconds_to_ticks`, which
+rejects a negative or out-of-range value by making that occurrence
+permanently non-due, never an unsafe cast or a silent wraparound.
+`SC_TICKS_PER_SECOND` (default `1000u`) is a project-wide compile-time
+constant in `sc_runtime.h`, like `SC_MAX_TRANSITIONS` — override with
+`-DSC_TICKS_PER_SECOND=N`, the same mechanism, not a per-machine generated
+value.
+
+Only a **leaf** state may source an `after`/`at` transition, and at most one
+per leaf; both are rejected at build time (§9). Host contract: `_dispatch`/
+`_post` do not take a tick value, so `state_entered_at` reflects only the
+last `_tick` call — call `_tick(sm, now)` with a current value immediately
+before dispatching any event that might enter a timed state, whenever
+timing precision matters. `sc_time_t` (`uint32_t`) wraps after ~49.7 days at
+the default resolution; `_tick` rejects a non-monotonic value loudly
+(`SC_STATUS_INVALID_ARGUMENT`) rather than silently corrupting state, so a
+long-running host must rebase its tick counter and re-`_init` before wrap.
+
+**Overriding `-DSC_TICKS_PER_SECOND`:** a literal duration/instant's build-time
+range check validates against the *default* (`1000`), then emits a symbolic C
+expression (`5u * SC_TICKS_PER_SECOND`) folded by the compiler at whatever
+resolution the project is actually compiled with — for zero runtime cost. A
+literal that was in-range at the default stays representable for any *larger*
+override; a project compiling with a *smaller* `SC_TICKS_PER_SECOND` (or that
+otherwise needs literals beyond ~4294967.295 default-resolution seconds) must
+re-validate its own model, since the generated multiplication is unsigned and
+wraps silently in C rather than failing at compile time. Same override
+contract as `SC_MAX_TRANSITIONS` et al., stated loudly here because a silent
+wrap in a due-condition is a correctness bug, not just a dropped event.
 
 ## 5. Guards
 
@@ -222,7 +270,11 @@ iteration 1:
 | Construct                                                 | Status                                                                   |
 | --------------------------------------------------------- | ------------------------------------------------------------------------ |
 | parallel / history states                                 | rejected (composite/leaf supported)                                      |
-| `after` / `at` / `when` triggers                          | rejected (no timers/change events yet)                                   |
+| `when` (change) triggers                                   | rejected (a later increment; `after`/`at` are supported, §4a)            |
+| `after`/`at` sourced from a composite (non-leaf) state      | rejected (state_entered_at needs one unambiguous leaf)                    |
+| a second `after`/`at` sourced from the same state            | rejected (at most one timer per leaf, §4a)                                |
+| a literal duration/instant out of the representable tick range | rejected at build time (an out-of-range attribute-driven one is never-due at runtime instead, §4a) |
+| more than 65,533 distinct signal events in one machine      | rejected (the top of the 16-bit event id space is reserved for `SC_EVENT_TIMEOUT`/`SC_EVENT_COMPLETION`) |
 | chains 3+ segments deep, whole, or non-Real payload reads | rejected (2-segment Real chains supported; whole capture is future work) |
 | machine-level (state def) entry/do/exit actions           | rejected (put on states)                                                 |
 | non-inline / referenced `do` activities                   | rejected                                                                 |
