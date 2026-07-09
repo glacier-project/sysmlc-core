@@ -8,6 +8,11 @@ from typing import Final
 # transition; the serializer emits SC_EVENT_COMPLETION for it.
 COMPLETION_EVENT: Final = "__completion__"
 
+# Python-side marker for the runtime's SC_EVENT_TIMEOUT sentinel. A transition
+# carrying this as its ``event`` is a time-triggered (after/at) transition;
+# the serializer emits SC_EVENT_TIMEOUT for it.
+TIMEOUT_EVENT: Final = "__timeout__"
+
 
 @dataclass(frozen=True)
 class CField:
@@ -116,6 +121,23 @@ class CTransition:
 
 
 @dataclass(frozen=True)
+class CTimeout:
+    """One after/at time trigger, keyed by its (leaf) source state.
+
+    Exactly one of ``literal_ticks``/``attr_expr`` is set. ``literal_ticks``
+    is a compile-time tick constant expression (already range-validated at
+    build time); ``attr_expr`` is a rendered C ``double`` expression in SI
+    seconds (an attribute or chained reference), converted at runtime via
+    ``sc_seconds_to_ticks``.
+    """
+
+    source: str
+    is_at: bool
+    literal_ticks: str | None = None
+    attr_expr: str | None = None
+
+
+@dataclass(frozen=True)
 class CProgram:
     """A complete flat C statechart artifact, before serialization."""
 
@@ -134,6 +156,9 @@ class CProgram:
     invariants: tuple[CInvariant, ...] = ()
     needs_math: bool = False
     has_send: bool = False
+    timeouts: tuple[CTimeout, ...] = ()
+    has_timer: bool = False
+    timeouts_use_ctx: bool = False
 
 
 @dataclass(frozen=True)

@@ -55,6 +55,17 @@ extern "C" {
 #define SC_MAX_INVARIANTS 256u
 #endif
 
+/// @brief Ticks per second for time-triggered (after/at) transitions.
+///
+/// A project-wide compile-time constant, like SC_MAX_TRANSITIONS et al.:
+/// every machine in one build shares one tick resolution (sc_runtime.c is
+/// compiled once into a shared static library, so this cannot be a
+/// per-machine generated value). Override at compile time with
+/// -DSC_TICKS_PER_SECOND=N for a different resolution.
+#ifndef SC_TICKS_PER_SECOND
+#define SC_TICKS_PER_SECOND 1000u
+#endif
+
 /// @brief One row of a generated transition table.
 ///
 /// Represents `source -- event [guard] / action --> target`.
@@ -100,6 +111,9 @@ typedef struct sc_runtime_s {
     sc_event_queue_t *queue; ///< @brief Internal-event queue, or NULL if the machine sends nothing.
     sc_state_id_t current_state; ///< @brief Current active state id.
     bool initialized; ///< @brief True after successful runtime binding.
+    sc_time_t now; ///< @brief Last value passed to _tick (0 until the first call).
+    sc_time_t state_entered_at; ///< @brief When the current leaf was entered, in `now`'s units.
+    bool timeout_delivered; ///< @brief Has this activation's after/at occurrence already been checked?
 } sc_runtime_t;
 
 /// @brief Bind runtime state to a generated machine and caller-owned context.
@@ -144,6 +158,19 @@ sc_status_t sc_runtime_enqueue(sc_runtime_t *runtime, sc_event_id_t event_id);
 ///         (NULL runtime, a machine with no internal-event queue, or a
 ///         double too large for the payload buffer).
 sc_status_t sc_runtime_enqueue_f64(sc_runtime_t *runtime, sc_event_id_t event_id, double value);
+
+/// @brief Convert SI seconds to ticks, rejecting negative or unrepresentable values.
+///
+/// Used by generated timeout_due functions for attribute-driven (not
+/// literal) after/at durations/instants, whose value is only known at
+/// runtime: rejects out-of-range input *before* the cast that would
+/// otherwise silently wrap, rather than catching a bad result afterward.
+/// @param seconds Duration/instant in SI seconds.
+/// @param out_ticks Destination for the converted tick value.
+/// @return true and writes *out_ticks on success; false (leaves *out_ticks
+///         unset) if seconds is negative or would overflow sc_time_t at the
+///         compiled SC_TICKS_PER_SECOND.
+bool sc_seconds_to_ticks(double seconds, sc_time_t *out_ticks);
 
 #ifdef __cplusplus
 }

@@ -7,6 +7,8 @@ import pytest
 from sysmlc.backends.base import OutputOptions
 from sysmlc.backends.statix.backend import StatixBackend
 from sysmlc.backends.statix.builder import build_statix
+from sysmlc.backends.statix.program import CProgram
+from sysmlc.backends.statix.serialize import _paths
 from sysmlc.sysml.loading import load_model
 
 pytestmark = pytest.mark.statix
@@ -71,6 +73,229 @@ def test_effect_captures_payload_value(sm_models: dict, tmp_path: Path) -> None:
             "-Iinclude",
             "capture_harness.c",
             "src/sm11/machine_readable_payload_effect.c",
+            "src/sc/sc_status.c",
+            "src/sc/sc_event_queue.c",
+            "src/sc/sc_runtime.c",
+            "-o",
+            str(exe),
+        ],
+        check=True,
+        capture_output=True,
+        cwd=tmp_path,
+    )
+    result = subprocess.run(
+        [str(exe)], capture_output=True, text=True, cwd=tmp_path
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_after_seconds_fires_on_tick(
+    sm_models: dict, statix_run: Callable
+) -> None:
+    program = build_statix(sm_models["sm13"], "SM13::MachineAfterSeconds")
+    assert statix_run(program, ("tick:5000",)) == "done"
+
+
+def test_after_seconds_does_not_fire_before_deadline(
+    sm_models: dict, statix_run: Callable
+) -> None:
+    program = build_statix(sm_models["sm13"], "SM13::MachineAfterSeconds")
+    assert statix_run(program, ("tick:4999",)) == "idle"
+
+
+def _build_and_compile(
+    sm_models: dict, tmp_path: Path, qn: str
+) -> tuple[CProgram, Path]:
+    program = build_statix(sm_models["sm13"], qn)
+    StatixBackend().write(program, OutputOptions(output_dir=tmp_path))
+    build = tmp_path / "build"
+    subprocess.run(
+        ["cmake", "-S", str(tmp_path), "-B", str(build)],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["cmake", "--build", str(build)], check=True, capture_output=True
+    )
+    return program, build
+
+
+def test_tick_overflow_is_rejected(sm_models: dict, tmp_path: Path) -> None:
+    # A tick value beyond SC_TIME_MAX must be rejected, not silently
+    # truncated: the parser rejects it, so the runner falls through to
+    # _event_from_name (which also doesn't recognize it) and exits 2.
+    program, build = _build_and_compile(
+        sm_models, tmp_path, "SM13::MachineAfterSeconds"
+    )
+    result = subprocess.run(
+        [str(build / f"{program.prefix}_runner"), "tick:99999999999"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 2
+    assert "unknown event: tick:99999999999" in result.stderr
+
+
+def test_tick_empty_and_negative_are_rejected(
+    sm_models: dict, tmp_path: Path
+) -> None:
+    program, build = _build_and_compile(
+        sm_models, tmp_path, "SM13::MachineAfterSeconds"
+    )
+    for bad in ("tick:", "tick:-1"):
+        result = subprocess.run(
+            [str(build / f"{program.prefix}_runner"), bad],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 2, bad
+        assert f"unknown event: {bad}" in result.stderr, bad
+
+
+_GUARD_HARNESS = """\
+#include "sm13/machine_after_guard.h"
+#include <stdio.h>
+
+int main(void)
+{
+    sm13_machine_after_guard_context_t ctx;
+    sm13_machine_after_guard_t sm;
+    sc_status_t status;
+
+    sm13_machine_after_guard_context_init(&ctx);
+    ctx.ready = false;
+    if (sm13_machine_after_guard_init(&sm, &ctx) != SC_STATUS_OK) {
+        (void)printf("init failed\\n");
+        return 2;
+    }
+    /* Deadline delivered at 5000 ticks with ready=false: consumed. */
+    status = sm13_machine_after_guard_tick(&sm, 5000u);
+    if (status != SC_STATUS_NO_TRANSITION) {
+        (void)printf("unexpected status after false guard: %s\\n",
+                     sc_status_str(status));
+        return 1;
+    }
+    if (sm13_machine_after_guard_get_state(&sm) !=
+        SM13_MACHINE_AFTER_GUARD_STATE_IDLE) {
+        (void)printf("unexpected state after false guard\\n");
+        return 1;
+    }
+    /* ready flips true and time advances further: the latch must still
+     * consume the occurrence -- it must never fire retroactively. */
+    ctx.ready = true;
+    status = sm13_machine_after_guard_tick(&sm, 50000u);
+    if (status != SC_STATUS_NO_TRANSITION) {
+        (void)printf("unexpected status after ready flip: %s\\n",
+                     sc_status_str(status));
+        return 1;
+    }
+    if (sm13_machine_after_guard_get_state(&sm) !=
+        SM13_MACHINE_AFTER_GUARD_STATE_IDLE) {
+        (void)printf("false guard did not permanently consume occurrence\\n");
+        return 1;
+    }
+    return 0;
+}
+"""
+
+
+def test_generated_false_guard_consumes_the_occurrence(
+    sm_models: dict, tmp_path: Path
+) -> None:
+    program, _build = _build_and_compile(
+        sm_models, tmp_path, "SM13::MachineAfterGuard"
+    )
+    harness = tmp_path / "guard_harness.c"
+    harness.write_text(_GUARD_HARNESS)
+    exe = tmp_path / "guard_harness"
+    subprocess.run(
+        [
+            "cc",
+            "-std=c99",
+            "-Iinclude",
+            "guard_harness.c",
+            f"src/{_paths(program)[0]}/{_paths(program)[1]}.c",
+            "src/sc/sc_status.c",
+            "src/sc/sc_event_queue.c",
+            "src/sc/sc_runtime.c",
+            "-o",
+            str(exe),
+        ],
+        check=True,
+        capture_output=True,
+        cwd=tmp_path,
+    )
+    result = subprocess.run(
+        [str(exe)], capture_output=True, text=True, cwd=tmp_path
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+_SELF_LOOP_HARNESS = """\
+#include "sm13/machine_after_self_loop.h"
+#include <stdio.h>
+
+int main(void)
+{
+    sm13_machine_after_self_loop_context_t ctx;
+    sm13_machine_after_self_loop_t sm;
+
+    sm13_machine_after_self_loop_context_init(&ctx);
+    if (sm13_machine_after_self_loop_init(&sm, &ctx) != SC_STATUS_OK) {
+        (void)printf("init failed\\n");
+        return 2;
+    }
+    if (ctx.entries != 1) {
+        (void)printf("entries=%d after init, expected 1\\n", ctx.entries);
+        return 1;
+    }
+    if (sm13_machine_after_self_loop_tick(&sm, 5000u) != SC_STATUS_OK) {
+        (void)printf("tick at 5000 did not fire\\n");
+        return 1;
+    }
+    if (ctx.entries != 2) {
+        (void)printf("entries=%d after tick 5000, expected 2\\n", ctx.entries);
+        return 1;
+    }
+    /* Only 2000 ticks past the fresh deadline (7000 < 5000+5000=10000). */
+    if (sm13_machine_after_self_loop_tick(&sm, 7000u) !=
+        SC_STATUS_NO_TRANSITION) {
+        (void)printf("tick at 7000 unexpectedly fired\\n");
+        return 1;
+    }
+    if (ctx.entries != 2) {
+        (void)printf("entries=%d after tick 7000, expected 2\\n", ctx.entries);
+        return 1;
+    }
+    if (sm13_machine_after_self_loop_tick(&sm, 10000u) != SC_STATUS_OK) {
+        (void)printf("tick at 10000 did not fire\\n");
+        return 1;
+    }
+    if (ctx.entries != 3) {
+        (void)printf("entries=%d after tick 10000, expected 3\\n", ctx.entries);
+        return 1;
+    }
+    return 0;
+}
+"""
+
+
+def test_generated_self_loop_rearms_a_fresh_deadline(
+    sm_models: dict, tmp_path: Path
+) -> None:
+    program, _build = _build_and_compile(
+        sm_models, tmp_path, "SM13::MachineAfterSelfLoop"
+    )
+    harness = tmp_path / "self_loop_harness.c"
+    harness.write_text(_SELF_LOOP_HARNESS)
+    exe = tmp_path / "self_loop_harness"
+    subprocess.run(
+        [
+            "cc",
+            "-std=c99",
+            "-Iinclude",
+            "self_loop_harness.c",
+            f"src/{_paths(program)[0]}/{_paths(program)[1]}.c",
             "src/sc/sc_status.c",
             "src/sc/sc_event_queue.c",
             "src/sc/sc_runtime.c",

@@ -248,3 +248,59 @@ def test_ctx_using_guards_keep_the_cast(sm_models: dict) -> None:
     source = emit_source(program)
     body = source[source.index("static bool guard_eval") :]
     assert "const sm03_machine_ref_context_t *ctx" in body
+
+
+def test_timeout_due_emits_literal_case(sm_models: dict) -> None:
+    program = build_statix(sm_models["sm13"], "SM13::MachineAfterSeconds")
+    source = emit_source(program)
+    assert "#define SC_MACHINE_HAS_TIMER 1" in source
+    assert "#define SC_MACHINE_TIMEOUT_DUE timeout_due" in source
+    assert (
+        "static bool timeout_due(sc_state_id_t state, const sc_runtime_t "
+        "*runtime)" in source
+    )
+    assert (
+        "return (runtime->now - runtime->state_entered_at) >= "
+        "(5u * SC_TICKS_PER_SECOND);" in source
+    )
+
+
+def test_timeout_due_omits_unused_ctx_when_all_literal(sm_models: dict) -> None:
+    program = build_statix(sm_models["sm13"], "SM13::MachineAfterSeconds")
+    source = emit_source(program)
+    body = source[source.index("static bool timeout_due") :]
+    body = body[: body.index("\n}\n")]
+    assert "context_t *ctx" not in body
+
+
+def test_timeout_due_keeps_ctx_cast_when_attribute_driven(
+    sm_models: dict,
+) -> None:
+    program = build_statix(sm_models["sm13"], "SM13::MachineAt")
+    source = emit_source(program)
+    body = source[source.index("static bool timeout_due") :]
+    assert "const sm13_machine_at_context_t *ctx" in body
+    assert "sc_seconds_to_ticks(ctx->deadline, &deadline)" in body
+    assert (
+        "(runtime->state_entered_at <= deadline) && "
+        "(runtime->now >= deadline)" in body
+    )
+
+
+def test_no_timer_machine_omits_timer_macros(sm_models: dict) -> None:
+    program = build_statix(sm_models["sm01"], "SM01::Machine")
+    source = emit_source(program)
+    assert "SC_MACHINE_HAS_TIMER" not in source
+    assert "timeout_due" not in source
+
+
+def test_header_declares_tick_only_when_has_timer(sm_models: dict) -> None:
+    timed = emit_header(
+        build_statix(sm_models["sm13"], "SM13::MachineAfterSeconds")
+    )
+    assert (
+        "sc_status_t sm13_machine_after_seconds_tick"
+        "(sm13_machine_after_seconds_t *sm, sc_time_t now);" in timed
+    )
+    plain = emit_header(build_statix(sm_models["sm01"], "SM01::Machine"))
+    assert "_tick(" not in plain

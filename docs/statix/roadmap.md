@@ -234,10 +234,10 @@ Conformance-gated, hierarchy before advanced features, untimed before timed.
   - Features: `sysmlc statix run`; virtual-time testbench DSL; state/context expectations; JSON/CSV traces; statix-vs-quake trace comparison
   - Corpus: sm01-sm17 reusable scripted traces
   - Runtime delta: hosted runner tooling only; board-clean generated units unchanged
-- **Phase C: Timed subset**
-  - Features: `after`/`at`, `when`
-  - Corpus: sm13, sm16, sm14(full)
-  - Runtime delta: `sc_runtime_tick`; timer table + activation counters; armed-flag observers; documented LF divergence
+- **Phase C: Timed subset (partially landed)**
+  - Features: **`after`/`at` (landed)**, `when` (change triggers, C.2)
+  - Corpus: sm13 (closed), sm16, sm14(full)
+  - Runtime delta: `<prefix>_tick`; a generated `timeout_due` latch function per machine, not a timer table with per-state arm/disarm (statix's level-recomputed design needs no per-activation counter, unlike quake's real event queue); `when` still needs an armed-flag observer (C.2); documented host-timing and wraparound contracts
 - **Phase D: Concurrency & memory**
   - Features: parallel regions, history
   - Corpus: sm09, + a new history model

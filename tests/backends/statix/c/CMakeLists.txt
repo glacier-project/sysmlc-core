@@ -44,3 +44,11 @@ add_test(NAME test_payload_f64 COMMAND test_payload_f64)
 add_executable(test_runtime_payload test_runtime_payload.c)
 target_link_libraries(test_runtime_payload sc_runtime)
 add_test(NAME test_runtime_payload COMMAND test_runtime_payload)
+
+add_executable(test_runtime_tick test_runtime_tick.c)
+target_link_libraries(test_runtime_tick sc_runtime)
+add_test(NAME test_runtime_tick COMMAND test_runtime_tick)
+
+add_executable(test_runtime_timer test_runtime_timer.c)
+target_link_libraries(test_runtime_timer sc_runtime)
+add_test(NAME test_runtime_timer COMMAND test_runtime_timer)

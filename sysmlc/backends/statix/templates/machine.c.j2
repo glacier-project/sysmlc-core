@@ -93,6 +93,25 @@ static sc_status_t action_exec(sc_action_id_t action_id, sc_runtime_t *runtime, 
     return SC_STATUS_OK;
 {% endif %}
 }
+{% if has_timer %}
+
+static bool timeout_due(sc_state_id_t state, const sc_runtime_t *runtime)
+{
+{% if timeouts_use_ctx %}
+    const {{ prefix }}_context_t *ctx = (const {{ prefix }}_context_t *)runtime->user_data;
+{% endif %}
+    switch (state) {
+{% for r in timeout_rows %}
+    case {{ r.state }}:
+{% for line in r.lines %}
+        {{ line }}
+{% endfor %}
+{% endfor %}
+    default:
+        return false;
+    }
+}
+{% endif %}
 
 void {{ prefix }}_context_init({{ prefix }}_context_t *ctx)
 {
@@ -125,6 +144,10 @@ const char *{{ prefix }}_event_name(sc_event_id_t event)
 {% endfor %}
     case SC_EVENT_COMPLETION:
         return "SC_EVENT_COMPLETION";
+{% if has_timer %}
+    case SC_EVENT_TIMEOUT:
+        return "SC_EVENT_TIMEOUT";
+{% endif %}
     case SC_EVENT_INVALID:
         return "SC_EVENT_INVALID";
     default:
@@ -139,5 +162,9 @@ const char *{{ prefix }}_event_name(sc_event_id_t event)
 #define SC_MACHINE_ACTION action_exec
 {% if has_send %}
 #define SC_MACHINE_HAS_QUEUE 1
+{% endif %}
+{% if has_timer %}
+#define SC_MACHINE_HAS_TIMER 1
+#define SC_MACHINE_TIMEOUT_DUE timeout_due
 {% endif %}
 #include "sc/sc_machine.h"

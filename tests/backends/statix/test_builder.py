@@ -2,13 +2,20 @@ from pathlib import Path
 
 import pytest
 
-from sysmlc.backends.statix.builder import build_statix
-from sysmlc.backends.statix.program import COMPLETION_EVENT, CProgram, CSend
+from sysmlc.backends.statix.builder import StatixBuilder, build_statix
+from sysmlc.backends.statix.program import (
+    COMPLETION_EVENT,
+    TIMEOUT_EVENT,
+    CProgram,
+    CSend,
+)
 from sysmlc.errors import UnsupportedConstructError
+from sysmlc.semantics.statemachine.facts import StateFact, StateKind
 from sysmlc.sysml.loading import load_model
 
 _INTCALL = Path(__file__).resolve().parent / "fixtures" / "intcall"
 _DEEPCHAIN = Path(__file__).resolve().parent / "fixtures" / "deepchain"
+_TIMERREJECT = Path(__file__).resolve().parent / "fixtures" / "timerreject"
 
 
 def test_helloworld_is_two_states_one_completion(sm_models: dict) -> None:
@@ -401,3 +408,127 @@ def test_chain_on_non_reference_send_argument_is_rejected() -> None:
     model = load_model(_DEEPCHAIN)
     with pytest.raises(UnsupportedConstructError):
         build_statix(model, "DEEPCHAIN::MachineChainOnInlineArg")
+
+
+def test_after_literal_seconds_builds_timeout_row(sm_models: dict) -> None:
+    program = build_statix(sm_models["sm13"], "SM13::MachineAfterSeconds")
+    assert program.has_timer
+    assert not program.timeouts_use_ctx
+    assert len(program.timeouts) == 1
+    row = program.timeouts[0]
+    assert row.source == "idle"
+    assert row.is_at is False
+    assert row.literal_ticks == "(5u * SC_TICKS_PER_SECOND)"
+    assert row.attr_expr is None
+    timed = next(
+        t
+        for t in program.transitions
+        if t.source == "idle" and t.target == "running"
+    )
+    assert timed.event == TIMEOUT_EVENT
+
+
+def test_after_literal_minutes_normalizes_to_seconds(sm_models: dict) -> None:
+    program = build_statix(sm_models["sm13"], "SM13::MachineAfterMinutes")
+    assert program.timeouts[0].literal_ticks == "(120u * SC_TICKS_PER_SECOND)"
+
+
+def test_at_attribute_driven_renders_ctx_field(sm_models: dict) -> None:
+    # MachineAt's `deadline` is a TimeInstantValue attribute, not a literal.
+    program = build_statix(sm_models["sm13"], "SM13::MachineAt")
+    row = program.timeouts[0]
+    assert row.is_at is True
+    assert row.attr_expr == "ctx->deadline"
+    assert row.literal_ticks is None
+    assert program.timeouts_use_ctx is True
+
+
+def test_after_attribute_reference_renders_ctx_field(sm_models: dict) -> None:
+    program = build_statix(sm_models["sm13"], "SM13::MachineAfterAttribute")
+    assert program.timeouts[0].attr_expr == "ctx->pickDuration"
+
+
+def test_after_chained_reference_renders_nested_ctx_field(
+    sm_models: dict,
+) -> None:
+    program = build_statix(sm_models["sm13"], "SM13::MachineAfterChain")
+    assert program.timeouts[0].attr_expr == "ctx->holder.delay"
+
+
+def test_after_with_guard_keeps_its_own_guard(sm_models: dict) -> None:
+    # `accept after 5 [s] if ready`: the transition's guard is untouched,
+    # the same guard mechanism as any other transition.
+    program = build_statix(sm_models["sm13"], "SM13::MachineAfterGuard")
+    timed = next(t for t in program.transitions if t.event == TIMEOUT_EVENT)
+    assert timed.guard is not None
+    guard = next(g for g in program.guards if g.name == timed.guard)
+    assert guard.expr == "ctx->ready"
+
+
+def test_literal_only_machine_has_no_ctx_use(sm_models: dict) -> None:
+    program = build_statix(sm_models["sm13"], "SM13::MachineAfterSeconds")
+    assert program.timeouts_use_ctx is False
+
+
+def test_self_loop_and_reentry_still_build(sm_models: dict) -> None:
+    # Not conformance-tested by leaf comparison (Task 7 skips them there),
+    # but they must build without raising.
+    for qn in (
+        "SM13::MachineAfterSelfLoop",
+        "SM13::MachineAfterReentry",
+        "SM13::MachineAtReentry",
+    ):
+        program = build_statix(sm_models["sm13"], qn)
+        assert program.has_timer
+
+
+def test_too_many_signal_events_is_rejected() -> None:
+    # SC_EVENT_TIMEOUT reserves a second id at the top of the 16-bit event
+    # space (alongside the existing SC_EVENT_COMPLETION); a real fixture
+    # with 65,534+ distinct signal events isn't practical to write, so this
+    # pokes the builder's internal bookkeeping directly instead.
+    builder = StatixBuilder("TEST::Machine")
+    for i in range(65534):
+        builder._events.setdefault(f"E{i}", None)
+    builder.add_state(
+        StateFact(
+            name="TEST::Machine",
+            kind=StateKind.COMPOSITE,
+            parent=None,
+            initial_substate="idle",
+            entry_action=None,
+            do_action=None,
+            exit_action=None,
+        )
+    )
+    builder.add_state(
+        StateFact(
+            name="idle",
+            kind=StateKind.LEAF,
+            parent="TEST::Machine",
+            initial_substate=None,
+            entry_action=None,
+            do_action=None,
+            exit_action=None,
+        )
+    )
+    with pytest.raises(UnsupportedConstructError):
+        builder.result()
+
+
+def test_timer_on_composite_source_is_rejected() -> None:
+    model = load_model(_TIMERREJECT)
+    with pytest.raises(UnsupportedConstructError):
+        build_statix(model, "TIMERREJECT::MachineTimerOnComposite")
+
+
+def test_second_timer_on_same_source_is_rejected() -> None:
+    model = load_model(_TIMERREJECT)
+    with pytest.raises(UnsupportedConstructError):
+        build_statix(model, "TIMERREJECT::MachineTimerTwice")
+
+
+def test_literal_duration_out_of_range_is_rejected() -> None:
+    model = load_model(_TIMERREJECT)
+    with pytest.raises(UnsupportedConstructError):
+        build_statix(model, "TIMERREJECT::MachineTimerOutOfRange")
