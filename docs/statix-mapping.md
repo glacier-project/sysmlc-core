@@ -115,9 +115,7 @@ not a scheduled event: a generated static `timeout_due(state, runtime)`
 function (hooked in via `#define SC_MACHINE_TIMEOUT_DUE timeout_due`,
 following the exact `guard_eval`/`action_exec` convention) recomputes the
 due-condition against `sc_runtime_t.now`/`state_entered_at` on every call to
-the new public `<prefix>_tick(sm, now)`. `after` is due once `now -
-entered_at >= duration`; `at` is due once `entered_at <= instant && now >=
-instant` (entering exactly at the instant still fires, as a zero-delay
+the new public `<prefix>_tick(sm, now)`. `after` is due once `now - entered_at >= duration`; `at` is due once `entered_at <= instant && now >= instant` (entering exactly at the instant still fires, as a zero-delay
 occurrence). A `bool timeout_delivered` latch, set *before* any `if` guard
 on the transition is evaluated, ensures the occurrence is checked **at most
 once per state activation** — a false guard permanently consumes it for
@@ -267,19 +265,19 @@ statix **never silently drops** a construct: anything outside the supported flat
 subset raises `UnsupportedConstructError` with a clear message. Rejected in
 iteration 1:
 
-| Construct                                                 | Status                                                                   |
-| --------------------------------------------------------- | ------------------------------------------------------------------------ |
-| parallel / history states                                 | rejected (composite/leaf supported)                                      |
-| `when` (change) triggers                                   | rejected (a later increment; `after`/`at` are supported, §4a)            |
-| `after`/`at` sourced from a composite (non-leaf) state      | rejected (state_entered_at needs one unambiguous leaf)                    |
-| a second `after`/`at` sourced from the same state            | rejected (at most one timer per leaf, §4a)                                |
-| a literal duration/instant out of the representable tick range | rejected at build time (an out-of-range attribute-driven one is never-due at runtime instead, §4a) |
-| more than 65,533 distinct signal events in one machine      | rejected (the top of the 16-bit event id space is reserved for `SC_EVENT_TIMEOUT`/`SC_EVENT_COMPLETION`) |
-| chains 3+ segments deep, whole, or non-Real payload reads | rejected (2-segment Real chains supported; whole capture is future work) |
-| machine-level (state def) entry/do/exit actions           | rejected (put on states)                                                 |
-| non-inline / referenced `do` activities                   | rejected                                                                 |
-| `String` / non-scalar, non-composite attributes           | rejected                                                                 |
-| external / non-allowlist function calls in expressions    | rejected (allowlisted library calls supported)                           |
+| Construct                                                      | Status                                                                                                   |
+| -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| parallel / history states                                      | rejected (composite/leaf supported)                                                                      |
+| `when` (change) triggers                                       | rejected (a later increment; `after`/`at` are supported, §4a)                                            |
+| `after`/`at` sourced from a composite (non-leaf) state         | rejected (state_entered_at needs one unambiguous leaf)                                                   |
+| a second `after`/`at` sourced from the same state              | rejected (at most one timer per leaf, §4a)                                                               |
+| a literal duration/instant out of the representable tick range | rejected at build time (an out-of-range attribute-driven one is never-due at runtime instead, §4a)       |
+| more than 65,533 distinct signal events in one machine         | rejected (the top of the 16-bit event id space is reserved for `SC_EVENT_TIMEOUT`/`SC_EVENT_COMPLETION`) |
+| chains 3+ segments deep, whole, or non-Real payload reads      | rejected (2-segment Real chains supported; whole capture is future work)                                 |
+| machine-level (state def) entry/do/exit actions                | rejected (put on states)                                                                                 |
+| non-inline / referenced `do` activities                        | rejected                                                                                                 |
+| `String` / non-scalar, non-composite attributes                | rejected                                                                                                 |
+| external / non-allowlist function calls in expressions         | rejected (allowlisted library calls supported)                                                           |
 
 ## 10. Forward notes (not settled)
 
