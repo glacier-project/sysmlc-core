@@ -88,6 +88,21 @@ sc_status_t {{ prefix }}_dispatch({{ prefix }}_t *sm, const sc_event_t *event);
 /// @param event_id Event identifier to dispatch.
 /// @return SC_STATUS_OK if a transition fired, SC_STATUS_NO_TRANSITION if none matched, or an error status.
 sc_status_t {{ prefix }}_post({{ prefix }}_t *sm, sc_event_id_t event_id);
+{% if has_timer %}
+
+/// @brief Advance virtual time and deliver a due after/at occurrence, if any.
+///
+/// The host must call this with a current tick value immediately before
+/// dispatching any event that might enter a time-triggered state, whenever
+/// that timer's precision matters -- state_entered_at is stamped from the
+/// last _tick call, not a live clock read.
+/// @param sm Statechart instance to advance.
+/// @param now Current absolute tick value; must be >= the value passed to
+///        the last _tick call, or SC_STATUS_INVALID_ARGUMENT is returned.
+/// @return SC_STATUS_OK if a transition fired, SC_STATUS_NO_TRANSITION if
+///         nothing was due (or its `if` guard failed), or an error status.
+sc_status_t {{ prefix }}_tick({{ prefix }}_t *sm, sc_time_t now);
+{% endif %}
 
 /// @brief Return the currently active state.
 /// @param sm Statechart instance to inspect.

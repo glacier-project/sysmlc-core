@@ -5,9 +5,11 @@ from jinja2 import Environment, PackageLoader
 from sysmlc.backends.statix.builder import _c_identifier
 from sysmlc.backends.statix.program import (
     COMPLETION_EVENT,
+    TIMEOUT_EVENT,
     CProgram,
     CProject,
     CSend,
+    CTimeout,
 )
 
 _env = Environment(
@@ -77,6 +79,8 @@ def _action_entries(program: CProgram) -> list[tuple[str, int]]:
 def _event_token(program: CProgram, event: str) -> str:
     if event == COMPLETION_EVENT:
         return "SC_EVENT_COMPLETION"
+    if event == TIMEOUT_EVENT:
+        return "SC_EVENT_TIMEOUT"
     return _const(program.prefix, "EVENT", event)
 
 
@@ -85,6 +89,38 @@ def _context_initializer(program: CProgram) -> str:
         return "{0}"
     parts = ", ".join(f".{f.name} = {f.init}" for f in program.context.fields)
     return "{" + parts + "}"
+
+
+def _timeout_case_lines(t: CTimeout) -> list[str]:
+    if t.literal_ticks is not None:
+        deadline = t.literal_ticks
+        if t.is_at:
+            return [
+                f"return (runtime->state_entered_at <= {deadline}) && "
+                f"(runtime->now >= {deadline});",
+            ]
+        return [
+            f"return (runtime->now - runtime->state_entered_at) >= {deadline};",
+        ]
+    assert t.attr_expr is not None
+    lines = [
+        "{",
+        "    sc_time_t deadline;",
+        f"    if (!sc_seconds_to_ticks({t.attr_expr}, &deadline)) {{",
+        "        return false;",
+        "    }",
+    ]
+    if t.is_at:
+        lines.append(
+            "    return (runtime->state_entered_at <= deadline) && "
+            "(runtime->now >= deadline);"
+        )
+    else:
+        lines.append(
+            "    return (runtime->now - runtime->state_entered_at) >= deadline;"
+        )
+    lines.append("}")
+    return lines
 
 
 def emit_context_initializer(program: CProgram) -> str:
@@ -129,6 +165,7 @@ def _header_view(program: CProgram) -> dict[str, object]:
         "state_count": len(program.states),
         "queue_capacity": program.queue_capacity,
         "has_send": program.has_send,
+        "has_timer": program.has_timer,
         "enums": [
             _enum_view(f"{p}_state", _state_entries(program), state_docs),
             _enum_view(f"{p}_event", _event_entries(program), event_docs),
@@ -241,6 +278,12 @@ def _source_view(program: CProgram) -> dict[str, object]:
             for g in program.guards
         ],
         "guards_use_ctx": any("ctx->" in g.expr for g in program.guards),
+        "has_timer": program.has_timer,
+        "timeouts_use_ctx": program.timeouts_use_ctx,
+        "timeout_rows": [
+            {"state": st(t.source), "lines": _timeout_case_lines(t)}
+            for t in program.timeouts
+        ],
         "actions": [
             {
                 "const": _const(p, "ACTION", a.name),
