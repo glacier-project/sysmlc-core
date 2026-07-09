@@ -202,3 +202,74 @@ def test_sm17_constraints_match_sismic(
         assert status != "SC_STATUS_CONSTRAINT_VIOLATED", (
             f"{qn}: statix {status!r}"
         )
+
+
+def _drive_time_trigger(
+    interpreter: Interpreter, events: tuple[str, ...]
+) -> None:
+    """Feed a tick/event sequence to Sismic, mirroring statix's _tick/_post.
+
+    A "tick:N" entry sets Sismic's virtual clock (N ticks at the default
+    SC_TICKS_PER_SECOND=1000, i.e. N/1000 seconds) instead of queuing a
+    signal event.
+    """
+    for e in events:
+        if e.startswith("tick:"):
+            interpreter.clock.time = int(e[len("tick:") :]) / 1000.0
+        else:
+            interpreter.queue(e)
+        interpreter.execute()
+
+
+SM13_CASES = [
+    ("SM13::MachineAfterSeconds", ("tick:5000",), "done"),
+    ("SM13::MachineAfterMinutes", ("tick:120000",), "done"),
+    ("SM13::MachineAfterAttribute", ("tick:120000",), "done"),
+    ("SM13::MachineAfterChain", ("tick:3000",), "done"),
+    ("SM13::MachineAfterGuard", ("tick:5000",), "done"),
+    ("SM13::MachineAt", ("tick:8000",), "done"),
+    (
+        "SM13::MachineAfterReentry",
+        (
+            "tick:2000",
+            "Leave",
+            "tick:3000",
+            "Back",
+            "tick:10000",
+            "tick:13000",
+        ),
+        "running",
+    ),
+    (
+        "SM13::MachineAtReentry",
+        ("tick:2000", "Leave", "tick:6000", "Back", "tick:50000"),
+        "idle",
+    ),
+]
+
+
+@pytest.mark.parametrize("qn,events,expected_leaf", SM13_CASES)
+def test_sm13_time_trigger_matches_sismic(
+    sm_models: dict,
+    statix_run: Callable,
+    qn: str,
+    events: tuple[str, ...],
+    expected_leaf: str,
+) -> None:
+    interpreter = Interpreter(build_statechart(sm_models["sm13"], qn))
+    interpreter.execute()
+    _drive_time_trigger(interpreter, events)
+    sismic_leaf = (
+        sorted(interpreter.configuration)[-1]
+        if interpreter.configuration
+        else ("done" if interpreter.final else "")
+    )
+    assert sismic_leaf == expected_leaf, (
+        f"{qn}: sismic settled in {sismic_leaf!r}, expected {expected_leaf!r}"
+    )
+
+    program = build_statix(sm_models["sm13"], qn)
+    statix_leaf = statix_run(program, events)
+    assert statix_leaf == expected_leaf, (
+        f"{qn}: statix {statix_leaf!r} != expected {expected_leaf!r}"
+    )
