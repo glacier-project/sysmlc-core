@@ -58,6 +58,9 @@ sc_status_t sc_runtime_bind(sc_runtime_t *runtime, const sc_machine_t *machine, 
     runtime->user_data = user_data;
     runtime->queue = NULL;
     runtime->current_state = machine->initial_state;
+    runtime->now = 0u;
+    runtime->state_entered_at = 0u;
+    runtime->timeout_delivered = false;
     runtime->initialized = true;
     return SC_STATUS_OK;
 }
@@ -133,4 +136,27 @@ sc_status_t sc_runtime_enqueue_f64(sc_runtime_t *runtime, sc_event_id_t event_id
     }
     event.payload_len = (uint8_t)sizeof(double);
     return sc_event_queue_push(runtime->queue, &event);
+}
+
+/// @brief Convert SI seconds to ticks, rejecting negative or unrepresentable values.
+/// @param seconds Duration/instant in SI seconds.
+/// @param out_ticks Destination for the converted tick value.
+/// @return true and writes *out_ticks on success; false (leaves *out_ticks
+///         unset) if seconds is negative or would overflow sc_time_t at the
+///         compiled SC_TICKS_PER_SECOND.
+bool sc_seconds_to_ticks(double seconds, sc_time_t *out_ticks)
+{
+    double max_seconds;
+    if (out_ticks == NULL) {
+        return false;
+    }
+    if (seconds < 0.0) {
+        return false;
+    }
+    max_seconds = (double)SC_TIME_MAX / (double)SC_TICKS_PER_SECOND;
+    if (seconds > max_seconds) {
+        return false;
+    }
+    *out_ticks = (sc_time_t)(seconds * (double)SC_TICKS_PER_SECOND);
+    return true;
 }

@@ -57,6 +57,23 @@ typedef uint16_t sc_action_id_t;
 /// with a signal.
 #define SC_EVENT_COMPLETION ((sc_event_id_t)0xFFFFu)
 
+/// @brief Abstract tick counter used by time-triggered (after/at) transitions.
+///
+/// No fixed real-world unit: SC_TICKS_PER_SECOND (sc_runtime.h) is the only
+/// place SI seconds are converted to ticks. A uint32_t at the default 1000
+/// ticks/sec wraps after ~49.7 days of continuous ticking; see sc_runtime_s
+/// and sc__tick's non-monotonic rejection for the wraparound contract.
+typedef uint32_t sc_time_t;
+
+/// @brief Largest representable tick value.
+#define SC_TIME_MAX ((sc_time_t)0xFFFFFFFFu)
+
+/// @brief Reserved event id for a delivered after/at occurrence.
+///
+/// Distinct from SC_EVENT_COMPLETION: never collides with a generated signal
+/// event (numbered from 1) or the completion sentinel (top of range).
+#define SC_EVENT_TIMEOUT ((sc_event_id_t)0xFFFEu)
+
 #ifdef __cplusplus
 }
 #endif
