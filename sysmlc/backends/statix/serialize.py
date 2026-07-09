@@ -317,6 +317,7 @@ def _runner_view(program: CProgram) -> dict[str, object]:
         "pkg_dir": pkg_dir,
         "stem": stem,
         "prefix": p,
+        "has_timer": program.has_timer,
         "events": [
             {"name": e, "const": _const(p, "EVENT", e)} for e in program.events
         ],

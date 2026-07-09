@@ -3,6 +3,9 @@
 
 #include <stdio.h>
 #include <string.h>
+{% if has_timer %}
+#include <stdlib.h>
+{% endif %}
 
 static bool {{ prefix }}_event_from_name(const char *name, sc_event_id_t *event_id)
 {
@@ -17,6 +20,35 @@ static bool {{ prefix }}_event_from_name(const char *name, sc_event_id_t *event_
 {% endfor %}
     return false;
 }
+{% if has_timer %}
+
+static bool {{ prefix }}_parse_tick(const char *arg, sc_time_t *out_tick)
+{
+    unsigned long parsed;
+    char *end = NULL;
+    if ((arg == NULL) || (out_tick == NULL) || (strncmp(arg, "tick:", 5) != 0)) {
+        return false;
+    }
+    if ((arg[5] == '\0') || (arg[5] == '-')) {
+        /* Reject "tick:" with no digits, and a negative value outright --
+         * strtoul's own negative-wraparound handling would otherwise be the
+         * only thing standing between a typo'd test input and a huge tick. */
+        return false;
+    }
+    parsed = strtoul(arg + 5, &end, 10);
+    if ((end == NULL) || (*end != '\0')) {
+        return false;
+    }
+    if (parsed > (unsigned long)SC_TIME_MAX) {
+        /* Reject out-of-range explicitly rather than truncating a huge
+         * unsigned long down to sc_time_t, which would silently alias to
+         * some other, smaller tick value. */
+        return false;
+    }
+    *out_tick = (sc_time_t)parsed;
+    return true;
+}
+{% endif %}
 
 int main(int argc, char **argv)
 {
@@ -35,6 +67,19 @@ int main(int argc, char **argv)
 
     for (i = 1; i < argc; ++i) {
         sc_event_id_t event_id = SC_EVENT_INVALID;
+{% if has_timer %}
+        sc_time_t tick_value;
+        if ({{ prefix }}_parse_tick(argv[i], &tick_value)) {
+            status = {{ prefix }}_tick(&sm, tick_value);
+            (void)printf("tick %lu status=%s state=%s final=%d\n",
+                         (unsigned long)tick_value, sc_status_str(status),
+                         {{ prefix }}_state_name({{ prefix }}_get_state(&sm)), (int){{ prefix }}_is_final(&sm));
+            if ((status != SC_STATUS_OK) && (status != SC_STATUS_NO_TRANSITION)) {
+                return 1;
+            }
+            continue;
+        }
+{% endif %}
         if (!{{ prefix }}_event_from_name(argv[i], &event_id)) {
             (void)fprintf(stderr, "unknown event: %s\n", argv[i]);
             return 2;
