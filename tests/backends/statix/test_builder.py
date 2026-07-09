@@ -15,6 +15,7 @@ from sysmlc.sysml.loading import load_model
 
 _INTCALL = Path(__file__).resolve().parent / "fixtures" / "intcall"
 _DEEPCHAIN = Path(__file__).resolve().parent / "fixtures" / "deepchain"
+_TIMERREJECT = Path(__file__).resolve().parent / "fixtures" / "timerreject"
 
 
 def test_helloworld_is_two_states_one_completion(sm_models: dict) -> None:
@@ -513,3 +514,21 @@ def test_too_many_signal_events_is_rejected() -> None:
     )
     with pytest.raises(UnsupportedConstructError):
         builder.result()
+
+
+def test_timer_on_composite_source_is_rejected() -> None:
+    model = load_model(_TIMERREJECT)
+    with pytest.raises(UnsupportedConstructError):
+        build_statix(model, "TIMERREJECT::MachineTimerOnComposite")
+
+
+def test_second_timer_on_same_source_is_rejected() -> None:
+    model = load_model(_TIMERREJECT)
+    with pytest.raises(UnsupportedConstructError):
+        build_statix(model, "TIMERREJECT::MachineTimerTwice")
+
+
+def test_literal_duration_out_of_range_is_rejected() -> None:
+    model = load_model(_TIMERREJECT)
+    with pytest.raises(UnsupportedConstructError):
+        build_statix(model, "TIMERREJECT::MachineTimerOutOfRange")

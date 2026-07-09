@@ -469,11 +469,18 @@ class StatixBuilder:
     def _register_timeout(
         self, source: str, trigger: AfterTrigger | AtTrigger
     ) -> str:
-        """Build (or reject) the CTimeout row for one after/at transition.
-
-        Rejections (composite source, second timer on one state) are
-        implemented here in Task 4; this task only wires the happy path.
-        """
+        """Build (or reject) the CTimeout row for one after/at transition."""
+        if self._state_kinds.get(source) is StateKind.COMPOSITE:
+            raise UnsupportedConstructError(
+                f"state {source!r} has a time-triggered transition, but it "
+                "is a composite (non-leaf) state; statix only supports "
+                "after/at sourced from a leaf state."
+            )
+        if source in self._timeout_sources:
+            raise UnsupportedConstructError(
+                f"state {source!r} already has a time-triggered transition; "
+                "at most one after/at is supported per state by statix yet."
+            )
         self._timeout_sources.add(source)
         self._has_timer = True
         if isinstance(trigger, AtTrigger):
