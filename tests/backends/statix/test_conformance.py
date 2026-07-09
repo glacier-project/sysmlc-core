@@ -104,6 +104,7 @@ SM11_CASES = [
     ("SM11::MachineReadablePayloadGuard", ()),
     ("SM11::MachineReadablePayloadRejected", ()),
     ("SM11::MachineReadablePayloadEffect", ()),
+    ("SM11::MachineReadablePayloadChain", ()),
     ("SM12::MachineDoSend", ()),
 ]
 

@@ -99,10 +99,11 @@ class StatixBuilder:
         self._constraints: list[ConstraintFact] = []
         self._has_send = False
         self._sends: list[CSend] = []
-        self._payload_reads: dict[str, str] = {}
+        self._payload_reads: dict[str, tuple[str, ...]] = {}
         self._scoped_gens: list[CCodeGen] = []
         self._real_attribute_names: frozenset[str] = frozenset()
         self._attribute_names: frozenset[str] = frozenset()
+        self._attribute_c_types: dict[str, str] = {}
 
     # -- TargetBuilder protocol --
 
@@ -153,6 +154,7 @@ class StatixBuilder:
             f.name for f in context.fields if f.c_type == "double"
         )
         self._attribute_names = frozenset(f.name for f in context.fields)
+        self._attribute_c_types = {f.name: f.c_type for f in context.fields}
         self._gen = CCodeGen(
             attribute_names=self._attribute_names,
             real_attributes=self._real_attribute_names,
@@ -206,16 +208,17 @@ class StatixBuilder:
             payload_feature=payload_feature,
         )
 
-    def _detect_payload_reads(self) -> dict[str, str]:
-        """Map event name -> read payload attribute, before lowering sends.
+    def _detect_payload_reads(self) -> dict[str, tuple[str, ...]]:
+        """Map event name -> read payload path, before lowering sends.
 
         Renders each payload-bound transition's guard and assignment RHSs
         with a throwaway scoped codegen whose only job is to flag (and
         shape-check) payload reads; the text is discarded. Runs before any
         action lowering so `_csend_for` can decide marshalled vs id-only
-        without ever rendering an unread constructor argument.
+        without ever rendering an unread constructor argument. A path is one
+        segment (`.value`) or two (one composite hop, `.sample.value`).
         """
-        reads: dict[str, str] = {}
+        reads: dict[str, tuple[str, ...]] = {}
         for t in self._transition_facts:
             trigger = t.trigger
             if (
@@ -229,13 +232,13 @@ class StatixBuilder:
             for a in actions.inline_actions(t.effect):
                 if isinstance(a, syside.AssignmentActionUsage):
                     probe.render_action(a)
-            for name in sorted(probe.payload_reads):
-                known = reads.setdefault(trigger.signal_name, name)
-                if known != name:
+            for path in sorted(probe.payload_reads):
+                known = reads.setdefault(trigger.signal_name, path)
+                if known != path:
                     raise UnsupportedConstructError(
                         f"event {trigger.signal_name!r} payload is read as "
-                        f"both .{known} and .{name}; statix supports one "
-                        "readable Real attribute per event."
+                        f"both .{'.'.join(known)} and .{'.'.join(path)}; "
+                        "statix supports one readable path per event."
                     )
         return reads
 
@@ -461,33 +464,65 @@ class StatixBuilder:
         event_name: str,
         pairs: list[tuple[str, syside.Expression]],
     ) -> str:
-        """Render the one provably-Real constructor argument, or reject.
+        """Render the marshalled Real expression for a read event, or reject.
 
-        `payload_signature` binds arguments positionally, so requiring
-        exactly one pair whose attribute equals the read attribute enforces
-        both "single value" and "position 0". Real-ness is established
-        mechanically: a Real literal, or a bare reference to a context
-        attribute whose C type is double.
+        `path` is the event's read path (from `_detect_payload_reads`):
+        either one segment (position-0 case) or exactly two (one composite
+        hop then a Real leaf, e.g. `.sample.value`). `payload_signature`
+        binds constructor arguments positionally; the argument matching
+        `path[0]` is the one that must supply the read value, whichever
+        position it sits at -- any other argument is unread and is never
+        rendered.
         """
-        read_attr = self._payload_reads[event_name]
-        if len(pairs) != 1 or pairs[0][0] != read_attr:
+        path = self._payload_reads[event_name]
+        match = next((p for p in pairs if p[0] == path[0]), None)
+        if match is None:
             raise UnsupportedConstructError(
                 f"the payload of event {event_name!r} is read as "
-                f".{read_attr}; every `send` of it must marshal exactly "
-                "that one attribute (a single constructor argument)."
+                f".{'.'.join(path)}; no `send` constructor argument is "
+                f"bound to attribute {path[0]!r}."
             )
-        expr = pairs[0][1]
-        if isinstance(expr, syside.LiteralRational):
-            return repr(expr.value)
-        if isinstance(expr, syside.FeatureReferenceExpression):
-            ref = expr.referent
-            if ref is not None and ref.name in self._real_attribute_names:
-                return f"ctx->{ref.name}"
-        raise UnsupportedConstructError(
-            f"the marshalled payload of event {event_name!r} must be "
-            "provably Real: a Real literal or a Real machine attribute; "
-            "other expressions are unsupported by statix yet."
+        expr = match[1]
+        if len(path) == 1:
+            if isinstance(expr, syside.LiteralRational):
+                return repr(expr.value)
+            if isinstance(expr, syside.FeatureReferenceExpression):
+                ref = expr.referent
+                if ref is not None and ref.name in self._real_attribute_names:
+                    return f"ctx->{ref.name}"
+            raise UnsupportedConstructError(
+                f"the marshalled payload of event {event_name!r} must be "
+                "provably Real: a Real literal or a Real machine attribute; "
+                "other expressions are unsupported by statix yet."
+            )
+        # len(path) == 2: the matched argument must be a bare reference to a
+        # registered composite attribute; mechanically resolve path[1]
+        # against its fields (never a vibe check -- the field's generated C
+        # type comes from the struct registry built from the model's own
+        # composite attribute defs).
+        base_error = UnsupportedConstructError(
+            f"the payload of event {event_name!r} is read as "
+            f".{'.'.join(path)}; the matching `send` argument "
+            f"({path[0]!r}) must be a bare reference to a composite "
+            "machine attribute."
         )
+        if not isinstance(expr, syside.FeatureReferenceExpression):
+            raise base_error
+        ref = expr.referent
+        if ref is None or ref.name is None:
+            raise base_error
+        base_type = self._attribute_c_types.get(ref.name)
+        struct = None if base_type is None else self._structs.get(base_type)
+        if struct is None:
+            raise base_error
+        field = next((f for f in struct.fields if f.name == path[1]), None)
+        if field is None or field.c_type != "double":
+            raise UnsupportedConstructError(
+                f"the payload of event {event_name!r} is read as "
+                f".{'.'.join(path)}, but {base_type}.{path[1]!r} is not a "
+                "Real (double) field."
+            )
+        return f"ctx->{ref.name}.{path[1]}"
 
     def _action_for(
         self,

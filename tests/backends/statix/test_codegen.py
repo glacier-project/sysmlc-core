@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 import syside
 
@@ -7,6 +9,9 @@ from sysmlc.errors import UnsupportedConstructError
 from sysmlc.semantics.statemachine import actions
 from sysmlc.semantics.statemachine.driver import StateMachineDriver
 from sysmlc.semantics.statemachine.facts import SignalTrigger
+from sysmlc.sysml.loading import load_model
+
+_DEEPCHAIN = Path(__file__).resolve().parent / "fixtures" / "deepchain"
 
 
 class _FactSink:
@@ -117,7 +122,7 @@ def test_payload_read_renders_f64_accessor(sm_models: dict) -> None:
     )
     gen = _payload_gen(t.trigger)
     assert gen.render_expression(t.guard) == "sc_event_payload_f64(event) > 0.5"
-    assert gen.payload_reads == {"value"}
+    assert gen.payload_reads == {("value",)}
 
 
 def test_payload_read_in_effect_assignment(sm_models: dict) -> None:
@@ -130,13 +135,23 @@ def test_payload_read_in_effect_assignment(sm_models: dict) -> None:
         gen.render_action(assign)
         == "ctx->captured = sc_event_payload_f64(event);"
     )
-    assert gen.payload_reads == {"value"}
+    assert gen.payload_reads == {("value",)}
 
 
-def test_chained_payload_read_rejected(sm_models: dict) -> None:
+def test_two_segment_payload_chain_renders_f64_accessor(
+    sm_models: dict,
+) -> None:
     (t,) = _payload_facts(
         sm_models["sm11"], "SM11::MachineReadablePayloadChain"
     )
+    gen = _payload_gen(t.trigger)
+    assert gen.render_expression(t.guard) == "sc_event_payload_f64(event) > 0.5"
+    assert gen.payload_reads == {("sample", "value")}
+
+
+def test_three_segment_payload_chain_rejected(sm_models: dict) -> None:
+    model = load_model(_DEEPCHAIN)
+    (t,) = _payload_facts(model, "DEEPCHAIN::MachineDeepChain")
     gen = _payload_gen(t.trigger)
     with pytest.raises(UnsupportedConstructError):
         gen.render_expression(t.guard)

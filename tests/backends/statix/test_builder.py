@@ -8,6 +8,7 @@ from sysmlc.errors import UnsupportedConstructError
 from sysmlc.sysml.loading import load_model
 
 _INTCALL = Path(__file__).resolve().parent / "fixtures" / "intcall"
+_DEEPCHAIN = Path(__file__).resolve().parent / "fixtures" / "deepchain"
 
 
 def test_helloworld_is_two_states_one_completion(sm_models: dict) -> None:
@@ -359,10 +360,44 @@ def test_unread_payload_sends_stay_id_only(sm_models: dict) -> None:
         assert effect.statements == (CSend(event=event, value_expr=None),)
 
 
-def test_chain_and_whole_payload_reads_stay_rejected(sm_models: dict) -> None:
-    for qn in (
-        "SM11::MachineReadablePayloadChain",
-        "SM11::MachineReadablePayloadWhole",
-    ):
-        with pytest.raises(UnsupportedConstructError):
-            build_statix(sm_models["sm11"], qn)
+def test_whole_payload_read_stays_rejected(sm_models: dict) -> None:
+    with pytest.raises(UnsupportedConstructError):
+        build_statix(sm_models["sm11"], "SM11::MachineReadablePayloadWhole")
+
+
+def test_two_segment_chain_machine_builds(sm_models: dict) -> None:
+    program = build_statix(
+        sm_models["sm11"], "SM11::MachineReadablePayloadChain"
+    )
+    guard = next(g for g in program.guards)
+    assert guard.expr == "sc_event_payload_f64(event) > 0.5"
+    # The send marshals ctx->sample.value; the unread `current` argument
+    # (bound to Measurement.value) is dropped, never rendered.
+    effect = next(a for a in program.actions if "idle_completion" in a.name)
+    assert effect.statements == (
+        CSend(event="Measurement", value_expr="ctx->sample.value"),
+    )
+
+
+def test_three_segment_chain_is_rejected(sm_models: dict) -> None:
+    model = load_model(_DEEPCHAIN)
+    with pytest.raises(UnsupportedConstructError):
+        build_statix(model, "DEEPCHAIN::MachineDeepChain")
+
+
+def test_chain_on_non_real_leaf_is_rejected() -> None:
+    model = load_model(_DEEPCHAIN)
+    with pytest.raises(UnsupportedConstructError):
+        build_statix(model, "DEEPCHAIN::MachineChainOnIntegerLeaf")
+
+
+def test_chain_with_no_matching_send_argument_is_rejected() -> None:
+    model = load_model(_DEEPCHAIN)
+    with pytest.raises(UnsupportedConstructError):
+        build_statix(model, "DEEPCHAIN::MachineChainNoMatchingArg")
+
+
+def test_chain_on_non_reference_send_argument_is_rejected() -> None:
+    model = load_model(_DEEPCHAIN)
+    with pytest.raises(UnsupportedConstructError):
+        build_statix(model, "DEEPCHAIN::MachineChainOnInlineArg")
