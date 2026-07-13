@@ -106,7 +106,8 @@ def test_after_seconds_does_not_fire_before_deadline(
 def _build_and_compile(
     sm_models: dict, tmp_path: Path, qn: str
 ) -> tuple[CProgram, Path]:
-    program = build_statix(sm_models["sm13"], qn)
+    model_key = qn.split("::")[0].lower()
+    program = build_statix(sm_models[model_key], qn)
     StatixBackend().write(program, OutputOptions(output_dir=tmp_path))
     build = tmp_path / "build"
     subprocess.run(
@@ -310,3 +311,231 @@ def test_generated_self_loop_rearms_a_fresh_deadline(
         [str(exe)], capture_output=True, text=True, cwd=tmp_path
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+_WHEN_BARE_HARNESS = """\
+#include "sm16/machine_when_bare.h"
+#include <stdio.h>
+
+int main(void)
+{
+    sm16_machine_when_bare_context_t ctx;
+    sm16_machine_when_bare_t sm;
+
+    sm16_machine_when_bare_context_init(&ctx);
+    if (sm16_machine_when_bare_init(&sm, &ctx) != SC_STATUS_OK) {
+        (void)printf("init failed\\n");
+        return 2;
+    }
+    if (sm16_machine_when_bare_get_state(&sm) != SM16_MACHINE_WHEN_BARE_STATE_IDLE) {
+        (void)printf("expected idle initially\\n");
+        return 1;
+    }
+    ctx.hot = true;
+    if (sm16_machine_when_bare_settle(&sm) != SC_STATUS_OK) {
+        (void)printf("settle failed\\n");
+        return 1;
+    }
+    if (sm16_machine_when_bare_get_state(&sm) != SM16_MACHINE_WHEN_BARE_STATE_DONE) {
+        (void)printf("expected done after settle, got %s\\n", sm16_machine_when_bare_state_name(sm16_machine_when_bare_get_state(&sm)));
+        return 1;
+    }
+    if (!sm16_machine_when_bare_is_final(&sm)) {
+        (void)printf("expected is_final true\\n");
+        return 1;
+    }
+    return 0;
+}
+"""
+
+
+def test_compile_run_sm16_when_bare(sm_models: dict, tmp_path: Path) -> None:
+    program, _build = _build_and_compile(
+        sm_models, tmp_path, "SM16::MachineWhenBare"
+    )
+    harness = tmp_path / "when_bare_harness.c"
+    harness.write_text(_WHEN_BARE_HARNESS)
+    exe = tmp_path / "when_bare_harness"
+    subprocess.run(
+        [
+            "cc",
+            "-std=c99",
+            "-Iinclude",
+            "when_bare_harness.c",
+            f"src/{_paths(program)[0]}/{_paths(program)[1]}.c",
+            "src/sc/sc_status.c",
+            "src/sc/sc_event_queue.c",
+            "src/sc/sc_runtime.c",
+            "-o",
+            str(exe),
+        ],
+        check=True,
+        capture_output=True,
+        cwd=tmp_path,
+    )
+    result = subprocess.run(
+        [str(exe)], capture_output=True, text=True, cwd=tmp_path
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+_WHEN_GUARD_HARNESS = """\
+#include "sm16/machine_when_guard.h"
+#include <stdio.h>
+
+int main(void)
+{
+    sm16_machine_when_guard_context_t ctx;
+    sm16_machine_when_guard_t sm;
+
+    sm16_machine_when_guard_context_init(&ctx);
+    if (sm16_machine_when_guard_init(&sm, &ctx) != SC_STATUS_OK) {
+        (void)printf("init failed\\n");
+        return 2;
+    }
+    /* Set hot = true while enabled = false -> consumer fires on settle */
+    ctx.hot = true;
+    ctx.enabled = false;
+    if (sm16_machine_when_guard_settle(&sm) != SC_STATUS_OK) {
+        (void)printf("settle with false guard failed\\n");
+        return 1;
+    }
+    if (sm16_machine_when_guard_get_state(&sm) != SM16_MACHINE_WHEN_GUARD_STATE_IDLE) {
+        (void)printf("expected idle after consumer disarmed\\n");
+        return 1;
+    }
+    /* Now even when enabled = true, slot is disarmed so no transition */
+    ctx.enabled = true;
+    if (sm16_machine_when_guard_settle(&sm) != SC_STATUS_OK) {
+        (void)printf("settle with enabled=true failed\\n");
+        return 1;
+    }
+    if (sm16_machine_when_guard_get_state(&sm) != SM16_MACHINE_WHEN_GUARD_STATE_IDLE) {
+        (void)printf("expected still idle after disarmed settle\\n");
+        return 1;
+    }
+    /* Kick -> away */
+    if (sm16_machine_when_guard_post(&sm, SM16_MACHINE_WHEN_GUARD_EVENT_KICK) != SC_STATUS_OK) {
+        (void)printf("kick to away failed\\n");
+        return 1;
+    }
+    if (sm16_machine_when_guard_get_state(&sm) != SM16_MACHINE_WHEN_GUARD_STATE_AWAY) {
+        (void)printf("expected away after kick\\n");
+        return 1;
+    }
+    /* Kick -> re-enter idle (which arms when_armed[0]). Since hot=true and enabled=true, completion fires immediately to running then done! */
+    if (sm16_machine_when_guard_post(&sm, SM16_MACHINE_WHEN_GUARD_EVENT_KICK) != SC_STATUS_OK) {
+        (void)printf("kick re-entry to idle failed\\n");
+        return 1;
+    }
+    if (sm16_machine_when_guard_get_state(&sm) != SM16_MACHINE_WHEN_GUARD_STATE_DONE) {
+        (void)printf("expected done after kick re-entry, got %s\\n", sm16_machine_when_guard_state_name(sm16_machine_when_guard_get_state(&sm)));
+        return 1;
+    }
+    return 0;
+}
+"""
+
+
+def test_compile_run_sm16_when_guard(sm_models: dict, tmp_path: Path) -> None:
+    program, _build = _build_and_compile(
+        sm_models, tmp_path, "SM16::MachineWhenGuard"
+    )
+    harness = tmp_path / "when_guard_harness.c"
+    harness.write_text(_WHEN_GUARD_HARNESS)
+    exe = tmp_path / "when_guard_harness"
+    subprocess.run(
+        [
+            "cc",
+            "-std=c99",
+            "-Iinclude",
+            "when_guard_harness.c",
+            f"src/{_paths(program)[0]}/{_paths(program)[1]}.c",
+            "src/sc/sc_status.c",
+            "src/sc/sc_event_queue.c",
+            "src/sc/sc_runtime.c",
+            "-o",
+            str(exe),
+        ],
+        check=True,
+        capture_output=True,
+        cwd=tmp_path,
+    )
+    result = subprocess.run(
+        [str(exe)], capture_output=True, text=True, cwd=tmp_path
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+_WHEN_TWO_HARNESS = """\
+#include "sm16/machine_when_two.h"
+#include <stdio.h>
+
+int main(void)
+{
+    sm16_machine_when_two_context_t ctx;
+    sm16_machine_when_two_t sm;
+
+    sm16_machine_when_two_context_init(&ctx);
+    if (sm16_machine_when_two_init(&sm, &ctx) != SC_STATUS_OK) {
+        (void)printf("init failed\\n");
+        return 2;
+    }
+    ctx.cold = true;
+    if (sm16_machine_when_two_settle(&sm) != SC_STATUS_OK) {
+        (void)printf("settle cold failed\\n");
+        return 1;
+    }
+    if (sm16_machine_when_two_get_state(&sm) != SM16_MACHINE_WHEN_TWO_STATE_CHILLED) {
+        (void)printf("expected chilled after cold=true\\n");
+        return 1;
+    }
+
+    /* Second instance: check both true -> declaration order wins (hot then cold -> warmed) */
+    sm16_machine_when_two_context_init(&ctx);
+    if (sm16_machine_when_two_init(&sm, &ctx) != SC_STATUS_OK) {
+        return 2;
+    }
+    ctx.hot = true;
+    ctx.cold = true;
+    if (sm16_machine_when_two_settle(&sm) != SC_STATUS_OK) {
+        return 1;
+    }
+    if (sm16_machine_when_two_get_state(&sm) != SM16_MACHINE_WHEN_TWO_STATE_WARMED) {
+        (void)printf("expected warmed when both true\\n");
+        return 1;
+    }
+    return 0;
+}
+"""
+
+
+def test_compile_run_sm16_when_two(sm_models: dict, tmp_path: Path) -> None:
+    program, _build = _build_and_compile(
+        sm_models, tmp_path, "SM16::MachineWhenTwo"
+    )
+    harness = tmp_path / "when_two_harness.c"
+    harness.write_text(_WHEN_TWO_HARNESS)
+    exe = tmp_path / "when_two_harness"
+    subprocess.run(
+        [
+            "cc",
+            "-std=c99",
+            "-Iinclude",
+            "when_two_harness.c",
+            f"src/{_paths(program)[0]}/{_paths(program)[1]}.c",
+            "src/sc/sc_status.c",
+            "src/sc/sc_event_queue.c",
+            "src/sc/sc_runtime.c",
+            "-o",
+            str(exe),
+        ],
+        check=True,
+        capture_output=True,
+        cwd=tmp_path,
+    )
+    result = subprocess.run(
+        [str(exe)], capture_output=True, text=True, cwd=tmp_path
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
