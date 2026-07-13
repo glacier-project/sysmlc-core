@@ -1,17 +1,21 @@
 from __future__ import annotations
 
 import subprocess
-from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from sysmlc.backends.base import OutputOptions
 from sysmlc.backends.statix.backend import StatixBackend
 from sysmlc.backends.statix.builder import build_statix
-from sysmlc.backends.statix.program import CProgram
 from sysmlc.backends.statix.serialize import _paths
 from sysmlc.sysml.loading import load_model
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from sysmlc.backends.statix.program import CProgram
 
 pytestmark = pytest.mark.statix
 
@@ -347,7 +351,10 @@ def test_reentry_with_condition_held_true_fires_each_activation(
 ) -> None:
     program, _build = build_and_compile("sm16", "SM16::MachineWhenReentry")
     result = _compile_and_run(
-        tmp_path, program, "reentry_held_true_harness", _REENTRY_HELD_TRUE_HARNESS
+        tmp_path,
+        program,
+        "reentry_held_true_harness",
+        _REENTRY_HELD_TRUE_HARNESS,
     )
     assert result.returncode == 0, result.stdout + result.stderr
 
@@ -454,7 +461,8 @@ int main(void)
     sm16_machine_when_composed_context_t ctx;
     sm16_machine_when_composed_t sm;
 
-    sm16_machine_when_composed_context_init(&ctx); /* hot=false, enabled=false */
+    /* hot=false, enabled=false */
+    sm16_machine_when_composed_context_init(&ctx);
     if (sm16_machine_when_composed_init(&sm, &ctx) != SC_STATUS_OK) {
         (void)printf("init failed\\n");
         return 2;

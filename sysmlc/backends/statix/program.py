@@ -169,7 +169,6 @@ class CProgram:
     when_count: int = 0
 
 
-
 @dataclass(frozen=True)
 class CProject:
     """One generated statix project containing one or more statecharts."""

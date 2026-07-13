@@ -334,4 +334,3 @@ def test_internal_target_emits_sc_state_invalid_in_table(
     program = build_statix(sm_models["sm16"], "SM16::MachineWhenGuard")
     source = emit_source(program)
     assert ", SC_STATE_INVALID}," in source
-

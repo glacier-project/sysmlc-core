@@ -327,7 +327,8 @@ int main(void)
         (void)printf("init failed\\n");
         return 2;
     }
-    if (sm16_machine_when_bare_get_state(&sm) != SM16_MACHINE_WHEN_BARE_STATE_IDLE) {
+    if (sm16_machine_when_bare_get_state(&sm) !=
+        SM16_MACHINE_WHEN_BARE_STATE_IDLE) {
         (void)printf("expected idle initially\\n");
         return 1;
     }
@@ -336,8 +337,11 @@ int main(void)
         (void)printf("settle failed\\n");
         return 1;
     }
-    if (sm16_machine_when_bare_get_state(&sm) != SM16_MACHINE_WHEN_BARE_STATE_DONE) {
-        (void)printf("expected done after settle, got %s\\n", sm16_machine_when_bare_state_name(sm16_machine_when_bare_get_state(&sm)));
+    if (sm16_machine_when_bare_get_state(&sm) !=
+        SM16_MACHINE_WHEN_BARE_STATE_DONE) {
+        (void)printf("expected done after settle, got %s\\n",
+                     sm16_machine_when_bare_state_name(
+                         sm16_machine_when_bare_get_state(&sm)));
         return 1;
     }
     if (!sm16_machine_when_bare_is_final(&sm)) {
@@ -400,7 +404,8 @@ int main(void)
         (void)printf("settle with false guard failed\\n");
         return 1;
     }
-    if (sm16_machine_when_guard_get_state(&sm) != SM16_MACHINE_WHEN_GUARD_STATE_IDLE) {
+    if (sm16_machine_when_guard_get_state(&sm) !=
+        SM16_MACHINE_WHEN_GUARD_STATE_IDLE) {
         (void)printf("expected idle after consumer disarmed\\n");
         return 1;
     }
@@ -410,26 +415,34 @@ int main(void)
         (void)printf("settle with enabled=true failed\\n");
         return 1;
     }
-    if (sm16_machine_when_guard_get_state(&sm) != SM16_MACHINE_WHEN_GUARD_STATE_IDLE) {
+    if (sm16_machine_when_guard_get_state(&sm) !=
+        SM16_MACHINE_WHEN_GUARD_STATE_IDLE) {
         (void)printf("expected still idle after disarmed settle\\n");
         return 1;
     }
     /* Kick -> away */
-    if (sm16_machine_when_guard_post(&sm, SM16_MACHINE_WHEN_GUARD_EVENT_KICK) != SC_STATUS_OK) {
+    if (sm16_machine_when_guard_post(&sm,
+            SM16_MACHINE_WHEN_GUARD_EVENT_KICK) != SC_STATUS_OK) {
         (void)printf("kick to away failed\\n");
         return 1;
     }
-    if (sm16_machine_when_guard_get_state(&sm) != SM16_MACHINE_WHEN_GUARD_STATE_AWAY) {
+    if (sm16_machine_when_guard_get_state(&sm) !=
+        SM16_MACHINE_WHEN_GUARD_STATE_AWAY) {
         (void)printf("expected away after kick\\n");
         return 1;
     }
-    /* Kick -> re-enter idle (which arms when_armed[0]). Since hot=true and enabled=true, completion fires immediately to running then done! */
-    if (sm16_machine_when_guard_post(&sm, SM16_MACHINE_WHEN_GUARD_EVENT_KICK) != SC_STATUS_OK) {
+    /* Kick -> re-enter idle (which arms when_armed[0]). Since hot=true
+     * and enabled=true, completion fires to running then done! */
+    if (sm16_machine_when_guard_post(&sm,
+            SM16_MACHINE_WHEN_GUARD_EVENT_KICK) != SC_STATUS_OK) {
         (void)printf("kick re-entry to idle failed\\n");
         return 1;
     }
-    if (sm16_machine_when_guard_get_state(&sm) != SM16_MACHINE_WHEN_GUARD_STATE_DONE) {
-        (void)printf("expected done after kick re-entry, got %s\\n", sm16_machine_when_guard_state_name(sm16_machine_when_guard_get_state(&sm)));
+    if (sm16_machine_when_guard_get_state(&sm) !=
+        SM16_MACHINE_WHEN_GUARD_STATE_DONE) {
+        (void)printf("expected done after kick re-entry, got %s\\n",
+                     sm16_machine_when_guard_state_name(
+                         sm16_machine_when_guard_get_state(&sm)));
         return 1;
     }
     return 0;
@@ -486,12 +499,13 @@ int main(void)
         (void)printf("settle cold failed\\n");
         return 1;
     }
-    if (sm16_machine_when_two_get_state(&sm) != SM16_MACHINE_WHEN_TWO_STATE_CHILLED) {
+    if (sm16_machine_when_two_get_state(&sm) !=
+        SM16_MACHINE_WHEN_TWO_STATE_CHILLED) {
         (void)printf("expected chilled after cold=true\\n");
         return 1;
     }
 
-    /* Second instance: check both true -> declaration order wins (hot then cold -> warmed) */
+    /* Second instance: check both true -> declaration order wins */
     sm16_machine_when_two_context_init(&ctx);
     if (sm16_machine_when_two_init(&sm, &ctx) != SC_STATUS_OK) {
         return 2;
@@ -501,7 +515,8 @@ int main(void)
     if (sm16_machine_when_two_settle(&sm) != SC_STATUS_OK) {
         return 1;
     }
-    if (sm16_machine_when_two_get_state(&sm) != SM16_MACHINE_WHEN_TWO_STATE_WARMED) {
+    if (sm16_machine_when_two_get_state(&sm) !=
+        SM16_MACHINE_WHEN_TWO_STATE_WARMED) {
         (void)printf("expected warmed when both true\\n");
         return 1;
     }
@@ -538,4 +553,3 @@ def test_compile_run_sm16_when_two(sm_models: dict, tmp_path: Path) -> None:
         [str(exe)], capture_output=True, text=True, cwd=tmp_path
     )
     assert result.returncode == 0, result.stdout + result.stderr
-
