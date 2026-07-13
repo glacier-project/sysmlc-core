@@ -13,6 +13,12 @@ COMPLETION_EVENT: Final = "__completion__"
 # the serializer emits SC_EVENT_TIMEOUT for it.
 TIMEOUT_EVENT: Final = "__timeout__"
 
+# Python-side marker for the runtime's SC_STATE_INVALID sentinel used as a
+# transition's target. A transition carrying this as its ``target`` is an
+# internal transition (no exit, no entry, action-only); the serializer emits
+# SC_STATE_INVALID for it. Used by `when`'s consumer transitions.
+INTERNAL_TARGET: Final = "__internal__"
+
 
 @dataclass(frozen=True)
 class CField:
@@ -159,6 +165,8 @@ class CProgram:
     timeouts: tuple[CTimeout, ...] = ()
     has_timer: bool = False
     timeouts_use_ctx: bool = False
+    has_when: bool = False
+    when_count: int = 0
 
 
 @dataclass(frozen=True)

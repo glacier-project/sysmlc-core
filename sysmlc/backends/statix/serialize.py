@@ -5,6 +5,7 @@ from jinja2 import Environment, PackageLoader
 from sysmlc.backends.statix.builder import _c_identifier
 from sysmlc.backends.statix.program import (
     COMPLETION_EVENT,
+    INTERNAL_TARGET,
     TIMEOUT_EVENT,
     CProgram,
     CProject,
@@ -166,6 +167,7 @@ def _header_view(program: CProgram) -> dict[str, object]:
         "queue_capacity": program.queue_capacity,
         "has_send": program.has_send,
         "has_timer": program.has_timer,
+        "has_when": program.has_when,
         "enums": [
             _enum_view(f"{p}_state", _state_entries(program), state_docs),
             _enum_view(f"{p}_event", _event_entries(program), event_docs),
@@ -252,7 +254,9 @@ def _source_view(program: CProgram) -> dict[str, object]:
             if t.guard is None
             else _const(p, "GUARD", t.guard),
             "action": act(t.action),
-            "target": _const(p, "STATE", t.target),
+            "target": "SC_STATE_INVALID"
+            if t.target == INTERNAL_TARGET
+            else _const(p, "STATE", t.target),
         }
         for t in program.transitions
     ]
@@ -280,6 +284,8 @@ def _source_view(program: CProgram) -> dict[str, object]:
         "guards_use_ctx": any("ctx->" in g.expr for g in program.guards),
         "has_timer": program.has_timer,
         "timeouts_use_ctx": program.timeouts_use_ctx,
+        "has_when": program.has_when,
+        "when_count": program.when_count,
         "timeout_rows": [
             {"state": st(t.source), "lines": _timeout_case_lines(t)}
             for t in program.timeouts

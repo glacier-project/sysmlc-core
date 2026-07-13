@@ -2,6 +2,11 @@
 #include "{{ pkg_dir }}/{{ stem }}.h"
 {% if needs_math %}#include <math.h>
 {% endif %}
+{% if has_when %}
+#if SC_MAX_WHEN_TRIGGERS < {{ when_count }}u
+#error "SC_MAX_WHEN_TRIGGERS too small for this generated machine"
+#endif
+{% endif %}
 
 /* Static state and transition tables (file-local). */
 static const sc_state_def_t states[] = {
@@ -166,5 +171,8 @@ const char *{{ prefix }}_event_name(sc_event_id_t event)
 {% if has_timer %}
 #define SC_MACHINE_HAS_TIMER 1
 #define SC_MACHINE_TIMEOUT_DUE timeout_due
+{% endif %}
+{% if has_when %}
+#define SC_MACHINE_HAS_WHEN 1
 {% endif %}
 #include "sc/sc_machine.h"

@@ -36,8 +36,14 @@ sc_status_t sc_runtime_bind(sc_runtime_t *runtime, const sc_machine_t *machine, 
         }
     }
     for (i = 0u; i < machine->transition_count; ++i) {
-        /* Dispatch indexes states[t->source] and states[t->target] directly. */
-        if ((machine->transitions[i].source >= machine->state_count) ||
+        /* Dispatch always indexes states[t->source] directly. states[t->target]
+         * too, except SC_STATE_INVALID: the internal-transition sentinel (no
+         * exit, no entry, action-only -- see sc_machine.h's _take_transition),
+         * used by `when`'s consumer transitions. */
+        if (machine->transitions[i].source >= machine->state_count) {
+            return SC_STATUS_INVALID_ARGUMENT;
+        }
+        if ((machine->transitions[i].target != SC_STATE_INVALID) &&
             (machine->transitions[i].target >= machine->state_count)) {
             return SC_STATUS_INVALID_ARGUMENT;
         }
@@ -61,6 +67,9 @@ sc_status_t sc_runtime_bind(sc_runtime_t *runtime, const sc_machine_t *machine, 
     runtime->now = 0u;
     runtime->state_entered_at = 0u;
     runtime->timeout_delivered = false;
+    for (i = 0u; i < (sc_state_id_t)SC_MAX_WHEN_TRIGGERS; ++i) {
+        runtime->when_armed[i] = false;
+    }
     runtime->initialized = true;
     return SC_STATUS_OK;
 }

@@ -106,7 +106,8 @@ def test_after_seconds_does_not_fire_before_deadline(
 def _build_and_compile(
     sm_models: dict, tmp_path: Path, qn: str
 ) -> tuple[CProgram, Path]:
-    program = build_statix(sm_models["sm13"], qn)
+    model_key = qn.split("::")[0].lower()
+    program = build_statix(sm_models[model_key], qn)
     StatixBackend().write(program, OutputOptions(output_dir=tmp_path))
     build = tmp_path / "build"
     subprocess.run(

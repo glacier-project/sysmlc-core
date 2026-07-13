@@ -52,3 +52,11 @@ add_test(NAME test_runtime_tick COMMAND test_runtime_tick)
 add_executable(test_runtime_timer test_runtime_timer.c)
 target_link_libraries(test_runtime_timer sc_runtime)
 add_test(NAME test_runtime_timer COMMAND test_runtime_timer)
+
+add_executable(test_runtime_when test_runtime_when.c)
+target_link_libraries(test_runtime_when sc_runtime)
+add_test(NAME test_runtime_when COMMAND test_runtime_when)
+
+add_executable(test_runtime_internal_transition test_runtime_internal_transition.c)
+target_link_libraries(test_runtime_internal_transition sc_runtime)
+add_test(NAME test_runtime_internal_transition COMMAND test_runtime_internal_transition)

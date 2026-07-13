@@ -304,3 +304,33 @@ def test_header_declares_tick_only_when_has_timer(sm_models: dict) -> None:
     )
     plain = emit_header(build_statix(sm_models["sm01"], "SM01::Machine"))
     assert "_tick(" not in plain
+
+
+def test_when_emits_has_when_macro_and_settle_decl(sm_models: dict) -> None:
+    program = build_statix(sm_models["sm16"], "SM16::MachineWhenBare")
+    source = emit_source(program)
+    header = emit_header(program)
+    assert "#define SC_MACHINE_HAS_WHEN 1" in source
+    assert "#if SC_MAX_WHEN_TRIGGERS < 1u" in source
+    assert (
+        "sc_status_t sm16_machine_when_bare_settle"
+        "(sm16_machine_when_bare_t *sm);" in header
+    )
+
+
+def test_no_when_machine_omits_has_when_and_settle_decl(
+    sm_models: dict,
+) -> None:
+    program = build_statix(sm_models["sm01"], "SM01::Machine")
+    source = emit_source(program)
+    header = emit_header(program)
+    assert "SC_MACHINE_HAS_WHEN" not in source
+    assert "_settle(" not in header
+
+
+def test_internal_target_emits_sc_state_invalid_in_table(
+    sm_models: dict,
+) -> None:
+    program = build_statix(sm_models["sm16"], "SM16::MachineWhenGuard")
+    source = emit_source(program)
+    assert ", SC_STATE_INVALID}," in source

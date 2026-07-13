@@ -23,6 +23,11 @@
 ///   SC_MACHINE_TIMEOUT_DUE (a static bool(sc_state_id_t, const
 ///   sc_runtime_t *) function, never an inline macro body -- exactly the
 ///   SC_MACHINE_GUARD/_ACTION convention). Instantiates a public _tick.
+/// - SC_MACHINE_HAS_WHEN: define when the machine has a change (`when`)
+///   trigger. No paired required macro, unlike SC_MACHINE_HAS_TIMER --
+///   arming/condition/consumption are ordinary guards/actions through the
+///   existing SC_MACHINE_GUARD/_ACTION switches. Instantiates a public
+///   _settle.
 ///
 /// No include guard on purpose. Do not include this header directly.
 #if !defined(SC_MACHINE_PREFIX) || !defined(SC_MACHINE_DEF) || \
@@ -232,15 +237,28 @@ static sc_status_t SC__FN(_descend)(SC__T *sm, sc_state_id_t start,
 }
 
 /// @brief Take one transition: exit to scope, run effect, enter target, descend.
+///
+/// A transition whose target is SC_STATE_INVALID is internal: no exit, no
+/// entry, action-only (used by `when`'s consumer transitions to disarm an
+/// observation without re-running `on entry`, which would re-arm it).
 static sc_status_t SC__FN(_take_transition)(SC__T *sm, const sc_transition_t *t,
                                             const sc_event_t *event)
 {
-    const sc_machine_t *machine = sm->runtime.machine;
-    sc_state_id_t scope = (t->source == t->target)
-                              ? machine->states[t->source].parent
-                              : SC__FN(_lca)(machine, t->source, t->target);
+    const sc_machine_t *machine;
+    sc_state_id_t scope;
     sc_state_id_t leaf;
-    sc_status_t status = SC__FN(_exit_up_to)(sm, sm->runtime.current_state, scope, event);
+    sc_status_t status;
+    if (t->target == SC_STATE_INVALID) {
+        if (t->action != SC_ACTION_NONE) {
+            return SC_MACHINE_ACTION(t->action, &sm->runtime, event);
+        }
+        return SC_STATUS_OK;
+    }
+    machine = sm->runtime.machine;
+    scope = (t->source == t->target)
+                ? machine->states[t->source].parent
+                : SC__FN(_lca)(machine, t->source, t->target);
+    status = SC__FN(_exit_up_to)(sm, sm->runtime.current_state, scope, event);
     if (status != SC_STATUS_OK) {
         return status;
     }
@@ -469,6 +487,34 @@ sc_status_t SC__FN(_post)(SC__T *sm, sc_event_id_t event_id)
     return SC__FN(_dispatch)(sm, &event);
 }
 
+#ifdef SC_MACHINE_HAS_WHEN
+/// @brief Re-check completion transitions after external context mutation.
+///
+/// Hosts must call this after mutating context state that a `when` (change
+/// trigger) condition reads, whenever no event dispatch already covers it --
+/// an ordinary _dispatch/_post call already runs _run_completion internally
+/// and needs no extra _settle call.
+/// @param sm Statechart instance to settle.
+/// @return SC_STATUS_OK on success (including "nothing to settle"), or an
+///         error status.
+sc_status_t SC__FN(_settle)(SC__T *sm)
+{
+    sc_status_t status;
+    if ((sm == NULL) || (!sm->runtime.initialized)) {
+        return SC_STATUS_INVALID_ARGUMENT;
+    }
+    status = SC__FN(_run_completion)(sm);
+    if (status != SC_STATUS_OK) {
+        return status;
+    }
+    status = SC__FN(_drain_internal)(sm);
+    if (status != SC_STATUS_OK) {
+        return status;
+    }
+    return SC__FN(_check_invariants)(sm);
+}
+#endif
+
 #ifdef SC_MACHINE_HAS_TIMER
 /// @brief Advance virtual time and deliver a due after/at occurrence, if any.
 ///
@@ -570,4 +616,7 @@ bool SC__FN(_is_final)(const SC__T *sm)
 #ifdef SC_MACHINE_HAS_TIMER
 #undef SC_MACHINE_HAS_TIMER
 #undef SC_MACHINE_TIMEOUT_DUE
+#endif
+#ifdef SC_MACHINE_HAS_WHEN
+#undef SC_MACHINE_HAS_WHEN
 #endif
