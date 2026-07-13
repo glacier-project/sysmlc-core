@@ -103,6 +103,16 @@ sc_status_t {{ prefix }}_post({{ prefix }}_t *sm, sc_event_id_t event_id);
 ///         nothing was due (or its `if` guard failed), or an error status.
 sc_status_t {{ prefix }}_tick({{ prefix }}_t *sm, sc_time_t now);
 {% endif %}
+{% if has_when %}
+
+/// @brief Re-check completion transitions after external context mutation.
+///
+/// Hosts must call this after mutating context state that a `when` (change
+/// trigger) condition reads, whenever no event dispatch already covers it.
+/// @param sm Statechart instance to settle.
+/// @return SC_STATUS_OK on success (including "nothing to settle"), or an error status.
+sc_status_t {{ prefix }}_settle({{ prefix }}_t *sm);
+{% endif %}
 
 /// @brief Return the currently active state.
 /// @param sm Statechart instance to inspect.

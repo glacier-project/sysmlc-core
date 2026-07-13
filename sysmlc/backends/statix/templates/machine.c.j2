@@ -167,4 +167,7 @@ const char *{{ prefix }}_event_name(sc_event_id_t event)
 #define SC_MACHINE_HAS_TIMER 1
 #define SC_MACHINE_TIMEOUT_DUE timeout_due
 {% endif %}
+{% if has_when %}
+#define SC_MACHINE_HAS_WHEN 1
+{% endif %}
 #include "sc/sc_machine.h"
