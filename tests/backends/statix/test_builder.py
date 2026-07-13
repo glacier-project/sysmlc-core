@@ -17,6 +17,7 @@ from sysmlc.sysml.loading import load_model
 _INTCALL = Path(__file__).resolve().parent / "fixtures" / "intcall"
 _DEEPCHAIN = Path(__file__).resolve().parent / "fixtures" / "deepchain"
 _TIMERREJECT = Path(__file__).resolve().parent / "fixtures" / "timerreject"
+_WHENREJECT = Path(__file__).resolve().parent / "fixtures" / "whenreject"
 
 
 def test_helloworld_is_two_states_one_completion(sm_models: dict) -> None:
@@ -580,3 +581,15 @@ def test_two_when_triggers_on_one_source_get_independent_slots(
         "runtime->when_armed[0] = true;",
         "runtime->when_armed[1] = true;",
     )
+
+
+def test_when_self_loop_is_rejected() -> None:
+    model = load_model(_WHENREJECT)
+    with pytest.raises(UnsupportedConstructError):
+        build_statix(model, "WHENREJECT::MachineWhenSelfLoop")
+
+
+def test_when_on_composite_source_is_rejected() -> None:
+    model = load_model(_WHENREJECT)
+    with pytest.raises(UnsupportedConstructError):
+        build_statix(model, "WHENREJECT::MachineWhenOnComposite")
