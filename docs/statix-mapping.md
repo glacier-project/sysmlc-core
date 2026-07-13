@@ -105,8 +105,8 @@ hop deep (`reading.sample.value`) — in the transition's guard and effect;
 deeper chains, whole-payload capture, and non-Real payload data remain
 rejected (§9).
 
-`after` / `at` triggers are supported (§4a); `when` (change) triggers remain
-rejected (§9).
+`after` / `at` triggers are supported (§4a); `when` (change) triggers are
+supported too (§4b).
 
 ## 4a. Time triggers (`after`/`at`)
 
@@ -152,6 +152,57 @@ re-validate its own model, since the generated multiplication is unsigned and
 wraps silently in C rather than failing at compile time. Same override
 contract as `SC_MAX_TRANSITIONS` et al., stated loudly here because a silent
 wrap in a due-condition is a correctness bug, not just a dropped event.
+
+## 4b. Change triggers (`when`)
+
+`accept when <condition> [if <guard>]` compiles to an ordinary eventless
+(`SC_EVENT_COMPLETION`) transition guarded by a per-transition **armed bit**
+(`runtime->when_armed[i]`, a project-wide `bool [SC_MAX_WHEN_TRIGGERS]` array,
+default size `64`) conjoined with the watched condition and any user `if`.
+Each source state's entry action sets its own transitions' armed bits `true`
+*after* any user entry/`do` statements ("armed last", matching quake's own
+convention) — one observation is armed per activation.
+
+A guarded `when` (`if <guard>` present) emits a second, **internal**
+transition alongside the real one: guard `armed && (condition) &&
+!(guard)`, action `armed = false`, no target. The two guards are genuine
+partitions of `condition` (split on `guard`/`!guard`), so table order
+between them never matters. Internal transitions reuse `SC_STATE_INVALID`
+as the target sentinel — `_take_transition` runs the action (if any) and
+returns without exit/entry/`current_state` change, so a false guard at
+delivery disarms the observation without re-running `on entry` (which would
+re-arm it and undo the disarm in the same step).
+
+A bare `when` (no `if`) needs no consumer: the real guard alone fully
+disposes of the observation once taken.
+
+Hosts must call the new `<prefix>_settle(sm)` after mutating context state
+that a `when` condition reads, whenever no event dispatch already covers it
+— an ordinary `_dispatch`/`_post` already runs the same completion
+machinery internally. `_settle` mirrors `_init`'s tail exactly (no
+"matched event" to compare against, so no `SC_STATUS_NO_TRANSITION`
+branch): `_run_completion` → `_drain_internal` → `_check_invariants`.
+
+Two `when` triggers on one source (armed simultaneously true) resolve by
+**declaration order** — statix does not replicate quake/Sismic's
+`NonDeterminismError`; this is a deliberate divergence, not a gap. A `when`
+self-loop, and `when` sourced from a composite (non-leaf) state, are both
+rejected at build time (§9) — composite sourcing is not rejected because
+the mechanism requires it (the armed-bit array is per-transition, not a
+single leaf-scoped scalar like `after`/`at`'s `state_entered_at`), but
+because nothing in the corpus exercises it yet.
+
+The generated `<prefix>.c` emits a compile-time bound check right after
+includes, when the machine has any `when` trigger:
+
+```c
+#if SC_MAX_WHEN_TRIGGERS < 2u
+#error "SC_MAX_WHEN_TRIGGERS too small for this generated machine"
+#endif
+```
+
+so a `-DSC_MAX_WHEN_TRIGGERS` override smaller than a specific machine's own
+count fails to compile rather than indexing `when_armed[]` out of bounds.
 
 ## 5. Guards
 
@@ -268,7 +319,8 @@ iteration 1:
 | Construct                                                      | Status                                                                                                   |
 | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
 | parallel / history states                                      | rejected (composite/leaf supported)                                                                      |
-| `when` (change) triggers                                       | rejected (a later increment; `after`/`at` are supported, §4a)                                            |
+| `when` sourced from a composite (non-leaf) state                 | rejected (mirrors the after/at leaf-only rule, §4b)                                                      |
+| `when` self-loop (target equals source)                          | rejected (a conservative guardrail, §4b)                                                                 |
 | `after`/`at` sourced from a composite (non-leaf) state         | rejected (state_entered_at needs one unambiguous leaf)                                                   |
 | a second `after`/`at` sourced from the same state              | rejected (at most one timer per leaf, §4a)                                                               |
 | a literal duration/instant out of the representable tick range | rejected at build time (an out-of-range attribute-driven one is never-due at runtime instead, §4a)       |

@@ -104,8 +104,11 @@ diff cleanly.
 - **`<prefix>_runner.c`** — host-only smoke runner: initialize the machine, feed
   no-payload event ids from command-line arguments, and print a state trace. A
   timed machine also accepts `tick:<uint>` arguments, calling `<prefix>_tick`
-  instead of `_post`. It may use hosted C facilities such as `<stdio.h>`; it is
-  not part of the board runtime.
+  instead of `_post`. A machine with a `when` (change) trigger additionally
+  exposes a public `<prefix>_settle`, called directly by hand-written test
+  harnesses rather than through the runner (the runner has no vocabulary for
+  mutating an arbitrary context attribute by name). It may use hosted C
+  facilities such as `<stdio.h>`; it is not part of the board runtime.
 - **`CMakeLists.txt`** — builds the bundled runtime, every generated statechart
   unit, a combined static library, and one host runner executable per machine.
 
@@ -120,10 +123,10 @@ serializer renders it to C.
 
 - **`builder.py`** — consumes the neutral facts and assembles `CProgram`. Every
   representational choice and every rejection lives here: parallel, history,
-  `when` (change triggers), non-inline `do`, external sends, reading accept payload data beyond one Real attribute,
+  non-inline `do`, external sends, reading accept payload data beyond one Real attribute,
   external/non-allowlist function calls in expressions, and non-scalar / non-composite
   attributes are rejected loudly (never silently dropped). Composite states, `then done` finals,
-  one-shot `do`, `send` self-events (id-only, or marshalling one readable Real payload attribute), asserted constraints, and leaf-sourced `after`/`at` time triggers (at most one per leaf) are supported.
+  one-shot `do`, `send` self-events (id-only, or marshalling one readable Real payload attribute), asserted constraints, leaf-sourced `after`/`at` time triggers (at most one per leaf), and `when` (change triggers, sourced from a leaf state, no self-loops) are supported.
 - **`codegen.py`** — a precedence-driven emitter that lowers guard/effect/
   attribute expression nodes to C, with attribute references resolved against
   the generated context struct, allowlisted library function calls lowered
