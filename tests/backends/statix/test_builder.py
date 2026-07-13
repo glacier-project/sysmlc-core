@@ -5,6 +5,7 @@ import pytest
 from sysmlc.backends.statix.builder import StatixBuilder, build_statix
 from sysmlc.backends.statix.program import (
     COMPLETION_EVENT,
+    INTERNAL_TARGET,
     TIMEOUT_EVENT,
     CProgram,
     CSend,
@@ -532,3 +533,50 @@ def test_literal_duration_out_of_range_is_rejected() -> None:
     model = load_model(_TIMERREJECT)
     with pytest.raises(UnsupportedConstructError):
         build_statix(model, "TIMERREJECT::MachineTimerOutOfRange")
+
+
+def test_bare_when_arms_and_guards_a_single_transition(sm_models: dict) -> None:
+    program = build_statix(sm_models["sm16"], "SM16::MachineWhenBare")
+    assert program.has_when
+    assert program.when_count == 1
+    when = next(t for t in program.transitions if t.target == "running")
+    assert when.event == COMPLETION_EVENT
+    guard = next(g for g in program.guards if g.name == when.guard)
+    assert guard.expr == "runtime->when_armed[0] && (ctx->hot)"
+    entry = next(a for a in program.actions if a.name == "idle_entry")
+    assert entry.statements == ("runtime->when_armed[0] = true;",)
+
+
+def test_guarded_when_emits_real_and_negated_consumer(sm_models: dict) -> None:
+    program = build_statix(sm_models["sm16"], "SM16::MachineWhenGuard")
+    assert program.when_count == 1
+    real = next(t for t in program.transitions if t.target == "running")
+    consumer = next(
+        t
+        for t in program.transitions
+        if t.target == INTERNAL_TARGET and t.source == "idle"
+    )
+    real_guard = next(g for g in program.guards if g.name == real.guard)
+    consumer_guard = next(g for g in program.guards if g.name == consumer.guard)
+    assert real_guard.expr == (
+        "runtime->when_armed[0] && (ctx->hot) && (ctx->enabled)"
+    )
+    assert consumer_guard.expr == (
+        "runtime->when_armed[0] && (ctx->hot) && !(ctx->enabled)"
+    )
+    consumer_action = next(
+        a for a in program.actions if a.name == consumer.action
+    )
+    assert consumer_action.statements == ("runtime->when_armed[0] = false;",)
+
+
+def test_two_when_triggers_on_one_source_get_independent_slots(
+    sm_models: dict,
+) -> None:
+    program = build_statix(sm_models["sm16"], "SM16::MachineWhenTwo")
+    assert program.when_count == 2
+    entry = next(a for a in program.actions if a.name == "idle_entry")
+    assert entry.statements == (
+        "runtime->when_armed[0] = true;",
+        "runtime->when_armed[1] = true;",
+    )

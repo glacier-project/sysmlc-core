@@ -7,6 +7,7 @@ import syside
 from sysmlc.backends.statix.codegen import CCodeGen
 from sysmlc.backends.statix.program import (
     COMPLETION_EVENT,
+    INTERNAL_TARGET,
     TIMEOUT_EVENT,
     CAction,
     CContext,
@@ -165,6 +166,10 @@ class StatixBuilder:
         self._timeout_sources: set[str] = set()
         self._has_timer = False
         self._timeouts_use_ctx = False
+        self._when_slot_by_fact: dict[int, int] = {}
+        self._when_arms_by_source: dict[str, list[int]] = {}
+        self._when_count = 0
+        self._has_when = False
 
     # -- TargetBuilder protocol --
 
@@ -199,6 +204,35 @@ class StatixBuilder:
         """Buffer a transition fact (emitted in :meth:`result`)."""
         self._transition_facts.append(transition)
 
+    def _assign_when_slots(self) -> None:
+        """Pre-pass: assign each `when` trigger a project-wide slot index.
+
+        Must run before `_build_state` (a source state's entry action needs
+        its arm statements) and before `_build_transition` (which looks up
+        each fact's pre-assigned slot by identity). No dedup even if two
+        triggers share a textual condition: each occurrence is its own
+        independent observation (`MachineWhenTwo`).
+        """
+        for t in self._transition_facts:
+            if not isinstance(t.trigger, WhenTrigger):
+                continue
+            if self._state_kinds.get(t.source) is StateKind.COMPOSITE:
+                raise UnsupportedConstructError(
+                    f"state {t.source!r} has a change-triggered transition, "
+                    "but it is a composite (non-leaf) state; statix only "
+                    "supports `when` sourced from a leaf state."
+                )
+            if isinstance(t.target, str) and t.target == t.source:
+                raise UnsupportedConstructError(
+                    f"state {t.source!r}'s change trigger targets itself; "
+                    "statix rejects `when` self-loops."
+                )
+            self._has_when = True
+            slot = self._when_count
+            self._when_count += 1
+            self._when_slot_by_fact[id(t)] = slot
+            self._when_arms_by_source.setdefault(t.source, []).append(slot)
+
     def result(self) -> CProgram:
         """Assemble and return the C statechart program."""
         root = self._root
@@ -222,9 +256,12 @@ class StatixBuilder:
             real_attributes=self._real_attribute_names,
         )
         self._payload_reads = self._detect_payload_reads()
+        self._assign_when_slots()
         real_states = tuple(self._build_state(f) for f in self._state_facts)
         transitions = tuple(
-            self._build_transition(t) for t in self._transition_facts
+            row
+            for t in self._transition_facts
+            for row in self._build_transition(t)
         )
         for event in self._payload_reads:
             if not any(s.event == event for s in self._sends):
@@ -269,6 +306,8 @@ class StatixBuilder:
             timeouts=tuple(self._timeouts),
             has_timer=self._has_timer,
             timeouts_use_ctx=self._timeouts_use_ctx,
+            has_when=self._has_when,
+            when_count=self._when_count,
         )
 
     def _payload_gen(self, payload_feature: syside.Feature) -> CCodeGen:
@@ -421,7 +460,9 @@ class StatixBuilder:
             )
         return name
 
-    def _build_transition(self, t: TransitionFact) -> CTransition:
+    def _build_transition(self, t: TransitionFact) -> tuple[CTransition, ...]:
+        if isinstance(t.trigger, WhenTrigger):
+            return self._build_when_transitions(t)
         event = self._event_of(t.trigger, t.source)
         gen = self._gen
         if (
@@ -446,7 +487,58 @@ class StatixBuilder:
             target = self._final_for(t.target.scope)
         else:
             target = t.target
-        return CTransition(source, event, guard, action, target)
+        return (CTransition(source, event, guard, action, target),)
+
+    def _build_when_transitions(
+        self, t: TransitionFact
+    ) -> tuple[CTransition, ...]:
+        """Lower one `accept when <cond> [if <guard>]` into 1 or 2 rows.
+
+        The real transition's guard conjoins the armed-slot check, the
+        watched condition, and (if present) the user's own `if`. A false
+        `if` at delivery needs a second, internal "consumer" transition (no
+        target) that disarms the slot with a *negated* copy of the user
+        guard -- emitted only when a user `if` is present, since with none
+        the real guard alone fully disposes of the observation.
+        """
+        assert isinstance(t.trigger, WhenTrigger)
+        slot = self._when_slot_by_fact[id(t)]
+        armed = f"runtime->when_armed[{slot}]"
+        cond = self._gen.render_expression(t.trigger.condition)
+        source = t.source
+        if isinstance(t.target, CompletionTarget):
+            target = self._final_for(t.target.scope)
+        else:
+            target = t.target
+        action = self._action_for(
+            t.effect, f"{_c_identifier(source)}_when{slot}_effect"
+        )
+        if t.guard is None:
+            real_guard = self._register_rendered_guard(f"{armed} && ({cond})")
+            real = CTransition(
+                source, COMPLETION_EVENT, real_guard, action, target
+            )
+            return (real,)
+        user_if = self._gen.render_expression(t.guard)
+        real_guard = self._register_rendered_guard(
+            f"{armed} && ({cond}) && ({user_if})"
+        )
+        real = CTransition(source, COMPLETION_EVENT, real_guard, action, target)
+        consumer_guard = self._register_rendered_guard(
+            f"{armed} && ({cond}) && !({user_if})"
+        )
+        consumer_action = self._register_action(
+            (f"{armed} = false;",),
+            f"{_c_identifier(source)}_when{slot}_consume",
+        )
+        consumer = CTransition(
+            source,
+            COMPLETION_EVENT,
+            consumer_guard,
+            consumer_action,
+            INTERNAL_TARGET,
+        )
+        return (real, consumer)
 
     def _event_of(self, trigger: object | None, source: str) -> str:
         if trigger is None:
@@ -458,10 +550,6 @@ class StatixBuilder:
             return trigger.signal_name
         if isinstance(trigger, (AfterTrigger, AtTrigger)):
             return self._register_timeout(source, trigger)
-        if isinstance(trigger, WhenTrigger):
-            raise UnsupportedConstructError(
-                "change triggers (`when`) are not supported by statix yet."
-            )
         raise UnsupportedConstructError(
             f"unsupported trigger: {type(trigger).__name__}"
         )
@@ -665,6 +753,14 @@ class StatixBuilder:
         ``do`` that references another action or holds non-``assign``/``send``
         bodies is rejected; a ``do send`` lowers like any other send
         (an internal self-event).
+
+        Arming statements for any `when`-triggered transitions sourced at
+        this state are appended last, after entry/`do` -- matching quake's
+        own "armed last: durations must see the values entry/do just
+        assigned" convention (quake/builder.py:379). Both orders are
+        behaviorally equivalent in this runtime (guard evaluation only ever
+        happens after the whole entry action returns), but arm-last keeps
+        the two backends' generated order identical.
         """
         statements = [
             self._render_inline_action(a, self._gen)
@@ -676,6 +772,10 @@ class StatixBuilder:
                 self._render_inline_action(a, self._gen)
                 for a in actions.inline_actions(fact.do_action)
             ]
+        statements += [
+            f"runtime->when_armed[{slot}] = true;"
+            for slot in self._when_arms_by_source.get(fact.name, [])
+        ]
         return self._register_action(tuple(statements), f"{stem}_entry")
 
 
