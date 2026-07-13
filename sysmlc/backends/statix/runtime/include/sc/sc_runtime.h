@@ -66,6 +66,18 @@ extern "C" {
 #define SC_TICKS_PER_SECOND 1000u
 #endif
 
+/// @brief Hard cap on distinct `when` (change-trigger) armed-observation slots.
+///
+/// A project-wide compile-time constant, like SC_MAX_TRANSITIONS et al.: the
+/// generated `<prefix>.c` for any machine with a `when` trigger emits a
+/// compile-time `#if SC_MAX_WHEN_TRIGGERS < <this machine's own count> #error`
+/// check, so an override that is too small for a specific generated machine
+/// fails to compile rather than corrupting memory. Override at compile time
+/// with -DSC_MAX_WHEN_TRIGGERS=N.
+#ifndef SC_MAX_WHEN_TRIGGERS
+#define SC_MAX_WHEN_TRIGGERS 64u
+#endif
+
 /// @brief One row of a generated transition table.
 ///
 /// Represents `source -- event [guard] / action --> target`.
@@ -114,6 +126,7 @@ typedef struct sc_runtime_s {
     sc_time_t now; ///< @brief Last value passed to _tick (0 until the first call).
     sc_time_t state_entered_at; ///< @brief When the current leaf was entered, in `now`'s units.
     bool timeout_delivered; ///< @brief Has this activation's after/at occurrence already been checked?
+    bool when_armed[SC_MAX_WHEN_TRIGGERS]; ///< @brief Per-transition `when` armed-observation bits.
 } sc_runtime_t;
 
 /// @brief Bind runtime state to a generated machine and caller-owned context.
