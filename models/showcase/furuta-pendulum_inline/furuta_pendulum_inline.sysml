@@ -33,9 +33,58 @@ package FurutaPendulum {
     item def Balanced;
 
     // -----------------------------------------------------------------------
-    // External pure functions (backed by furuta_physics.py at run time).
-    // Matched by simple name against furuta_physics module functions.
+    // Pure functions implemented inline as Python textual representations.
+    // The shared scaffolding (import, constants, private helpers) lives in
+    // one rep on the package; each calc def carries only its own function.
     // -----------------------------------------------------------------------
+
+    rep scaffolding language "Python"
+        /*
+         * import math
+         *
+         * # Inertia / coupling coefficients (Liu et al. 2002 notation)
+         * ALPHA = 0.00260569
+         * BETA = 0.05165675
+         * GAMMA = 9.7055e-4
+         * EPSILON = 0.08103060
+         *
+         * # Gravitational acceleration [m/s^2]
+         * G = 9.81
+         *
+         * # Natural frequency used in energy calculation
+         * W0 = 6.3
+         *
+         * # Swing-up energy multiplier
+         * K = 0.5
+         *
+         * # Swing-up control magnitude bound
+         * N = 0.5
+         *
+         * # Catch-mode linear-feedback gains
+         * CI1 = -1.04945717118225
+         * CI2 = -0.20432286791216
+         * CI3 = -0.00735846749875
+         * CI4 = -0.00735846749875
+         *
+         * # Arm angle set-point used by Catch mode [rad]
+         * PHI2 = -7.0124562
+         *
+         * # Stabilize-mode linear-feedback gains
+         * SI1 = -1.70871686211144
+         * SI2 = -0.30395427746831
+         * SI3 = -0.03254225945714
+         * SI4 = -0.05808270221773
+         *
+         * # Arm angle set-point used by Stabilize mode [rad]
+         * PHI0 = 0.0
+         *
+         * def _sign(x):
+         *     return float((x > 0.0) - (x < 0.0))
+         *
+         * def _energy(theta, d_theta):
+         *     return 0.5 * d_theta * d_theta / (W0 * W0) + math.cos(theta) - 1.0
+         */
+
     calc def step             {
         in x : PendulumState;
         in u : Real;
@@ -44,17 +93,6 @@ package FurutaPendulum {
 
         rep impl language "Python"
             /*
-             * import math
-             *
-             * # Inertia / coupling coefficients (Liu et al. 2002 notation)
-             * ALPHA = 0.00260569
-             * BETA = 0.05165675
-             * GAMMA = 9.7055e-4
-             * EPSILON = 0.08103060
-             *
-             * # Gravitational acceleration [m/s^2]
-             * G = 9.81
-             *
              * def step(x, u, dt):
              *     from furutaSystem_types import PendulumState
              *
@@ -107,29 +145,8 @@ package FurutaPendulum {
 
         rep impl language "Python"
             /*
-             * import math
-             *
-             * # Natural frequency used in energy calculation
-             * W0 = 6.3
-             *
-             * # Swing-up energy multiplier
-             * K = 0.5
-             *
-             * # Swing-up control magnitude bound
-             * N = 0.5
-             *
-             * def _sign(x):
-             *     return float((x > 0.0) - (x < 0.0))
-             *
-             * def _restrict_angle(theta):
-             *     pi = math.pi
-             *     return (math.fmod(math.fabs(theta) + pi, 2 * pi) - pi) * _sign(theta)
-             *
-             * def _energy(theta, d_theta):
-             *     return 0.5 * d_theta * d_theta / (W0 * W0) + math.cos(theta) - 1.0
-             *
              * def swingup_torque(r):
-             *     th = _restrict_angle(r.theta)
+             *     th = restrict_angle(r.theta)
              *     e = _energy(th, r.d_theta)
              *     c = _sign(r.d_theta * math.cos(th))
              *     return _sign(e) * min(math.fabs(K * e), N) * c
@@ -142,26 +159,8 @@ package FurutaPendulum {
 
         rep impl language "Python"
             /*
-             * import math
-             *
-             * # Catch-mode linear-feedback gains
-             * CI1 = -1.04945717118225
-             * CI2 = -0.20432286791216
-             * CI3 = -0.00735846749875
-             * CI4 = -0.00735846749875
-             *
-             * # Arm angle set-point used by Catch mode [rad]
-             * PHI2 = -7.0124562
-             *
-             * def _sign(x):
-             *     return float((x > 0.0) - (x < 0.0))
-             *
-             * def _restrict_angle(theta):
-             *     pi = math.pi
-             *     return (math.fmod(math.fabs(theta) + pi, 2 * pi) - pi) * _sign(theta)
-             *
              * def catch_torque(r):
-             *     th = _restrict_angle(r.theta)
+             *     th = restrict_angle(r.theta)
              *     return -1.0 * (
              *         th * CI1 + r.d_theta * CI2 + (r.phi - PHI2) * CI3 + r.d_phi * CI4
              *     )
@@ -174,26 +173,8 @@ package FurutaPendulum {
 
         rep impl language "Python"
             /*
-             * import math
-             *
-             * # Stabilize-mode linear-feedback gains
-             * SI1 = -1.70871686211144
-             * SI2 = -0.30395427746831
-             * SI3 = -0.03254225945714
-             * SI4 = -0.05808270221773
-             *
-             * # Arm angle set-point used by Stabilize mode [rad]
-             * PHI0 = 0.0
-             *
-             * def _sign(x):
-             *     return float((x > 0.0) - (x < 0.0))
-             *
-             * def _restrict_angle(theta):
-             *     pi = math.pi
-             *     return (math.fmod(math.fabs(theta) + pi, 2 * pi) - pi) * _sign(theta)
-             *
              * def stabilize_torque(r):
-             *     th = _restrict_angle(r.theta)
+             *     th = restrict_angle(r.theta)
              *     return -1.0 * (
              *         th * SI1 + r.d_theta * SI2 + (r.phi - PHI0) * SI3 + r.d_phi * SI4
              *     )
@@ -206,11 +187,6 @@ package FurutaPendulum {
 
         rep impl language "Python"
             /*
-             * import math
-             *
-             * def _sign(x):
-             *     return float((x > 0.0) - (x < 0.0))
-             *
              * def restrict_angle(theta):
              *     pi = math.pi
              *     return (math.fmod(math.fabs(theta) + pi, 2 * pi) - pi) * _sign(theta)
@@ -273,7 +249,7 @@ package FurutaPendulum {
     // (in the incoming transition effect) from the Control send (in entry),
     // since a single transition may carry only one do-action.
     //
-    // Guard thresholds (from furuta_physics.py constants):
+    // Guard thresholds (matching the reference controller constants):
     //   REGION1 = 0.1   (|theta| < 0.1  → leave swingUp, enter catching)
     //   MAX_SPEED = 0.05 (|d_phi| < 0.05 → leave catching, enter stabilizing)
     //   REGION2 = 0.2   (|theta| > 0.2  → leave stabilizing, re-enter swingUp)
