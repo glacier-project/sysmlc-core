@@ -7,6 +7,7 @@ import syside
 
 from sysmlc.backends.base import OutputOptions
 from sysmlc.backends.statix.backend import StatixBackend
+from sysmlc.backends.statix.builder import build_statix
 from sysmlc.backends.statix.program import CProgram
 from sysmlc.sysml.loading import load_model
 
@@ -115,3 +116,27 @@ def statix_run_status(tmp_path: Path) -> Callable[..., str]:
         return line.rsplit("status=", maxsplit=1)[1].split()[0]
 
     return _run
+
+
+@pytest.fixture
+def build_and_compile(
+    sm_models: dict[str, syside.Model], tmp_path: Path
+) -> Callable[[str, str], tuple[CProgram, Path]]:
+    """Build, write, and cmake-build a program; return (program, build_dir)."""
+
+    def _run(stem: str, qn: str) -> tuple[CProgram, Path]:
+        program = build_statix(sm_models[stem], qn)
+        StatixBackend().write(program, OutputOptions(output_dir=tmp_path))
+        build = tmp_path / "build"
+        subprocess.run(
+            ["cmake", "-S", str(tmp_path), "-B", str(build)],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["cmake", "--build", str(build)], check=True, capture_output=True
+        )
+        return program, build
+
+    return _run
+
