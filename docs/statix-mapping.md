@@ -164,8 +164,7 @@ Each source state's entry action sets its own transitions' armed bits `true`
 convention) — one observation is armed per activation.
 
 A guarded `when` (`if <guard>` present) emits a second, **internal**
-transition alongside the real one: guard `armed && (condition) &&
-!(guard)`, action `armed = false`, no target. The two guards are genuine
+transition alongside the real one: guard `armed && (condition) && !(guard)`, action `armed = false`, no target. The two guards are genuine
 partitions of `condition` (split on `guard`/`!guard`), so table order
 between them never matters. Internal transitions reuse `SC_STATE_INVALID`
 as the target sentinel — `_take_transition` runs the action (if any) and
@@ -319,8 +318,8 @@ iteration 1:
 | Construct                                                      | Status                                                                                                   |
 | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
 | parallel / history states                                      | rejected (composite/leaf supported)                                                                      |
-| `when` sourced from a composite (non-leaf) state                 | rejected (mirrors the after/at leaf-only rule, §4b)                                                      |
-| `when` self-loop (target equals source)                          | rejected (a conservative guardrail, §4b)                                                                 |
+| `when` sourced from a composite (non-leaf) state               | rejected (mirrors the after/at leaf-only rule, §4b)                                                      |
+| `when` self-loop (target equals source)                        | rejected (a conservative guardrail, §4b)                                                                 |
 | `after`/`at` sourced from a composite (non-leaf) state         | rejected (state_entered_at needs one unambiguous leaf)                                                   |
 | a second `after`/`at` sourced from the same state              | rejected (at most one timer per leaf, §4a)                                                               |
 | a literal duration/instant out of the representable tick range | rejected at build time (an out-of-range attribute-driven one is never-due at runtime instead, §4a)       |
