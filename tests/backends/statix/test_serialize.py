@@ -311,6 +311,7 @@ def test_when_emits_has_when_macro_and_settle_decl(sm_models: dict) -> None:
     source = emit_source(program)
     header = emit_header(program)
     assert "#define SC_MACHINE_HAS_WHEN 1" in source
+    assert "#if SC_MAX_WHEN_TRIGGERS < 1u" in source
     assert (
         "sc_status_t sm16_machine_when_bare_settle"
         "(sm16_machine_when_bare_t *sm);" in header

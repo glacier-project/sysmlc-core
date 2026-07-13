@@ -285,6 +285,7 @@ def _source_view(program: CProgram) -> dict[str, object]:
         "has_timer": program.has_timer,
         "timeouts_use_ctx": program.timeouts_use_ctx,
         "has_when": program.has_when,
+        "when_count": program.when_count,
         "timeout_rows": [
             {"state": st(t.source), "lines": _timeout_case_lines(t)}
             for t in program.timeouts

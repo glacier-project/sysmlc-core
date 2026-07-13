@@ -2,6 +2,11 @@
 #include "{{ pkg_dir }}/{{ stem }}.h"
 {% if needs_math %}#include <math.h>
 {% endif %}
+{% if has_when %}
+#if SC_MAX_WHEN_TRIGGERS < {{ when_count }}u
+#error "SC_MAX_WHEN_TRIGGERS too small for this generated machine"
+#endif
+{% endif %}
 
 /* Static state and transition tables (file-local). */
 static const sc_state_def_t states[] = {
