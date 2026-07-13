@@ -13,37 +13,35 @@ from sysmlc.sysml.loading import load_model
 
 _MODELS = Path(__file__).resolve().parents[3] / "models" / "sm-examples"
 
-# The sm-examples referenced across the statix backend tests, by folder stem.
+# The sm-examples referenced across the statix backend tests. Each stem
+# names its folder explicitly.
 _WANTED = {
-    "sm01",
-    "sm02",
-    "sm03",
-    "sm04",
-    "sm05",
-    "sm06",
-    "sm07",
-    "sm08",
-    "sm09",
-    "sm10",
-    "sm11",
-    "sm12",
-    "sm13",
-    "sm14",
-    "sm15",
-    "sm16",
-    "sm17",
+    "sm01": "sm01-helloworld",
+    "sm02": "sm02-event-trigger",
+    "sm03": "sm03-guard",
+    "sm04": "sm04-assignment",
+    "sm05": "sm05-chained-references",
+    "sm06": "sm06-transition-effect",
+    "sm07": "sm07-firing-order",
+    "sm08": "sm08-nested-composite",
+    "sm09": "sm09-parallel",
+    "sm10": "sm10-done",
+    "sm11": "sm11-send-effect",
+    "sm12": "sm12-do-action",
+    "sm13": "sm13-time-trigger",
+    "sm14": "sm14-call-effect",
+    "sm15": "sm15-external",
+    "sm16": "sm16-change-trigger",
+    "sm17": "sm17-assert-constraints",
 }
 
 
 @pytest.fixture(scope="session")
 def sm_models() -> dict[str, syside.Model]:
     """Load each referenced sm-example once, keyed by folder stem (sm01…)."""
-    out: dict[str, syside.Model] = {}
-    for folder in sorted(_MODELS.glob("sm*-*")):
-        stem = folder.name.split("-")[0]
-        if stem in _WANTED:
-            out[stem] = load_model(folder)
-    return out
+    return {
+        stem: load_model(_MODELS / folder) for stem, folder in _WANTED.items()
+    }
 
 
 def _run_last_line(
