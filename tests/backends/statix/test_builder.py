@@ -700,3 +700,20 @@ def test_colliding_sanitized_enum_names_is_rejected() -> None:
     with pytest.raises(UnsupportedConstructError, match="sanitiz"):
         build_statix(model, "ENUMREJECT::MachineCollidingEnumNames")
 
+
+def test_relational_literal_comparison_against_generated_enum_is_rejected() -> (
+    None
+):
+    model = load_model(_ENUMREJECT)
+    with pytest.raises(UnsupportedConstructError, match="relational"):
+        build_statix(model, "ENUMREJECT::MachineRelationalLiteral")
+
+
+def test_relational_attribute_to_attribute_generated_enum_is_rejected() -> (
+    None
+):
+    model = load_model(_ENUMREJECT)
+    with pytest.raises(UnsupportedConstructError, match="relational"):
+        build_statix(model, "ENUMREJECT::MachineRelationalAttributes")
+
+
