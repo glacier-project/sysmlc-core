@@ -36,11 +36,12 @@ typedef struct {
 
 typedef struct {
     sc_runtime_t runtime;
+    sc_activation_t active[1];
 } wn_t;
 
 static const sc_state_def_t wn_states[] = {
-    {1u, SC_ACTION_NONE, SC_STATE_INVALID, SC_STATE_INVALID, false}, /* idle: entry arms */
-    {SC_ACTION_NONE, SC_ACTION_NONE, SC_STATE_INVALID, SC_STATE_INVALID, false}, /* running */
+    {1u, SC_ACTION_NONE, SC_STATE_INVALID, SC_STATE_INVALID, false, 0u, SC_STATE_INVALID, 0u}, /* idle: entry arms */
+    {SC_ACTION_NONE, SC_ACTION_NONE, SC_STATE_INVALID, SC_STATE_INVALID, false, 0u, SC_STATE_INVALID, 0u}, /* running */
 };
 
 static const sc_transition_t wn_transitions[] = {
@@ -49,7 +50,7 @@ static const sc_transition_t wn_transitions[] = {
 };
 
 static const sc_machine_t wn_machine = {
-    wn_transitions, wn_states, 2u, 2u, 0u, 1u, NULL, 0u,
+    wn_transitions, wn_states, 2u, 2u, 0u, 1u, NULL, 0u, NULL, 0u, 1u,
 };
 
 static bool wn_guard_eval(sc_guard_id_t g, const sc_runtime_t *rt, const sc_event_t *ev)
@@ -96,10 +97,10 @@ static void test_internal_transition_disarms_without_changing_state(void)
     CHECK(wn_init(&sm, &ctx) == SC_STATUS_OK);
     CHECK(wn_get_state(&sm) == 0u); /* still idle: internal, no exit/entry */
     CHECK(sm.runtime.when_armed[0] == false); /* consumer disarmed it */
-    entered_at = sm.runtime.state_entered_at;
+    entered_at = sm.runtime.active[0].entered_at;
     CHECK(wn_settle(&sm) == SC_STATUS_OK); /* nothing armed anymore: no-op */
     CHECK(wn_get_state(&sm) == 0u);
-    CHECK(sm.runtime.state_entered_at == entered_at); /* untouched by internal */
+    CHECK(sm.runtime.active[0].entered_at == entered_at); /* untouched by internal */
 }
 
 static void test_settle_fires_the_real_transition_after_external_mutation(void)

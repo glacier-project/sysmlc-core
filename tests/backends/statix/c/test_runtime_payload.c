@@ -37,14 +37,15 @@ typedef struct {
 
 typedef struct {
     sc_runtime_t runtime;
+    sc_activation_t active[1];
     sc_event_queue_t queue;
     sc_event_t queue_storage[PL_QCAP];
 } pl_t;
 
 static const sc_state_def_t pl_states[] = {
-    {SC_ACTION_NONE, SC_ACTION_NONE, SC_STATE_INVALID, SC_STATE_INVALID, false},
-    {SC_ACTION_NONE, SC_ACTION_NONE, SC_STATE_INVALID, SC_STATE_INVALID, false},
-    {SC_ACTION_NONE, SC_ACTION_NONE, SC_STATE_INVALID, SC_STATE_INVALID, false},
+    {SC_ACTION_NONE, SC_ACTION_NONE, SC_STATE_INVALID, SC_STATE_INVALID, false, 0u, SC_STATE_INVALID, 0u},
+    {SC_ACTION_NONE, SC_ACTION_NONE, SC_STATE_INVALID, SC_STATE_INVALID, false, 0u, SC_STATE_INVALID, 0u},
+    {SC_ACTION_NONE, SC_ACTION_NONE, SC_STATE_INVALID, SC_STATE_INVALID, false, 0u, SC_STATE_INVALID, 0u},
 };
 
 static const sc_transition_t pl_transitions[] = {
@@ -61,6 +62,9 @@ static const sc_machine_t pl_machine = {
     1u,
     NULL,
     0u,
+    NULL,
+    0u,
+    1u,
 };
 
 static bool pl_guard_eval(sc_guard_id_t g, const sc_runtime_t *rt, const sc_event_t *ev)

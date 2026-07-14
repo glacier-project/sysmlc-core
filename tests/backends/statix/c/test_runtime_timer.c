@@ -30,11 +30,12 @@ typedef struct {
 
 typedef struct {
     sc_runtime_t runtime;
+    sc_activation_t active[1];
 } tm_t;
 
 static const sc_state_def_t tm_states[] = {
-    {SC_ACTION_NONE, SC_ACTION_NONE, SC_STATE_INVALID, SC_STATE_INVALID, false},
-    {SC_ACTION_NONE, SC_ACTION_NONE, SC_STATE_INVALID, SC_STATE_INVALID, false},
+    {SC_ACTION_NONE, SC_ACTION_NONE, SC_STATE_INVALID, SC_STATE_INVALID, false, 0u, SC_STATE_INVALID, 0u},
+    {SC_ACTION_NONE, SC_ACTION_NONE, SC_STATE_INVALID, SC_STATE_INVALID, false, 0u, SC_STATE_INVALID, 0u},
 };
 
 static const sc_transition_t tm_transitions[] = {
@@ -42,7 +43,7 @@ static const sc_transition_t tm_transitions[] = {
 };
 
 static const sc_machine_t tm_machine = {
-    tm_transitions, tm_states, 1u, 2u, 0u, 1u, NULL, 0u,
+    tm_transitions, tm_states, 1u, 2u, 0u, 1u, NULL, 0u, NULL, 0u, 1u,
 };
 
 static bool tm_guard_eval(sc_guard_id_t g, const sc_runtime_t *rt, const sc_event_t *ev)
@@ -66,7 +67,7 @@ static bool tm_timeout_due(sc_state_id_t state, const sc_runtime_t *rt)
     if (state != 0u) {
         return false;
     }
-    return (rt->now - rt->state_entered_at) >= 5u;
+    return (rt->now - rt->active[0].entered_at) >= 5u;
 }
 
 #define SC_MACHINE_PREFIX tm
@@ -88,11 +89,12 @@ typedef struct {
 
 typedef struct {
     sc_runtime_t runtime;
+    sc_activation_t active[1];
 } tg_t;
 
 static const sc_state_def_t tg_states[] = {
-    {SC_ACTION_NONE, SC_ACTION_NONE, SC_STATE_INVALID, SC_STATE_INVALID, false},
-    {SC_ACTION_NONE, SC_ACTION_NONE, SC_STATE_INVALID, SC_STATE_INVALID, false},
+    {SC_ACTION_NONE, SC_ACTION_NONE, SC_STATE_INVALID, SC_STATE_INVALID, false, 0u, SC_STATE_INVALID, 0u},
+    {SC_ACTION_NONE, SC_ACTION_NONE, SC_STATE_INVALID, SC_STATE_INVALID, false, 0u, SC_STATE_INVALID, 0u},
 };
 
 static const sc_transition_t tg_transitions[] = {
@@ -100,7 +102,7 @@ static const sc_transition_t tg_transitions[] = {
 };
 
 static const sc_machine_t tg_machine = {
-    tg_transitions, tg_states, 1u, 2u, 0u, 1u, NULL, 0u,
+    tg_transitions, tg_states, 1u, 2u, 0u, 1u, NULL, 0u, NULL, 0u, 1u,
 };
 
 static bool tg_guard_eval(sc_guard_id_t g, const sc_runtime_t *rt, const sc_event_t *ev)
@@ -126,7 +128,7 @@ static bool tg_timeout_due(sc_state_id_t state, const sc_runtime_t *rt)
     if (state != 0u) {
         return false;
     }
-    return (rt->now - rt->state_entered_at) >= 5u;
+    return (rt->now - rt->active[0].entered_at) >= 5u;
 }
 
 #define SC_MACHINE_PREFIX tg
@@ -147,10 +149,11 @@ typedef struct {
 
 typedef struct {
     sc_runtime_t runtime;
+    sc_activation_t active[1];
 } sl_t;
 
 static const sc_state_def_t sl_states[] = {
-    {1u, SC_ACTION_NONE, SC_STATE_INVALID, SC_STATE_INVALID, false},
+    {1u, SC_ACTION_NONE, SC_STATE_INVALID, SC_STATE_INVALID, false, 0u, SC_STATE_INVALID, 0u},
 };
 
 static const sc_transition_t sl_transitions[] = {
@@ -158,7 +161,7 @@ static const sc_transition_t sl_transitions[] = {
 };
 
 static const sc_machine_t sl_machine = {
-    sl_transitions, sl_states, 1u, 1u, 0u, 1u, NULL, 0u,
+    sl_transitions, sl_states, 1u, 1u, 0u, 1u, NULL, 0u, NULL, 0u, 1u,
 };
 
 static bool sl_guard_eval(sc_guard_id_t g, const sc_runtime_t *rt, const sc_event_t *ev)
@@ -183,7 +186,7 @@ static sc_status_t sl_action_exec(sc_action_id_t a, sc_runtime_t *rt, const sc_e
 static bool sl_timeout_due(sc_state_id_t state, const sc_runtime_t *rt)
 {
     (void)state;
-    return (rt->now - rt->state_entered_at) >= 5u;
+    return (rt->now - rt->active[0].entered_at) >= 5u;
 }
 
 #define SC_MACHINE_PREFIX sl

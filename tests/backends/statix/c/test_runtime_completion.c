@@ -16,12 +16,13 @@ typedef struct {
 
 typedef struct {
     sc_runtime_t runtime;
+    sc_activation_t active[1];
 } tc_t;
 
 /* Machine: A(0, entry=act2) --completion/act1--> B(1). */
 static const sc_state_def_t tc_states[] = {
-    {2u, SC_ACTION_NONE, SC_STATE_INVALID, SC_STATE_INVALID, false},
-    {SC_ACTION_NONE, SC_ACTION_NONE, SC_STATE_INVALID, SC_STATE_INVALID, false},
+    {2u, SC_ACTION_NONE, SC_STATE_INVALID, SC_STATE_INVALID, false, 0u, SC_STATE_INVALID, 0u},
+    {SC_ACTION_NONE, SC_ACTION_NONE, SC_STATE_INVALID, SC_STATE_INVALID, false, 0u, SC_STATE_INVALID, 0u},
 };
 
 static const sc_transition_t tc_transitions[] = {
@@ -37,6 +38,9 @@ static const sc_machine_t tc_machine = {
     1u,
     NULL,
     0u,
+    NULL,
+    0u,
+    1u,
 };
 
 static bool tc_guard_eval(sc_guard_id_t g, const sc_runtime_t *rt, const sc_event_t *ev)
@@ -67,7 +71,7 @@ static sc_status_t tc_action_exec(sc_action_id_t a, sc_runtime_t *rt, const sc_e
 
 /* Cycle machine: A(0) --completion[guard true]--> A(0) => step limit. */
 static const sc_state_def_t cy_states[] = {
-    {SC_ACTION_NONE, SC_ACTION_NONE, SC_STATE_INVALID, SC_STATE_INVALID, false},
+    {SC_ACTION_NONE, SC_ACTION_NONE, SC_STATE_INVALID, SC_STATE_INVALID, false, 0u, SC_STATE_INVALID, 0u},
 };
 
 static const sc_transition_t cy_transitions[] = {
@@ -83,10 +87,14 @@ static const sc_machine_t cy_machine = {
     1u,
     NULL,
     0u,
+    NULL,
+    0u,
+    1u,
 };
 
 typedef struct {
     sc_runtime_t runtime;
+    sc_activation_t active[1];
 } cy_t;
 
 typedef struct {

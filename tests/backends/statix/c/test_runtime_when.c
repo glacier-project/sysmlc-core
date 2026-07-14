@@ -21,7 +21,7 @@ static int g_failures = 0;
     } while (0)
 
 static const sc_state_def_t g_states[] = {
-    {SC_ACTION_NONE, SC_ACTION_NONE, SC_STATE_INVALID, SC_STATE_INVALID, false},
+    {SC_ACTION_NONE, SC_ACTION_NONE, SC_STATE_INVALID, SC_STATE_INVALID, false, 0u, SC_STATE_INVALID, 0u},
 };
 
 /* A single internal (target = SC_STATE_INVALID) transition, sourced at the
@@ -32,13 +32,14 @@ static const sc_transition_t g_internal_transitions[] = {
 };
 
 static const sc_machine_t g_internal_machine = {
-    g_internal_transitions, g_states, 1u, 1u, 0u, 1u, NULL, 0u,
+    g_internal_transitions, g_states, 1u, 1u, 0u, 1u, NULL, 0u, NULL, 0u, 1u,
 };
 
 static void test_bind_accepts_internal_transition_target(void)
 {
     sc_runtime_t runtime;
-    CHECK(sc_runtime_bind(&runtime, &g_internal_machine, NULL) == SC_STATUS_OK);
+    sc_activation_t active[1];
+    CHECK(sc_runtime_bind(&runtime, &g_internal_machine, NULL, active, 1u) == SC_STATUS_OK);
 }
 
 static const sc_transition_t g_out_of_range_transitions[] = {
@@ -46,23 +47,25 @@ static const sc_transition_t g_out_of_range_transitions[] = {
 };
 
 static const sc_machine_t g_out_of_range_machine = {
-    g_out_of_range_transitions, g_states, 1u, 1u, 0u, 1u, NULL, 0u,
+    g_out_of_range_transitions, g_states, 1u, 1u, 0u, 1u, NULL, 0u, NULL, 0u, 1u,
 };
 
 static void test_bind_still_rejects_a_genuinely_out_of_range_target(void)
 {
     sc_runtime_t runtime;
+    sc_activation_t active[1];
     /* A non-sentinel out-of-range target (5, with only 1 state) must still
      * be rejected -- the fix narrows the exception to SC_STATE_INVALID only. */
-    CHECK(sc_runtime_bind(&runtime, &g_out_of_range_machine, NULL) ==
+    CHECK(sc_runtime_bind(&runtime, &g_out_of_range_machine, NULL, active, 1u) ==
           SC_STATUS_INVALID_ARGUMENT);
 }
 
 static void test_bind_zeroes_every_when_armed_slot(void)
 {
     sc_runtime_t runtime;
+    sc_activation_t active[1];
     uint16_t i;
-    CHECK(sc_runtime_bind(&runtime, &g_internal_machine, NULL) == SC_STATUS_OK);
+    CHECK(sc_runtime_bind(&runtime, &g_internal_machine, NULL, active, 1u) == SC_STATUS_OK);
     for (i = 0u; i < (uint16_t)SC_MAX_WHEN_TRIGGERS; ++i) {
         CHECK(runtime.when_armed[i] == false);
     }
