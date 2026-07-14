@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import logging
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import syside
 
 from sysmlc.errors import UnsupportedConstructError
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +61,15 @@ _COMPARISON_OPERATORS: Final[frozenset[syside.Operator]] = frozenset(
     }
 )
 
+_RELATIONAL_OPERATORS: Final[frozenset[syside.Operator]] = frozenset(
+    {
+        syside.Operator.Less,
+        syside.Operator.LessEqual,
+        syside.Operator.Greater,
+        syside.Operator.GreaterEqual,
+    }
+)
+
 
 class CCodeGenError(UnsupportedConstructError):
     """Raised when the C code generator does not support a construct."""
@@ -85,6 +97,14 @@ class CCodeGen:
     (as a tuple of segment names) is recorded in ``payload_reads``. A
     reference to the whole payload without a sub-feature, or a chain three or
     more segments deep, is rejected.
+
+    When ``enum_resolver`` is provided, a reference whose referent is a
+    ``syside.EnumerationUsage`` (an enum literal, e.g. ``LightColor::red``)
+    renders as the resolver's returned value, regardless of
+    ``allow_context`` or ``attribute_names`` -- an enum literal is never a
+    machine attribute and never needs ``ctx->``. With no resolver
+    configured, an enum-literal referent is rejected loudly rather than
+    mis-rendered as a plain feature name.
     """
 
     def __init__(
@@ -95,12 +115,22 @@ class CCodeGen:
         attribute_names: frozenset[str] = frozenset(),
         real_attributes: frozenset[str] = frozenset(),
         payload_feature: syside.Feature | None = None,
+        enum_resolver: (
+            Callable[[syside.EnumerationUsage], tuple[str, str, bool]] | None
+        ) = None,
+        attribute_c_types: dict[str, str] | None = None,
+        struct_field_types: dict[str, dict[str, str]] | None = None,
+        generated_enum_types: frozenset[str] = frozenset(),
     ) -> None:
         self._ctx = context_var
         self._allow_context = allow_context
         self._attribute_names = attribute_names
         self._real_attributes = real_attributes
         self._payload_feature = payload_feature
+        self._enum_resolver = enum_resolver
+        self._attribute_c_types = attribute_c_types or {}
+        self._struct_field_types = struct_field_types or {}
+        self._generated_enum_types = generated_enum_types
         self.payload_reads: set[tuple[str, ...]] = set()
         self._used_payload = False
         self.needs_math = False
@@ -184,6 +214,15 @@ class CCodeGen:
             raise CCodeGenError(
                 "feature reference has no resolved referent", node=expr
             )
+        if isinstance(ref, syside.EnumerationUsage):
+            if self._enum_resolver is None:
+                raise CCodeGenError(
+                    "enum literal reference with no resolver configured "
+                    "(internal error: statix always wires one)",
+                    node=expr,
+                )
+            _c_type, rendered, _is_generated = self._enum_resolver(ref)
+            return rendered
         if self._payload_feature is not None and ref == self._payload_feature:
             raise CCodeGenError(
                 "whole payload reference without a sub-feature is unsupported "
@@ -271,6 +310,51 @@ class CCodeGen:
             segments.append(feature.name)
         return ".".join(segments)
 
+    def _generated_enum_c_type(self, expr: syside.Expression) -> str | None:
+        """The operand's C type, but only when it is a *generated* enum type.
+
+        Handles three operand shapes: a bare enum-literal reference (asks
+        the resolver directly -- always accurate, even for a definition
+        classified for the first time by this very call); a bare attribute
+        reference (looked up in ``attribute_c_types``); and a composite
+        field chain (walks ``struct_field_types`` from the chain's base
+        attribute). Returns None for anything else (a computed
+        sub-expression, an unresolvable reference, or a resolved type that
+        is native rather than generated) -- the caller then leaves ordinary
+        C relational semantics alone.
+        """
+        if isinstance(expr, syside.FeatureReferenceExpression):
+            ref = expr.referent
+            chain: list[syside.Feature] = []
+        elif isinstance(expr, syside.FeatureChainExpression):
+            operands = expr.operands.collect()
+            op0 = operands[0] if operands else None
+            if not isinstance(op0, syside.FeatureReferenceExpression):
+                return None
+            ref = op0.referent
+            target = expr.target_feature
+            if target is None:
+                return None
+            chain = target.chaining_features.collect() or [target]
+        else:
+            return None
+        if ref is None:
+            return None
+        if isinstance(ref, syside.EnumerationUsage):
+            if chain or self._enum_resolver is None:
+                return None  # a chain off an enum literal cannot occur
+            c_type, _rendered, is_generated = self._enum_resolver(ref)
+            return c_type if is_generated else None
+        if ref.name is None:
+            return None
+        current: str | None = self._attribute_c_types.get(ref.name)
+        for feature in chain:
+            if current is None or feature.name is None:
+                return None
+            fields = self._struct_field_types.get(current)
+            current = None if fields is None else fields.get(feature.name)
+        return current if current in self._generated_enum_types else None
+
     def _emit_operator(
         self, expr: syside.OperatorExpression, parent_precedence: int
     ) -> str:
@@ -290,6 +374,17 @@ class CCodeGen:
     ) -> str:
         token, prec = _BINARY_OPERATORS[expr.operator]
         operands = expr.operands.collect()
+        if expr.operator in _RELATIONAL_OPERATORS:
+            for operand in operands:
+                enum_type = self._generated_enum_c_type(operand)
+                if enum_type is not None:
+                    raise CCodeGenError(
+                        f"relational comparison ({token!r}) involving "
+                        f"generated enum type {enum_type!r} is unsupported; "
+                        "only == and != are supported for symbolic enum "
+                        "values.",
+                        node=expr,
+                    )
         if expr.operator in _COMPARISON_OPERATORS:
             lhs_parent = prec + 1
             rhs_parent = prec + 1

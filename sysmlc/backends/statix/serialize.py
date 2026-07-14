@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Final
+
 from jinja2 import Environment, PackageLoader
 
 from sysmlc.backends.statix.builder import _c_identifier
@@ -12,6 +14,43 @@ from sysmlc.backends.statix.program import (
     CSend,
     CTimeout,
 )
+
+_TRACE_FORMATS: Final[dict[str, tuple[str, str]]] = {
+    "bool": ("%d", "(int)"),
+    "int32_t": ("%d", ""),
+    "double": ("%g", ""),
+}
+
+
+def _trace_fields(program: CProgram) -> list[dict[str, str]]:
+    """Flatten context fields for the runner's trace line.
+
+    Args:
+        program:
+            The program to analyze.
+
+    Returns:
+        list[dict[str, str]]:
+            Each dict has keys ``path``, ``fmt``, and ``cast``.
+
+    """
+    structs_by_name = {s.name: s for s in program.context.structs}
+
+    def walk(path: str, c_type: str) -> list[dict[str, str]]:
+        struct = structs_by_name.get(c_type)
+        if struct is not None:
+            out: list[dict[str, str]] = []
+            for f in struct.fields:
+                out += walk(f"{path}.{f.name}", f.c_type)
+            return out
+        fmt, cast = _TRACE_FORMATS.get(c_type, ("%d", "(int)"))
+        return [{"path": path, "fmt": fmt, "cast": cast}]
+
+    fields: list[dict[str, str]] = []
+    for f in program.context.fields:
+        fields += walk(f.name, f.c_type)
+    return fields
+
 
 _env = Environment(
     loader=PackageLoader("sysmlc.backends.statix", "templates"),
@@ -174,6 +213,14 @@ def _header_view(program: CProgram) -> dict[str, object]:
             _enum_view(f"{p}_guard", _guard_entries(program), guard_docs),
             _enum_view(f"{p}_action", _action_entries(program), action_docs),
         ],
+        "generated_enums": [
+            _enum_view(
+                e.base,
+                [(const, i) for i, const in enumerate(e.literals)],
+                {},
+            )
+            for e in program.enums
+        ],
         "structs": [
             {
                 "name": st.name,
@@ -327,6 +374,7 @@ def _runner_view(program: CProgram) -> dict[str, object]:
         "events": [
             {"name": e, "const": _const(p, "EVENT", e)} for e in program.events
         ],
+        "trace_fields": _trace_fields(program),
     }
 
 

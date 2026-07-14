@@ -273,3 +273,29 @@ def test_sm13_time_trigger_matches_sismic(
     assert statix_leaf == expected_leaf, (
         f"{qn}: statix {statix_leaf!r} != expected {expected_leaf!r}"
     )
+
+
+SM18_CASES = [
+    "SM18::MachineStringEnum",
+    "SM18::MachineRealEnum",
+    "SM18::MachinePlainEnum",
+    "SM18::MachineEnumPayload",
+]
+
+
+@pytest.mark.parametrize("qn", SM18_CASES)
+def test_sm18_enum_literals_match_sismic(
+    sm_models: dict,
+    statix_run: Callable,
+    qn: str,
+) -> None:
+    interpreter = Interpreter(build_statechart(sm_models["sm18"], qn))
+    interpreter.execute()
+    sismic_leaf = sorted(interpreter.configuration)[-1]
+
+    program = build_statix(sm_models["sm18"], qn)
+    statix_leaf = statix_run(program)
+
+    assert statix_leaf == sismic_leaf, (
+        f"{qn}: statix {statix_leaf!r} != sismic {sismic_leaf!r}"
+    )

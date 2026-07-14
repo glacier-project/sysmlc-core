@@ -2,6 +2,7 @@ from sysmlc.backends.statix.program import (
     COMPLETION_EVENT,
     INTERNAL_TARGET,
     CContext,
+    CEnum,
     CField,
     CProgram,
     CState,
@@ -56,3 +57,44 @@ def test_cprogram_supports_when_fields_and_internal_target() -> None:
     assert program.has_when is True
     assert program.when_count == 1
     assert program.transitions[0].target == INTERNAL_TARGET
+
+
+def test_cenum_holds_base_and_ordered_literals() -> None:
+    enum = CEnum(
+        base="sm18_machine_plain_enum_enum_mode",
+        literals=(
+            "SM18_MACHINE_PLAIN_ENUM_ENUM_MODE_IDLE",
+            "SM18_MACHINE_PLAIN_ENUM_ENUM_MODE_BUSY",
+        ),
+    )
+    assert enum.base == "sm18_machine_plain_enum_enum_mode"
+    assert enum.literals[0] == "SM18_MACHINE_PLAIN_ENUM_ENUM_MODE_IDLE"
+
+
+def test_cprogram_enums_defaults_to_empty() -> None:
+    # CProgram already requires many fields; reuse the existing minimal
+    # construction from test_cprogram_holds_a_flat_machine's neighbors.
+    from sysmlc.backends.statix.program import (
+        COMPLETION_EVENT,
+        CContext,
+        CProgram,
+        CState,
+        CTransition,
+    )
+
+    program = CProgram(
+        name="Machine",
+        qualified_name="SM01::Machine",
+        prefix="sm01_machine",
+        states=(CState("idle", entry_action_id=None, exit_action_id=None),),
+        events=(),
+        guards=(),
+        actions=(),
+        transitions=(
+            CTransition("idle", COMPLETION_EVENT, None, None, "idle"),
+        ),
+        context=CContext(fields=(), structs=()),
+        queue_capacity=8,
+        initial="idle",
+    )
+    assert program.enums == ()

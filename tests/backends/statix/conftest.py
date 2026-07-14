@@ -33,6 +33,7 @@ _WANTED = {
     "sm15": "sm15-external",
     "sm16": "sm16-change-trigger",
     "sm17": "sm17-assert-constraints",
+    "sm18": "sm18-enum-literals",
 }
 
 

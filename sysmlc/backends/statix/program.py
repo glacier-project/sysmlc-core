@@ -38,6 +38,26 @@ class CStruct:
 
 
 @dataclass(frozen=True)
+class CEnum:
+    """A generated named C enum type, from one SysML enum definition.
+
+    ``base`` is the generated type's *base* name (``<machine>_enum_<enum>``,
+    e.g. ``sm18_machine_string_enum_enum_light_color``) — **not** the C type
+    name. This mirrors the ``enum_block`` Jinja macro's existing contract
+    (already used for states/events/guards/actions): the macro appends the
+    ``_e``/``_t`` suffixes itself. Code that needs the actual C type name
+    computes ``f"{base}_t"`` explicitly.
+
+    ``literals`` are the generated constant names, in declaration order
+    (values are implicitly 0..N-1, the same convention the macro already
+    uses for the other four categories).
+    """
+
+    base: str
+    literals: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class CContext:
     """The generated application context: struct fields plus nested structs."""
 
@@ -167,6 +187,7 @@ class CProgram:
     timeouts_use_ctx: bool = False
     has_when: bool = False
     when_count: int = 0
+    enums: tuple[CEnum, ...] = ()
 
 
 @dataclass(frozen=True)

@@ -30,8 +30,8 @@ int main(int argc, char **argv)
 
     sm11_machine_mixed_context_init(&ctx);
     status = sm11_machine_mixed_init(&sm, &ctx);
-    (void)printf("init status=%s state=%s final=%d\n", sc_status_str(status),
-                 sm11_machine_mixed_state_name(sm11_machine_mixed_get_state(&sm)), (int)sm11_machine_mixed_is_final(&sm));
+    (void)printf("init status=%s state=%s final=%d ctx.count=%d\n", sc_status_str(status),
+                 sm11_machine_mixed_state_name(sm11_machine_mixed_get_state(&sm)), (int)sm11_machine_mixed_is_final(&sm), ctx.count);
     if (status != SC_STATUS_OK) {
         return 1;
     }
@@ -43,8 +43,8 @@ int main(int argc, char **argv)
             return 2;
         }
         status = sm11_machine_mixed_post(&sm, event_id);
-        (void)printf("event %s status=%s state=%s final=%d\n", argv[i],
-                     sc_status_str(status), sm11_machine_mixed_state_name(sm11_machine_mixed_get_state(&sm)), (int)sm11_machine_mixed_is_final(&sm));
+        (void)printf("event %s status=%s state=%s final=%d ctx.count=%d\n", argv[i],
+                     sc_status_str(status), sm11_machine_mixed_state_name(sm11_machine_mixed_get_state(&sm)), (int)sm11_machine_mixed_is_final(&sm), ctx.count);
         if ((status != SC_STATUS_OK) && (status != SC_STATUS_NO_TRANSITION)) {
             return 1;
         }

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from typing import Final, NamedTuple
 
 import syside
 
@@ -11,6 +12,7 @@ from sysmlc.backends.statix.program import (
     TIMEOUT_EVENT,
     CAction,
     CContext,
+    CEnum,
     CField,
     CGuard,
     CInvariant,
@@ -41,6 +43,7 @@ from sysmlc.semantics.statemachine.facts import (
     WhenTrigger,
 )
 from sysmlc.semantics.statemachine.interface import send_receiver_is_own_port
+from sysmlc.sysml.queries import feature_value
 
 _DEFAULT_QUEUE_CAPACITY = 8
 
@@ -117,6 +120,68 @@ def _c_prefix(qualified_name: str) -> str:
     return _c_identifier(qualified_name.replace("::", "_"))
 
 
+_NATIVE_ENUM_KINDS: Final[dict[type, str]] = {
+    syside.LiteralBoolean: "bool",
+    syside.LiteralInteger: "int32_t",
+    syside.LiteralRational: "double",
+}
+
+_ALLOWED_ENUM_LITERAL_KINDS: Final[tuple[type, ...]] = (
+    syside.LiteralBoolean,
+    syside.LiteralInteger,
+    syside.LiteralRational,
+    syside.LiteralString,
+)
+
+
+def _enumeration_is_structured(
+    definition: syside.EnumerationDefinition,
+) -> bool:
+    """Whether an enum def carries attribute features.
+
+    Mirrors quake's own ``_enumeration_is_structured`` exactly
+    (``sysmlc/backends/quake/codegen.py``): a plain or value-typed
+    enumeration inherits only its implicit ``self`` feature; a structured
+    enumeration (one that specializes an attribute definition) inherits
+    named attribute usages, whose per-literal ``:>>`` redefinitions cannot
+    be projected to a single primitive value.
+    """
+    return any(
+        isinstance(f, syside.AttributeUsage)
+        for f in definition.features.collect()
+    )
+
+
+def _render_native_enum_literal(value: syside.Expression | None) -> str:
+    if isinstance(value, syside.LiteralBoolean):
+        return "true" if value.value else "false"
+    if isinstance(value, syside.LiteralInteger):
+        return str(value.value)
+    if isinstance(value, syside.LiteralRational):
+        return repr(value.value)
+    raise UnsupportedConstructError(
+        "internal error: a native-classified enum literal has no "
+        "renderable declared value"
+    )
+
+
+class _EnumProjection(NamedTuple):
+    """Cached classification outcome for one enum definition.
+
+    ``enum`` is ``None`` for a native Boolean/Integer/Real projection
+    (``c_type`` is then the native scalar name); otherwise it is the emitted
+    :class:`CEnum` and ``c_type`` is its C type name (``f"{enum.base}_t"``).
+    ``constants`` maps each literal's simple name to its generated constant
+    name; empty for the native case (a native literal renders its own declared
+    value instead of a constant name).
+
+    """
+
+    c_type: str
+    enum: CEnum | None
+    constants: dict[str, str]
+
+
 class StatixBuilder:
     """Assemble a C statechart (:class:`CProgram`) from neutral facts.
 
@@ -140,8 +205,10 @@ class StatixBuilder:
         self._prefix = _c_prefix(qualified_name)
         # Guard/action codegen is re-created in result() once the attribute
         # names are known; the init codegen never sees a context pointer.
-        self._gen = CCodeGen()
-        self._init_gen = CCodeGen(allow_context=False)
+        self._gen = CCodeGen(enum_resolver=self._resolve_enum_literal)
+        self._init_gen = CCodeGen(
+            allow_context=False, enum_resolver=self._resolve_enum_literal
+        )
         self._root: StateFact | None = None
         self._state_facts: list[StateFact] = []
         self._transition_facts: list[TransitionFact] = []
@@ -152,6 +219,11 @@ class StatixBuilder:
         self._used_action_names: set[str] = set()
         self._events: dict[str, None] = {}
         self._structs: dict[str, CStruct] = {}
+        self._enum_cache: dict[
+            syside.EnumerationDefinition, _EnumProjection
+        ] = {}
+        self._enum_names: dict[str, syside.EnumerationDefinition] = {}
+        self._enums: dict[str, CEnum] = {}
         self._finals: dict[str, CState] = {}
         self._constraints: list[ConstraintFact] = []
         self._has_send = False
@@ -251,9 +323,14 @@ class StatixBuilder:
         )
         self._attribute_names = frozenset(f.name for f in context.fields)
         self._attribute_c_types = {f.name: f.c_type for f in context.fields}
+        struct_field_types = self._struct_field_types()
         self._gen = CCodeGen(
             attribute_names=self._attribute_names,
             real_attributes=self._real_attribute_names,
+            enum_resolver=self._resolve_enum_literal,
+            attribute_c_types=self._attribute_c_types,
+            struct_field_types=struct_field_types,
+            generated_enum_types=self._generated_enum_type_names(),
         )
         self._payload_reads = self._detect_payload_reads()
         self._assign_when_slots()
@@ -301,6 +378,7 @@ class StatixBuilder:
             initial=root.initial_substate,
             max_depth=max_depth,
             invariants=invariants,
+            enums=tuple(self._enums.values()),
             needs_math=needs_math,
             has_send=self._has_send,
             timeouts=tuple(self._timeouts),
@@ -317,7 +395,20 @@ class StatixBuilder:
             ),
             real_attributes=self._real_attribute_names,
             payload_feature=payload_feature,
+            enum_resolver=self._resolve_enum_literal,
+            attribute_c_types=self._attribute_c_types,
+            struct_field_types=self._struct_field_types(),
+            generated_enum_types=self._generated_enum_type_names(),
         )
+
+    def _struct_field_types(self) -> dict[str, dict[str, str]]:
+        return {
+            name: {f.name: f.c_type for f in struct.fields}
+            for name, struct in self._structs.items()
+        }
+
+    def _generated_enum_type_names(self) -> frozenset[str]:
+        return frozenset(f"{e.base}_t" for e in self._enums.values())
 
     def _detect_payload_reads(self) -> dict[str, tuple[str, ...]]:
         """Map event name -> read payload path, before lowering sends.
@@ -385,6 +476,13 @@ class StatixBuilder:
             return "int32_t"
         if isinstance(value, syside.LiteralRational):
             return "double"
+        if isinstance(value, syside.FeatureReferenceExpression) and isinstance(
+            value.referent, syside.EnumerationUsage
+        ):
+            c_type, _rendered, _is_generated = self._resolve_enum_literal(
+                value.referent
+            )
+            return c_type
         raise UnsupportedConstructError(
             f"attribute {name!r} has no scalar literal default; statix "
             "iteration 1 infers a C type from a Boolean/Integer/Real literal "
@@ -423,6 +521,110 @@ class StatixBuilder:
                 rendered = self._init_gen.render_expression(field_value)
             parts.append(f".{field_name} = {rendered}")
         return "{" + ", ".join(parts) + "}"
+
+    def _resolve_enum_literal(
+        self, literal: syside.EnumerationUsage
+    ) -> tuple[str, str, bool]:
+        """Resolve one enum-literal reference: (c_type, rendered, is_generated).
+
+        The single entry point every ``CCodeGen`` instance calls back into
+        (via the ``enum_resolver`` hook) and that ``_scalar_c_type`` also
+        calls directly for an attribute default's own type. Classification
+        of the owning definition happens at most once (cached in
+        ``self._enum_cache``), the first time any of its literals is seen.
+        """
+        owner = literal.owner
+        if not isinstance(owner, syside.EnumerationDefinition):
+            raise UnsupportedConstructError(
+                "enum literal is not owned by an enumeration definition",
+                node=literal,
+            )
+        projection = self._enum_cache.get(owner)
+        if projection is None:
+            projection = self._classify_enum(owner)
+            self._enum_cache[owner] = projection
+        assert literal.name is not None
+        if projection.enum is None:
+            value = feature_value(literal)
+            return projection.c_type, _render_native_enum_literal(value), False
+        return projection.c_type, projection.constants[literal.name], True
+
+    def _classify_enum(
+        self, owner: syside.EnumerationDefinition
+    ) -> _EnumProjection:
+        if _enumeration_is_structured(owner):
+            raise UnsupportedConstructError(
+                f"enumeration {owner.name!r} is structured (its literals "
+                "carry attribute values); statix does not support "
+                "structured enumerations.",
+                node=owner,
+            )
+        assert owner.name is not None
+        base = f"{self._prefix}_enum_{_c_identifier(owner.name)}"
+        known_owner = self._enum_names.get(base)
+        if known_owner is not None and known_owner is not owner:
+            raise UnsupportedConstructError(
+                f"enum definitions {known_owner.name!r} and {owner.name!r} "
+                f"both sanitize to {base!r} after C-identifier "
+                "sanitization; rename one.",
+                node=owner,
+            )
+        self._enum_names[base] = owner
+        members = [
+            m
+            for m in owner.owned_members.collect()
+            if isinstance(m, syside.EnumerationUsage)
+        ]
+        values = [(m, feature_value(m)) for m in members]
+        non_none = [(m, v) for m, v in values if v is not None]
+        if not non_none:
+            return self._build_generated_enum(base, members)
+        if len(non_none) != len(values):
+            raise UnsupportedConstructError(
+                f"enumeration {owner.name!r}: some literals declare a "
+                "value and some do not; every literal must share one "
+                "declared-value kind, or none may declare one.",
+                node=owner,
+            )
+        for m, v in non_none:
+            if not isinstance(v, _ALLOWED_ENUM_LITERAL_KINDS):
+                raise UnsupportedConstructError(
+                    f"enumeration {owner.name!r}, literal {m.name!r}: "
+                    "declared value is not a bare Boolean/Integer/Real/"
+                    "String literal (e.g. a computed expression); only "
+                    "bare literal defaults are supported.",
+                    node=m,
+                )
+        kinds = {type(v) for _, v in non_none}
+        if len(kinds) != 1:
+            raise UnsupportedConstructError(
+                f"enumeration {owner.name!r}: declared values mix "
+                "different literal kinds; every literal must share one "
+                "declared-value kind.",
+                node=owner,
+            )
+        kind = next(iter(kinds))
+        if kind is syside.LiteralString:
+            return self._build_generated_enum(base, members)
+        return _EnumProjection(
+            c_type=_NATIVE_ENUM_KINDS[kind], enum=None, constants={}
+        )
+
+    def _build_generated_enum(
+        self, base: str, members: list[syside.EnumerationUsage]
+    ) -> _EnumProjection:
+        constants: dict[str, str] = {}
+        literals: list[str] = []
+        for m in members:
+            assert m.name is not None
+            const = f"{base.upper()}_{_c_identifier(m.name).upper()}"
+            constants[m.name] = const
+            literals.append(const)
+        enum = CEnum(base=base, literals=tuple(literals))
+        self._enums[base] = enum
+        return _EnumProjection(
+            c_type=f"{base}_t", enum=enum, constants=constants
+        )
 
     # -- states / transitions --
 
