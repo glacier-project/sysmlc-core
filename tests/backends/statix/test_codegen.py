@@ -13,9 +13,7 @@ from sysmlc.semantics.statemachine.facts import CompositeValue, SignalTrigger
 from sysmlc.sysml.loading import load_model
 
 _DEEPCHAIN = Path(__file__).resolve().parent / "fixtures" / "deepchain"
-_ENUMCOMPOSITE = (
-    Path(__file__).resolve().parent / "fixtures" / "enumcomposite"
-)
+_ENUMCOMPOSITE = Path(__file__).resolve().parent / "fixtures" / "enumcomposite"
 _ENUMREJECT = Path(__file__).resolve().parent / "fixtures" / "enumreject"
 
 
@@ -99,6 +97,7 @@ def test_enum_literal_reference_ignores_allow_context(
         v for name, v in box_binding.value.fields if name == "color"
     ]
     gen = CCodeGen(allow_context=False, enum_resolver=resolver)
+    assert isinstance(color_value, syside.Expression)
     assert gen.render_expression(color_value) == "MY_CONST_RED"
 
 
@@ -109,7 +108,6 @@ def test_enum_literal_reference_with_no_resolver_raises(
     # must fail loud, never silently mis-render as a plain feature name.
     with pytest.raises(UnsupportedConstructError):
         _guards(sm_models["sm18"], "SM18::MachineStringEnum")
-
 
 
 def test_boolean_ref_guard(sm_models: dict) -> None:
@@ -276,9 +274,7 @@ def test_relational_against_generated_enum_literal_is_rejected() -> None:
         _guards(model, "ENUMREJECT::MachineRelationalLiteral", gen)
 
 
-def test_relational_between_two_generated_enum_attributes_is_rejected() -> (
-    None
-):
+def test_relational_between_two_generated_enum_attributes_is_rejected() -> None:
     # Neither operand is itself a literal reference (referent is
     # AttributeUsage for both c1 and c2) -- only the type-aware check
     # (attribute_c_types + generated_enum_types) catches this.
@@ -325,4 +321,3 @@ def test_relational_between_two_enum_valued_composite_fields_is_rejected() -> (
     )
     with pytest.raises(UnsupportedConstructError):
         _guards(model, "ENUMREJECT::MachineRelationalCompositeFields", gen)
-

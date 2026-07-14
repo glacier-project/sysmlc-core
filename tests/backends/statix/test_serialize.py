@@ -21,9 +21,7 @@ from sysmlc.backends.statix.serialize import (
 from sysmlc.sysml.loading import load_model
 
 SerializedCode = namedtuple("SerializedCode", ["header", "source"])
-_ENUMCOMPOSITE = (
-    Path(__file__).resolve().parent / "fixtures" / "enumcomposite"
-)
+_ENUMCOMPOSITE = Path(__file__).resolve().parent / "fixtures" / "enumcomposite"
 
 
 def serialize_statix(program: CProgram) -> SerializedCode:
@@ -351,12 +349,8 @@ def test_generated_enum_typedef_precedes_structs_and_context(
     enum_idx = header.index(
         "enumcomposite_machine_enum_composite_enum_light_color_e"
     )
-    struct_idx = header.index(
-        "enumcomposite_machine_enum_composite_holder_t"
-    )
-    context_idx = header.index(
-        "enumcomposite_machine_enum_composite_context_s"
-    )
+    struct_idx = header.index("enumcomposite_machine_enum_composite_holder_t")
+    context_idx = header.index("enumcomposite_machine_enum_composite_context_s")
     assert enum_idx < struct_idx < context_idx
     assert program.enums  # sanity: the model actually produced one
 
@@ -364,15 +358,9 @@ def test_generated_enum_typedef_precedes_structs_and_context(
 def test_generated_enum_typedef_naming(sm_models: dict) -> None:
     files, d, s = _files_for(sm_models["sm18"], "SM18::MachinePlainEnum")
     header = files[f"include/{d}/{s}.h"]
-    assert (
-        "typedef enum sm18_machine_plain_enum_enum_mode_e {" in header
-    )
-    assert (
-        "SM18_MACHINE_PLAIN_ENUM_ENUM_MODE_IDLE = 0" in header
-    )
-    assert (
-        "SM18_MACHINE_PLAIN_ENUM_ENUM_MODE_BUSY = 1" in header
-    )
+    assert "typedef enum sm18_machine_plain_enum_enum_mode_e {" in header
+    assert "SM18_MACHINE_PLAIN_ENUM_ENUM_MODE_IDLE = 0" in header
+    assert "SM18_MACHINE_PLAIN_ENUM_ENUM_MODE_BUSY = 1" in header
     assert "} sm18_machine_plain_enum_enum_mode_t;" in header
 
 
@@ -380,4 +368,3 @@ def test_no_enum_usage_emits_no_generated_enum_block(sm_models: dict) -> None:
     files, d, s = _files_for(sm_models["sm01"], "SM01::Machine")
     header = files[f"include/{d}/{s}.h"]
     assert "_enum_" not in header
-

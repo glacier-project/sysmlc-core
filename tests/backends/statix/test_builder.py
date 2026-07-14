@@ -7,7 +7,6 @@ from sysmlc.backends.statix.program import (
     COMPLETION_EVENT,
     INTERNAL_TARGET,
     TIMEOUT_EVENT,
-    CEnum,
     CProgram,
     CSend,
 )
@@ -20,9 +19,7 @@ _DEEPCHAIN = Path(__file__).resolve().parent / "fixtures" / "deepchain"
 _TIMERREJECT = Path(__file__).resolve().parent / "fixtures" / "timerreject"
 _WHENREJECT = Path(__file__).resolve().parent / "fixtures" / "whenreject"
 _ENUMREJECT = Path(__file__).resolve().parent / "fixtures" / "enumreject"
-_ENUMCOMPOSITE = (
-    Path(__file__).resolve().parent / "fixtures" / "enumcomposite"
-)
+_ENUMCOMPOSITE = Path(__file__).resolve().parent / "fixtures" / "enumcomposite"
 
 
 def test_helloworld_is_two_states_one_completion(sm_models: dict) -> None:
@@ -668,8 +665,7 @@ def test_enum_valued_composite_field_resolves(sm_models: dict) -> None:
     )
     box_field = next(f for f in program.context.fields if f.name == "box")
     assert box_field.init == (
-        "{.color = "
-        "ENUMCOMPOSITE_MACHINE_ENUM_COMPOSITE_ENUM_LIGHT_COLOR_RED}"
+        "{.color = ENUMCOMPOSITE_MACHINE_ENUM_COMPOSITE_ENUM_LIGHT_COLOR_RED}"
     )
     assert program.guards[0].expr == (
         "ctx->box.color == "
@@ -709,11 +705,7 @@ def test_relational_literal_comparison_against_generated_enum_is_rejected() -> (
         build_statix(model, "ENUMREJECT::MachineRelationalLiteral")
 
 
-def test_relational_attribute_to_attribute_generated_enum_is_rejected() -> (
-    None
-):
+def test_relational_attribute_to_attribute_generated_enum_is_rejected() -> None:
     model = load_model(_ENUMREJECT)
     with pytest.raises(UnsupportedConstructError, match="relational"):
         build_statix(model, "ENUMREJECT::MachineRelationalAttributes")
-
-

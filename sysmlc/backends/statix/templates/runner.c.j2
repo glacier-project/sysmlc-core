@@ -1,3 +1,9 @@
+{% macro trace_fmt() -%}
+{% for f in trace_fields %} ctx.{{ f.path }}={{ f.fmt }}{% endfor %}
+{%- endmacro %}
+{% macro trace_args() -%}
+{% for f in trace_fields %}, {{ f.cast }}ctx.{{ f.path }}{% endfor %}
+{%- endmacro %}
 {{ banner }}
 #include "{{ pkg_dir }}/{{ stem }}.h"
 
@@ -48,6 +54,26 @@ static bool {{ prefix }}_parse_tick(const char *arg, sc_time_t *out_tick)
     *out_tick = (sc_time_t)parsed;
     return true;
 }
+
+static bool {{ prefix }}_parse_advance(const char *arg, unsigned long *out_count)
+{
+    unsigned long parsed;
+    char *end = NULL;
+    if ((arg == NULL) || (out_count == NULL) || (strncmp(arg, "advance:", 8) != 0)) {
+        return false;
+    }
+    if ((arg[8] == '\0') || (arg[8] == '-')) {
+        /* Reject "advance:" with no digits, and a negative value outright,
+         * for the same reason _parse_tick rejects them. */
+        return false;
+    }
+    parsed = strtoul(arg + 8, &end, 10);
+    if ((end == NULL) || (*end != '\0')) {
+        return false;
+    }
+    *out_count = parsed;
+    return true;
+}
 {% endif %}
 
 int main(int argc, char **argv)
@@ -56,11 +82,14 @@ int main(int argc, char **argv)
     {{ prefix }}_t sm;
     sc_status_t status;
     int i;
+{% if has_timer %}
+    sc_time_t current_tick = 0u;
+{% endif %}
 
     {{ prefix }}_context_init(&ctx);
     status = {{ prefix }}_init(&sm, &ctx);
-    (void)printf("init status=%s state=%s final=%d\n", sc_status_str(status),
-                 {{ prefix }}_state_name({{ prefix }}_get_state(&sm)), (int){{ prefix }}_is_final(&sm));
+    (void)printf("init status=%s state=%s final=%d{{ trace_fmt() }}\n", sc_status_str(status),
+                 {{ prefix }}_state_name({{ prefix }}_get_state(&sm)), (int){{ prefix }}_is_final(&sm){{ trace_args() }});
     if (status != SC_STATUS_OK) {
         return 1;
     }
@@ -69,13 +98,33 @@ int main(int argc, char **argv)
         sc_event_id_t event_id = SC_EVENT_INVALID;
 {% if has_timer %}
         sc_time_t tick_value;
+        unsigned long advance_count;
         if ({{ prefix }}_parse_tick(argv[i], &tick_value)) {
-            status = {{ prefix }}_tick(&sm, tick_value);
-            (void)printf("tick %lu status=%s state=%s final=%d\n",
-                         (unsigned long)tick_value, sc_status_str(status),
-                         {{ prefix }}_state_name({{ prefix }}_get_state(&sm)), (int){{ prefix }}_is_final(&sm));
+            current_tick = tick_value;
+            status = {{ prefix }}_tick(&sm, current_tick);
+            (void)printf("tick %lu status=%s state=%s final=%d{{ trace_fmt() }}\n",
+                         (unsigned long)current_tick, sc_status_str(status),
+                         {{ prefix }}_state_name({{ prefix }}_get_state(&sm)), (int){{ prefix }}_is_final(&sm){{ trace_args() }});
             if ((status != SC_STATUS_OK) && (status != SC_STATUS_NO_TRANSITION)) {
                 return 1;
+            }
+            continue;
+        }
+        if ({{ prefix }}_parse_advance(argv[i], &advance_count)) {
+            unsigned long step;
+            for (step = 0u; step < advance_count; ++step) {
+                if (current_tick > (sc_time_t)(SC_TIME_MAX - (sc_time_t)SC_TICKS_PER_SECOND)) {
+                    (void)fprintf(stderr, "advance: tick value would exceed SC_TIME_MAX\n");
+                    return 1;
+                }
+                current_tick = (sc_time_t)(current_tick + (sc_time_t)SC_TICKS_PER_SECOND);
+                status = {{ prefix }}_tick(&sm, current_tick);
+                (void)printf("advance %lu status=%s state=%s final=%d{{ trace_fmt() }}\n",
+                             (unsigned long)current_tick, sc_status_str(status),
+                             {{ prefix }}_state_name({{ prefix }}_get_state(&sm)), (int){{ prefix }}_is_final(&sm){{ trace_args() }});
+                if ((status != SC_STATUS_OK) && (status != SC_STATUS_NO_TRANSITION)) {
+                    return 1;
+                }
             }
             continue;
         }
@@ -85,8 +134,8 @@ int main(int argc, char **argv)
             return 2;
         }
         status = {{ prefix }}_post(&sm, event_id);
-        (void)printf("event %s status=%s state=%s final=%d\n", argv[i],
-                     sc_status_str(status), {{ prefix }}_state_name({{ prefix }}_get_state(&sm)), (int){{ prefix }}_is_final(&sm));
+        (void)printf("event %s status=%s state=%s final=%d{{ trace_fmt() }}\n", argv[i],
+                     sc_status_str(status), {{ prefix }}_state_name({{ prefix }}_get_state(&sm)), (int){{ prefix }}_is_final(&sm){{ trace_args() }});
         if ((status != SC_STATUS_OK) && (status != SC_STATUS_NO_TRANSITION)) {
             return 1;
         }

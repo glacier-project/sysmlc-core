@@ -299,4 +299,3 @@ def test_sm18_enum_literals_match_sismic(
     assert statix_leaf == sismic_leaf, (
         f"{qn}: statix {statix_leaf!r} != sismic {sismic_leaf!r}"
     )
-

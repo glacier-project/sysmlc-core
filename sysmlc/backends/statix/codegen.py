@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import syside
 
 from sysmlc.errors import UnsupportedConstructError
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 

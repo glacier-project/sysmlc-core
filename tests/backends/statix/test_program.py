@@ -2,6 +2,7 @@ from sysmlc.backends.statix.program import (
     COMPLETION_EVENT,
     INTERNAL_TARGET,
     CContext,
+    CEnum,
     CField,
     CProgram,
     CState,
@@ -58,9 +59,6 @@ def test_cprogram_supports_when_fields_and_internal_target() -> None:
     assert program.transitions[0].target == INTERNAL_TARGET
 
 
-from sysmlc.backends.statix.program import CEnum
-
-
 def test_cenum_holds_base_and_ordered_literals() -> None:
     enum = CEnum(
         base="sm18_machine_plain_enum_enum_mode",
@@ -100,4 +98,3 @@ def test_cprogram_enums_defaults_to_empty() -> None:
         initial="idle",
     )
     assert program.enums == ()
-

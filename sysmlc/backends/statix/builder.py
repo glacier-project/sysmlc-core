@@ -25,7 +25,6 @@ from sysmlc.backends.statix.program import (
     CTransition,
 )
 from sysmlc.codegen.python import payload_signature
-from sysmlc.sysml.queries import feature_value
 from sysmlc.errors import UnsupportedConstructError
 from sysmlc.semantics.statemachine import actions
 from sysmlc.semantics.statemachine.driver import StateMachineDriver
@@ -44,6 +43,7 @@ from sysmlc.semantics.statemachine.facts import (
     WhenTrigger,
 )
 from sysmlc.semantics.statemachine.interface import send_receiver_is_own_port
+from sysmlc.sysml.queries import feature_value
 
 _DEFAULT_QUEUE_CAPACITY = 8
 
@@ -166,15 +166,15 @@ def _render_native_enum_literal(value: syside.Expression | None) -> str:
 
 
 class _EnumProjection(NamedTuple):
-    """Cached classification outcome for one enum definition (see §1 of
-    docs/superpowers/specs/2026-07-13-statix-enum-literals-design.md).
+    """Cached classification outcome for one enum definition.
 
     ``enum`` is ``None`` for a native Boolean/Integer/Real projection
-    (``c_type`` is then the native scalar name); otherwise it is the
-    emitted :class:`CEnum` and ``c_type`` is its C type name
-    (``f"{enum.base}_t"``). ``constants`` maps each literal's simple name to
-    its generated constant name; empty for the native case (a native
-    literal renders its own declared value instead of a constant name).
+    (``c_type`` is then the native scalar name); otherwise it is the emitted
+    :class:`CEnum` and ``c_type`` is its C type name (``f"{enum.base}_t"``).
+    ``constants`` maps each literal's simple name to its generated constant
+    name; empty for the native case (a native literal renders its own declared
+    value instead of a constant name).
+
     """
 
     c_type: str
@@ -219,7 +219,9 @@ class StatixBuilder:
         self._used_action_names: set[str] = set()
         self._events: dict[str, None] = {}
         self._structs: dict[str, CStruct] = {}
-        self._enum_cache: dict[syside.EnumerationDefinition, _EnumProjection] = {}
+        self._enum_cache: dict[
+            syside.EnumerationDefinition, _EnumProjection
+        ] = {}
         self._enum_names: dict[str, syside.EnumerationDefinition] = {}
         self._enums: dict[str, CEnum] = {}
         self._finals: dict[str, CState] = {}
@@ -474,9 +476,9 @@ class StatixBuilder:
             return "int32_t"
         if isinstance(value, syside.LiteralRational):
             return "double"
-        if isinstance(
-            value, syside.FeatureReferenceExpression
-        ) and isinstance(value.referent, syside.EnumerationUsage):
+        if isinstance(value, syside.FeatureReferenceExpression) and isinstance(
+            value.referent, syside.EnumerationUsage
+        ):
             c_type, _rendered, _is_generated = self._resolve_enum_literal(
                 value.referent
             )
@@ -620,7 +622,9 @@ class StatixBuilder:
             literals.append(const)
         enum = CEnum(base=base, literals=tuple(literals))
         self._enums[base] = enum
-        return _EnumProjection(c_type=f"{base}_t", enum=enum, constants=constants)
+        return _EnumProjection(
+            c_type=f"{base}_t", enum=enum, constants=constants
+        )
 
     # -- states / transitions --
 
