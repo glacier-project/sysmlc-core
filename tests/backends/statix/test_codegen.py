@@ -8,10 +8,13 @@ from sysmlc.codegen.python import LIBRARY_FUNCTIONS
 from sysmlc.errors import UnsupportedConstructError
 from sysmlc.semantics.statemachine import actions
 from sysmlc.semantics.statemachine.driver import StateMachineDriver
-from sysmlc.semantics.statemachine.facts import SignalTrigger
+from sysmlc.semantics.statemachine.facts import CompositeValue, SignalTrigger
 from sysmlc.sysml.loading import load_model
 
 _DEEPCHAIN = Path(__file__).resolve().parent / "fixtures" / "deepchain"
+_ENUMCOMPOSITE = (
+    Path(__file__).resolve().parent / "fixtures" / "enumcomposite"
+)
 
 
 class _FactSink:
@@ -31,14 +34,80 @@ class _FactSink:
         return None
 
 
-def _guards(model: syside.Model, qn: str) -> list[str]:
+def _guards(
+    model: syside.Model, qn: str, gen: CCodeGen | None = None
+) -> list[str]:
     """Return rendered guards for every guarded transition of a state def."""
-    gen = CCodeGen()
+    gen = gen or CCodeGen()
     facts: list = []
     StateMachineDriver(model).run(qn, _FactSink(facts))
     return [
         gen.render_expression(t.guard) for t in facts if t.guard is not None
     ]
+
+
+def test_enum_literal_reference_uses_resolver(sm_models: dict) -> None:
+    calls: list[str] = []
+
+    def resolver(
+        literal: syside.EnumerationUsage,
+    ) -> tuple[str, str, bool]:
+        assert literal.name is not None
+        calls.append(literal.name)
+        return "my_enum_t", f"MY_CONST_{literal.name.upper()}", True
+
+    gen = CCodeGen(attribute_names=frozenset({"c"}), enum_resolver=resolver)
+    guards = _guards(sm_models["sm18"], "SM18::MachineStringEnum", gen)
+    assert guards == ["ctx->c == MY_CONST_GREEN"]
+    assert calls == ["green"]
+
+
+def test_enum_literal_reference_ignores_allow_context(
+    sm_models: dict,
+) -> None:
+    # A composite field's own default (e.g. Holder.color = LightColor::red)
+    # is rendered through an allow_context=False generator (_init_gen); the
+    # enum-literal branch must resolve before the allow_context rejection,
+    # not after -- otherwise every enum-valued composite field would break.
+    def resolver(
+        literal: syside.EnumerationUsage,
+    ) -> tuple[str, str, bool]:
+        assert literal.name == "red"
+        return "my_enum_t", "MY_CONST_RED", True
+
+    attributes: list = []
+
+    class _AttrSink:
+        def bind_attribute(self, b: object) -> None:
+            attributes.append(b)
+
+        def bind_constraint(self, c: object) -> None: ...
+        def add_state(self, s: object) -> None: ...
+        def add_transition(self, t: object) -> None: ...
+        def result(self) -> object:
+            return None
+
+    enumcomposite = load_model(_ENUMCOMPOSITE)
+    StateMachineDriver(enumcomposite).run(
+        "ENUMCOMPOSITE::MachineEnumComposite", _AttrSink()
+    )
+    (box_binding,) = [b for b in attributes if b.name == "box"]
+    assert isinstance(box_binding.value, CompositeValue)
+    (color_value,) = [
+        v for name, v in box_binding.value.fields if name == "color"
+    ]
+    gen = CCodeGen(allow_context=False, enum_resolver=resolver)
+    assert gen.render_expression(color_value) == "MY_CONST_RED"
+
+
+def test_enum_literal_reference_with_no_resolver_raises(
+    sm_models: dict,
+) -> None:
+    # No enum_resolver configured (the default): an enum-literal referent
+    # must fail loud, never silently mis-render as a plain feature name.
+    with pytest.raises(UnsupportedConstructError):
+        _guards(sm_models["sm18"], "SM18::MachineStringEnum")
+
 
 
 def test_boolean_ref_guard(sm_models: dict) -> None:

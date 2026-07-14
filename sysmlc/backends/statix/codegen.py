@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import Final
 
 import syside
@@ -85,6 +86,14 @@ class CCodeGen:
     (as a tuple of segment names) is recorded in ``payload_reads``. A
     reference to the whole payload without a sub-feature, or a chain three or
     more segments deep, is rejected.
+
+    When ``enum_resolver`` is provided, a reference whose referent is a
+    ``syside.EnumerationUsage`` (an enum literal, e.g. ``LightColor::red``)
+    renders as the resolver's returned value, regardless of
+    ``allow_context`` or ``attribute_names`` -- an enum literal is never a
+    machine attribute and never needs ``ctx->``. With no resolver
+    configured, an enum-literal referent is rejected loudly rather than
+    mis-rendered as a plain feature name.
     """
 
     def __init__(
@@ -95,12 +104,22 @@ class CCodeGen:
         attribute_names: frozenset[str] = frozenset(),
         real_attributes: frozenset[str] = frozenset(),
         payload_feature: syside.Feature | None = None,
+        enum_resolver: (
+            Callable[[syside.EnumerationUsage], tuple[str, str, bool]] | None
+        ) = None,
+        attribute_c_types: dict[str, str] | None = None,
+        struct_field_types: dict[str, dict[str, str]] | None = None,
+        generated_enum_types: frozenset[str] = frozenset(),
     ) -> None:
         self._ctx = context_var
         self._allow_context = allow_context
         self._attribute_names = attribute_names
         self._real_attributes = real_attributes
         self._payload_feature = payload_feature
+        self._enum_resolver = enum_resolver
+        self._attribute_c_types = attribute_c_types or {}
+        self._struct_field_types = struct_field_types or {}
+        self._generated_enum_types = generated_enum_types
         self.payload_reads: set[tuple[str, ...]] = set()
         self._used_payload = False
         self.needs_math = False
@@ -184,6 +203,15 @@ class CCodeGen:
             raise CCodeGenError(
                 "feature reference has no resolved referent", node=expr
             )
+        if isinstance(ref, syside.EnumerationUsage):
+            if self._enum_resolver is None:
+                raise CCodeGenError(
+                    "enum literal reference with no resolver configured "
+                    "(internal error: statix always wires one)",
+                    node=expr,
+                )
+            _c_type, rendered, _is_generated = self._enum_resolver(ref)
+            return rendered
         if self._payload_feature is not None and ref == self._payload_feature:
             raise CCodeGenError(
                 "whole payload reference without a sub-feature is unsupported "
