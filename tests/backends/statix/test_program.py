@@ -98,3 +98,23 @@ def test_cprogram_enums_defaults_to_empty() -> None:
         initial="idle",
     )
     assert program.enums == ()
+
+
+def test_cstate_and_cprogram_carry_parallel_region_fields() -> None:
+    state = CState(
+        name="heating",
+        entry_action_id=None,
+        exit_action_id=None,
+        slot=0,
+        region_first=0,
+        region_count=2,
+    )
+    assert state.slot == 0
+    assert state.region_first == 0
+    assert state.region_count == 2
+
+    leaf = CState(name="idle", entry_action_id=None, exit_action_id=None)
+    assert leaf.slot == 0
+    assert leaf.region_first is None
+    assert leaf.region_count == 0
+
