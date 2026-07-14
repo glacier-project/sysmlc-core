@@ -14,6 +14,7 @@ from sysmlc.sysml.loading import load_model
 pytestmark = pytest.mark.statix
 
 _SELFLOOP = Path(__file__).resolve().parent / "fixtures" / "selfloop"
+_ENUMCOMPOSITE = Path(__file__).resolve().parent / "fixtures" / "enumcomposite"
 
 
 def test_sm01_settles_in_running(sm_models: dict, statix_run: Callable) -> None:
@@ -33,6 +34,19 @@ def test_self_transition_is_external(statix_run: Callable) -> None:
     model = load_model(_SELFLOOP)
     program = build_statix(model, "SELFLOOP::MachineSelfLoop")
     assert statix_run(program, ("E",)) == "b"
+
+
+def test_enum_valued_composite_field_compiles_and_runs(
+    statix_run: Callable,
+) -> None:
+    # Proves the enum-before-nested-struct placement fix (Task 7) end to
+    # end: the generated header must actually compile, not just look right
+    # textually. Uses the fixture-path model directly (not sm_models),
+    # since enumcomposite is a statix-only interaction test, never added to
+    # the shared sm18-enum-literals corpus.
+    model = load_model(_ENUMCOMPOSITE)
+    program = build_statix(model, "ENUMCOMPOSITE::MachineEnumComposite")
+    assert statix_run(program) == "matched"
 
 
 _CAPTURE_HARNESS = """\
