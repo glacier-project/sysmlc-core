@@ -96,6 +96,9 @@ typedef struct sc_state_def_s {
     sc_state_id_t parent;         ///< @brief Enclosing state id, or SC_STATE_INVALID at top level.
     sc_state_id_t initial_child;  ///< @brief Descend target if composite, else SC_STATE_INVALID.
     bool is_final;                ///< @brief True for a synthesized `then done` final state.
+    sc_state_id_t slot;           ///< @brief Activation-array index this state's presence is tracked under.
+    sc_state_id_t region_first;   ///< @brief Index into machine->regions[], or SC_STATE_INVALID.
+    sc_state_id_t region_count;   ///< @brief 0 unless this state is a parallel container.
 } sc_state_def_t;
 
 /// @brief One asserted invariant: a guard checked while its scope is active.
@@ -114,30 +117,46 @@ typedef struct sc_machine_s {
     sc_state_id_t max_depth; ///< @brief Deepest root->leaf path in this chart.
     const sc_invariant_t *invariants; ///< @brief Generated invariant table (never NULL).
     uint16_t invariant_count; ///< @brief Number of invariant rows (may be 0).
+    const sc_state_id_t *regions; ///< @brief Flat region-root id array, sliced per parallel state (never NULL).
+    sc_state_id_t region_row_count; ///< @brief Length of regions[].
+    sc_state_id_t active_capacity; ///< @brief This machine's own generated max-concurrent-leaf bound.
 } sc_machine_t;
+
+/// @brief One concurrently-active leaf's own mutable bookkeeping.
+typedef struct sc_activation_s {
+    sc_state_id_t leaf;      ///< @brief Active state id in this slot, or SC_STATE_INVALID.
+    sc_time_t entered_at;    ///< @brief When this slot's leaf was entered, in `now`'s units.
+    bool timeout_delivered;  ///< @brief Has this slot's after/at occurrence already been checked?
+} sc_activation_t;
 
 /// @brief Common mutable runtime state embedded by generated instances.
 typedef struct sc_runtime_s {
     const sc_machine_t *machine; ///< @brief Borrowed immutable machine definition.
     void *user_data; ///< @brief Opaque caller-owned context pointer.
     sc_event_queue_t *queue; ///< @brief Internal-event queue, or NULL if the machine sends nothing.
-    sc_state_id_t current_state; ///< @brief Current active state id.
+    sc_activation_t *active; ///< @brief Borrowed, machine-embedded activation array.
+    sc_state_id_t active_capacity; ///< @brief Length of active[] (== machine->active_capacity once bound).
     bool initialized; ///< @brief True after successful runtime binding.
     sc_time_t now; ///< @brief Last value passed to _tick (0 until the first call).
-    sc_time_t state_entered_at; ///< @brief When the current leaf was entered, in `now`'s units.
-    bool timeout_delivered; ///< @brief Has this activation's after/at occurrence already been checked?
     bool when_armed[SC_MAX_WHEN_TRIGGERS]; ///< @brief Per-transition `when` armed-observation bits.
 } sc_runtime_t;
 
-/// @brief Bind runtime state to a generated machine and caller-owned context.
+/// @brief Bind runtime state to a generated machine, context, and activation storage.
 ///
-/// Does not run entry actions or completion transitions; generated statechart
-/// units own those machine-specific calls.
+/// Atomic: validates the machine table (as today) plus that `active_capacity`
+/// matches `machine->active_capacity`, clears every activation slot, and only
+/// then sets `initialized = true` -- no partially-bound runtime is ever
+/// observable as initialized (design Sec.3.4). Does not run entry actions or
+/// completion transitions; generated statechart units own those calls.
 /// @param runtime Runtime instance to bind.
 /// @param machine Immutable generated machine definition.
 /// @param user_data Opaque caller-owned context pointer.
+/// @param active Caller-owned (machine-embedded) activation array, length `active_capacity`.
+/// @param active_capacity Length of `active`; must equal `machine->active_capacity`.
 /// @return SC_STATUS_OK on success, or SC_STATUS_INVALID_ARGUMENT.
-sc_status_t sc_runtime_bind(sc_runtime_t *runtime, const sc_machine_t *machine, void *user_data);
+sc_status_t sc_runtime_bind(sc_runtime_t *runtime, const sc_machine_t *machine,
+                            void *user_data, sc_activation_t *active,
+                            sc_state_id_t active_capacity);
 
 /// @brief Write the current state id to an output pointer.
 /// @param runtime Runtime instance to inspect.
@@ -184,6 +203,19 @@ sc_status_t sc_runtime_enqueue_f64(sc_runtime_t *runtime, sc_event_id_t event_id
 ///         unset) if seconds is negative or would overflow sc_time_t at the
 ///         compiled SC_TICKS_PER_SECOND.
 bool sc_seconds_to_ticks(double seconds, sc_time_t *out_ticks);
+
+/// @brief Whether every direct region of a parallel state is in its own local final leaf.
+///
+/// The join intrinsic (design Sec.6): `_find_transition_at` in sc_machine.h
+/// calls this for any completion transition sourced at a parallel state,
+/// rather than routing through the per-machine guard mechanism (guard_eval is
+/// defined before sc_machine.h's SC__FN-mangled helpers exist, so it cannot
+/// call one). Checks exactly one parallel state's direct regions -- does not
+/// recurse into nested parallel (out of scope this increment).
+/// @param runtime Runtime instance to inspect.
+/// @param parallel_state The parallel container's state id.
+/// @return true if every direct region's currently active leaf is final.
+bool sc_runtime_regions_all_final(const sc_runtime_t *runtime, sc_state_id_t parallel_state);
 
 #ifdef __cplusplus
 }
