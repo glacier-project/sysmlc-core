@@ -87,6 +87,10 @@ Each row is a construct statix rejects today; the front-end delivers all of them
   - Example model: sm11, sm17
   - Oracle (quake/Sismic): flat context / per-state
   - rosetta (LF): companion dataclass / planned
+- **L. Enum literal attributes (landed)**
+  - Example model: sm18
+  - Oracle (quake/Sismic): per-literal primitive projection (`_emit_enum_literal`)
+  - rosetta (LF): named enum type via `register_enum` (declared values ignored)
 
 ## The emission model: one self-contained unit per statechart (foundational)
 
@@ -213,6 +217,13 @@ rosetta.
   `sm`-example (none exercises history today) before it can be conformance-gated.
 - **K String / scoped attributes** — String → fixed-size `char[N]` buffers;
   state-scoped attributes → namespaced context fields. Opportunistic.
+- **L Enum literal attributes (landed)** — each enum *definition* is
+  classified once (native Boolean/Integer/Real projection, or a generated
+  named C enum for String-valued/plain definitions); a shared
+  builder-side resolver guarantees the same literal renders identically
+  in an attribute default, a guard, and an effect. Structured
+  enumerations stay rejected; relational comparison against a generated
+  enum is rejected (only `==`/`!=`), including attribute-to-attribute.
 
 ## Phased roadmap
 

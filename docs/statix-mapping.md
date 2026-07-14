@@ -309,6 +309,36 @@ The C type is inferred from the attribute's literal initializer
 (`Boolean`/`Integer`/`Real`), so an attribute needs a default for statix to type
 it in iteration 1.
 
+## 8a. Enum literal attributes
+
+An attribute, guard, or effect may reference an enum literal
+(`Mode::idle`, `LightColor::red`, `GradePoints::A`). Each enum *definition*
+is classified exactly once, the first time any of its literals is
+encountered, into one of three projections:
+
+- **Native** — every literal declares a value, and every declared value is
+  the same one of Boolean/Integer/Real: the attribute's C type is that
+  native scalar, and a literal reference renders as its own declared value
+  (`GradePoints::B` → `3.0`). `g >= GradePoints::B` is a genuinely numeric
+  C comparison.
+- **Generated, String-valued** — every literal declares a String value: a
+  named C enum is generated (`<machine>_enum_<enum>_t`). The declared
+  strings are **never** used as a runtime representation — this preserves
+  only symbolic identity and equality (`==`/`!=`) between literals of that
+  one definition, not general SysML String semantics.
+- **Generated, plain** — no literal declares a value: the same named C enum
+  generation as the String-valued case, with implicit ordinal values
+  (0..N-1) that are an implementation artifact, not a semantic promise —
+  relational comparison (`<`,`<=`,`>`,`>=`) against a generated enum
+  (String-valued or plain) is rejected, even between two enum-typed
+  attributes (`c1 < c2`), where neither operand is itself a literal
+  reference.
+
+Structured enumerations (attribute-carrying, `:>>` redefinitions) are
+always rejected, mirroring `quake`'s exact boundary. Mixed declared-value
+kinds, a computed (non-bare-literal) declared value, and two enum
+definitions colliding after C-identifier sanitization are also rejected.
+
 ## 9. Rejections
 
 statix **never silently drops** a construct: anything outside the supported flat
@@ -317,6 +347,11 @@ iteration 1:
 
 | Construct                                                      | Status                                                                                                   |
 | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| a structured enumeration literal (attribute-carrying, `:>>` redefinitions) | rejected (mirrors quake's exact boundary, §8a) |
+| an enum definition with mixed/incompatible declared-value kinds | rejected (every literal must share one declared-value kind, or none may declare one, §8a) |
+| an enum literal's declared value is a computed expression, not a bare literal | rejected (only bare Boolean/Integer/Real/String literal defaults are supported, §8a) |
+| two enum definitions collide after C-identifier sanitization | rejected (rename one, §8a) |
+| relational comparison (`<`,`<=`,`>`,`>=`) against a generated (String-valued or plain) enum | rejected (only `==`/`!=` are supported for symbolic enum values, §8a) |
 | parallel / history states                                      | rejected (composite/leaf supported)                                                                      |
 | `when` sourced from a composite (non-leaf) state               | rejected (mirrors the after/at leaf-only rule, §4b)                                                      |
 | `when` self-loop (target equals source)                        | rejected (a conservative guardrail, §4b)                                                                 |
