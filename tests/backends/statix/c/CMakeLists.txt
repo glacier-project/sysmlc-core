@@ -60,3 +60,7 @@ add_test(NAME test_runtime_when COMMAND test_runtime_when)
 add_executable(test_runtime_internal_transition test_runtime_internal_transition.c)
 target_link_libraries(test_runtime_internal_transition sc_runtime)
 add_test(NAME test_runtime_internal_transition COMMAND test_runtime_internal_transition)
+
+add_executable(test_runtime_activation test_runtime_activation.c)
+target_link_libraries(test_runtime_activation sc_runtime)
+add_test(NAME test_runtime_activation COMMAND test_runtime_activation)
