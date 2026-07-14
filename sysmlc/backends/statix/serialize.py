@@ -174,6 +174,14 @@ def _header_view(program: CProgram) -> dict[str, object]:
             _enum_view(f"{p}_guard", _guard_entries(program), guard_docs),
             _enum_view(f"{p}_action", _action_entries(program), action_docs),
         ],
+        "generated_enums": [
+            _enum_view(
+                e.base,
+                [(const, i) for i, const in enumerate(e.literals)],
+                {},
+            )
+            for e in program.enums
+        ],
         "structs": [
             {
                 "name": st.name,

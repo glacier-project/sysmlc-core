@@ -39,6 +39,11 @@ extern "C" {
 
 #define {{ prefix|upper }}_QUEUE_CAPACITY {{ queue_capacity }}u
 
+{% for e in generated_enums %}
+/// @brief Generated enum type '{{ e.base }}'.
+{{ enum_block(e) }}
+
+{% endfor %}
 {% for st in structs %}
 /// @brief Generated nested context type {{ st.name }}.
 typedef struct {
