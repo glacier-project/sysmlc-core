@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,7 @@ _DEEPCHAIN = Path(__file__).resolve().parent / "fixtures" / "deepchain"
 _ENUMCOMPOSITE = (
     Path(__file__).resolve().parent / "fixtures" / "enumcomposite"
 )
+_ENUMREJECT = Path(__file__).resolve().parent / "fixtures" / "enumreject"
 
 
 class _FactSink:
@@ -247,3 +249,80 @@ def test_payload_read_without_binding_still_rejected(sm_models: dict) -> None:
     )
     with pytest.raises(UnsupportedConstructError):
         gen.render_expression(t.guard)
+
+
+def _enum_resolver_for(
+    generated: frozenset[str],
+) -> Callable[[syside.EnumerationUsage], tuple[str, str, bool]]:
+    def resolver(
+        literal: syside.EnumerationUsage,
+    ) -> tuple[str, str, bool]:
+        assert literal.name is not None
+        c_type = "relcolor_t"
+        return c_type, f"RELCOLOR_{literal.name.upper()}", c_type in generated
+
+    return resolver
+
+
+def test_relational_against_generated_enum_literal_is_rejected() -> None:
+    model = load_model(_ENUMREJECT)
+    gen = CCodeGen(
+        attribute_names=frozenset({"c"}),
+        attribute_c_types={"c": "relcolor_t"},
+        generated_enum_types=frozenset({"relcolor_t"}),
+        enum_resolver=_enum_resolver_for(frozenset({"relcolor_t"})),
+    )
+    with pytest.raises(UnsupportedConstructError):
+        _guards(model, "ENUMREJECT::MachineRelationalLiteral", gen)
+
+
+def test_relational_between_two_generated_enum_attributes_is_rejected() -> (
+    None
+):
+    # Neither operand is itself a literal reference (referent is
+    # AttributeUsage for both c1 and c2) -- only the type-aware check
+    # (attribute_c_types + generated_enum_types) catches this.
+    model = load_model(_ENUMREJECT)
+    gen = CCodeGen(
+        attribute_names=frozenset({"c1", "c2"}),
+        attribute_c_types={"c1": "relcolor_t", "c2": "relcolor_t"},
+        generated_enum_types=frozenset({"relcolor_t"}),
+    )
+    with pytest.raises(UnsupportedConstructError):
+        _guards(model, "ENUMREJECT::MachineRelationalAttributes", gen)
+
+
+def test_relational_between_native_scalar_attributes_still_works() -> None:
+    # Same shape as the two attributes above (MachineRelationalAttributes'
+    # `c1 < c2` guard), but with a recorded C type that is NOT in
+    # generated_enum_types (the native-projection case, e.g. GradePoints):
+    # the comparison must render normally, not raise. This asserts the
+    # check is keyed on type, not on which attributes happen to be
+    # compared.
+    model = load_model(_ENUMREJECT)
+    gen = CCodeGen(
+        attribute_names=frozenset({"c1", "c2"}),
+        attribute_c_types={"c1": "double", "c2": "double"},
+        generated_enum_types=frozenset({"relcolor_t"}),
+    )
+    guards = _guards(model, "ENUMREJECT::MachineRelationalAttributes", gen)
+    assert guards == ["ctx->c1 < ctx->c2"]
+
+
+def test_relational_between_two_enum_valued_composite_fields_is_rejected() -> (
+    None
+):
+    # b1.shade < b2.shade: both operands are FeatureChainExpressions, not
+    # bare FeatureReferenceExpressions -- exercises _generated_enum_c_type's
+    # chain-walking branch (struct_field_types), distinct from the
+    # bare-attribute-reference branch the two tests above exercise.
+    model = load_model(_ENUMREJECT)
+    gen = CCodeGen(
+        attribute_names=frozenset({"b1", "b2"}),
+        attribute_c_types={"b1": "box_t", "b2": "box_t"},
+        struct_field_types={"box_t": {"shade": "relcolor_t"}},
+        generated_enum_types=frozenset({"relcolor_t"}),
+    )
+    with pytest.raises(UnsupportedConstructError):
+        _guards(model, "ENUMREJECT::MachineRelationalCompositeFields", gen)
+
