@@ -7,6 +7,7 @@ from sysmlc.backends.statix.program import (
     COMPLETION_EVENT,
     INTERNAL_TARGET,
     TIMEOUT_EVENT,
+    CEnum,
     CProgram,
     CSend,
 )
@@ -18,6 +19,10 @@ _INTCALL = Path(__file__).resolve().parent / "fixtures" / "intcall"
 _DEEPCHAIN = Path(__file__).resolve().parent / "fixtures" / "deepchain"
 _TIMERREJECT = Path(__file__).resolve().parent / "fixtures" / "timerreject"
 _WHENREJECT = Path(__file__).resolve().parent / "fixtures" / "whenreject"
+_ENUMREJECT = Path(__file__).resolve().parent / "fixtures" / "enumreject"
+_ENUMCOMPOSITE = (
+    Path(__file__).resolve().parent / "fixtures" / "enumcomposite"
+)
 
 
 def test_helloworld_is_two_states_one_completion(sm_models: dict) -> None:
@@ -593,3 +598,105 @@ def test_when_on_composite_source_is_rejected() -> None:
     model = load_model(_WHENREJECT)
     with pytest.raises(UnsupportedConstructError):
         build_statix(model, "WHENREJECT::MachineWhenOnComposite")
+
+
+def test_native_real_enum_projects_scalar_and_renders_declared_value(
+    sm_models: dict,
+) -> None:
+    program = build_statix(sm_models["sm18"], "SM18::MachineRealEnum")
+    assert any(
+        f.name == "g" and f.c_type == "double" for f in program.context.fields
+    )
+    g_field = next(f for f in program.context.fields if f.name == "g")
+    assert g_field.init == "4.0"  # GradePoints::A
+    assert program.guards[0].expr == "ctx->g >= 3.0"  # GradePoints::B
+    assert program.enums == ()  # no CEnum for a native projection
+
+
+def test_string_enum_projects_generated_enum_and_dedupes_names(
+    sm_models: dict,
+) -> None:
+    program = build_statix(sm_models["sm18"], "SM18::MachineStringEnum")
+    (enum,) = program.enums
+    assert enum.base == "sm18_machine_string_enum_enum_light_color"
+    assert enum.literals == (
+        "SM18_MACHINE_STRING_ENUM_ENUM_LIGHT_COLOR_RED",
+        "SM18_MACHINE_STRING_ENUM_ENUM_LIGHT_COLOR_GREEN",
+        "SM18_MACHINE_STRING_ENUM_ENUM_LIGHT_COLOR_YELLOW",
+    )
+    c_field = next(f for f in program.context.fields if f.name == "c")
+    assert c_field.c_type == "sm18_machine_string_enum_enum_light_color_t"
+    assert c_field.init == "SM18_MACHINE_STRING_ENUM_ENUM_LIGHT_COLOR_RED"
+    # The effect (idle -> green) and the guard (green -> matched) both
+    # reference LightColor::green; both must resolve to the SAME constant.
+    effect = next(a for a in program.actions if "idle_completion" in a.name)
+    assert effect.statements == (
+        "ctx->c = SM18_MACHINE_STRING_ENUM_ENUM_LIGHT_COLOR_GREEN;",
+    )
+    assert (
+        program.guards[0].expr
+        == "ctx->c == SM18_MACHINE_STRING_ENUM_ENUM_LIGHT_COLOR_GREEN"
+    )
+
+
+def test_plain_enum_projects_generated_enum_with_ordinal_constants(
+    sm_models: dict,
+) -> None:
+    program = build_statix(sm_models["sm18"], "SM18::MachinePlainEnum")
+    (enum,) = program.enums
+    assert enum.base == "sm18_machine_plain_enum_enum_mode"
+    assert enum.literals == (
+        "SM18_MACHINE_PLAIN_ENUM_ENUM_MODE_IDLE",
+        "SM18_MACHINE_PLAIN_ENUM_ENUM_MODE_BUSY",
+    )
+    m_field = next(f for f in program.context.fields if f.name == "m")
+    assert m_field.c_type == "sm18_machine_plain_enum_enum_mode_t"
+    assert m_field.init == "SM18_MACHINE_PLAIN_ENUM_ENUM_MODE_IDLE"
+
+
+def test_enum_valued_composite_field_resolves(sm_models: dict) -> None:
+    model = load_model(_ENUMCOMPOSITE)
+    program = build_statix(model, "ENUMCOMPOSITE::MachineEnumComposite")
+    (enum,) = program.enums
+    assert enum.base == "enumcomposite_machine_enum_composite_enum_light_color"
+    (struct,) = program.context.structs
+    assert struct.name == "enumcomposite_machine_enum_composite_holder_t"
+    color_field = next(f for f in struct.fields if f.name == "color")
+    assert (
+        color_field.c_type
+        == "enumcomposite_machine_enum_composite_enum_light_color_t"
+    )
+    box_field = next(f for f in program.context.fields if f.name == "box")
+    assert box_field.init == (
+        "{.color = "
+        "ENUMCOMPOSITE_MACHINE_ENUM_COMPOSITE_ENUM_LIGHT_COLOR_RED}"
+    )
+    assert program.guards[0].expr == (
+        "ctx->box.color == "
+        "ENUMCOMPOSITE_MACHINE_ENUM_COMPOSITE_ENUM_LIGHT_COLOR_RED"
+    )
+
+
+def test_structured_enum_is_rejected() -> None:
+    model = load_model(_ENUMREJECT)
+    with pytest.raises(UnsupportedConstructError, match="structured"):
+        build_statix(model, "ENUMREJECT::MachineStructuredEnum")
+
+
+def test_mixed_declared_value_kinds_is_rejected() -> None:
+    model = load_model(_ENUMREJECT)
+    with pytest.raises(UnsupportedConstructError, match="mix"):
+        build_statix(model, "ENUMREJECT::MachineMixedKindEnum")
+
+
+def test_computed_declared_value_is_rejected() -> None:
+    model = load_model(_ENUMREJECT)
+    with pytest.raises(UnsupportedConstructError, match="bare"):
+        build_statix(model, "ENUMREJECT::MachineComputedDefaultEnum")
+
+
+def test_colliding_sanitized_enum_names_is_rejected() -> None:
+    model = load_model(_ENUMREJECT)
+    with pytest.raises(UnsupportedConstructError, match="sanitiz"):
+        build_statix(model, "ENUMREJECT::MachineCollidingEnumNames")
+
