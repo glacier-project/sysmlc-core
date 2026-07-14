@@ -94,6 +94,7 @@ static sc_status_t sn_action_exec(sc_action_id_t a, sc_runtime_t *rt, const sc_e
 #define SC_MACHINE_GUARD sn_guard_eval
 #define SC_MACHINE_ACTION sn_action_exec
 #define SC_MACHINE_HAS_QUEUE 1
+#define SC_MACHINE_ACTIVE_CAPACITY 1u
 #include "sc/sc_machine.h"
 
 /*
@@ -158,6 +159,7 @@ static sc_status_t pp_action_exec(sc_action_id_t a, sc_runtime_t *rt, const sc_e
 #define SC_MACHINE_GUARD pp_guard_eval
 #define SC_MACHINE_ACTION pp_action_exec
 #define SC_MACHINE_HAS_QUEUE 1
+#define SC_MACHINE_ACTIVE_CAPACITY 1u
 #include "sc/sc_machine.h"
 
 /*
@@ -232,6 +234,7 @@ static sc_status_t qf_action_exec(sc_action_id_t a, sc_runtime_t *rt, const sc_e
 #define SC_MACHINE_GUARD qf_guard_eval
 #define SC_MACHINE_ACTION qf_action_exec
 #define SC_MACHINE_HAS_QUEUE 1
+#define SC_MACHINE_ACTIVE_CAPACITY 1u
 #include "sc/sc_machine.h"
 
 static void test_self_send_consumed_same_step(void)

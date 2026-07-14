@@ -64,3 +64,7 @@ add_test(NAME test_runtime_internal_transition COMMAND test_runtime_internal_tra
 add_executable(test_runtime_activation test_runtime_activation.c)
 target_link_libraries(test_runtime_activation sc_runtime)
 add_test(NAME test_runtime_activation COMMAND test_runtime_activation)
+
+add_executable(test_runtime_parallel test_runtime_parallel.c)
+target_link_libraries(test_runtime_parallel sc_runtime)
+add_test(NAME test_runtime_parallel COMMAND test_runtime_parallel)

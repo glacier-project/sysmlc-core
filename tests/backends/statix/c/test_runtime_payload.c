@@ -96,6 +96,7 @@ static sc_status_t pl_action_exec(sc_action_id_t a, sc_runtime_t *rt, const sc_e
 #define SC_MACHINE_GUARD pl_guard_eval
 #define SC_MACHINE_ACTION pl_action_exec
 #define SC_MACHINE_HAS_QUEUE 1
+#define SC_MACHINE_ACTIVE_CAPACITY 1u
 #include "sc/sc_machine.h"
 
 static void test_payload_above_threshold_fires_and_captures(void)

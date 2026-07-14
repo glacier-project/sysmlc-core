@@ -67,6 +67,7 @@ static sc_status_t tc_action_exec(sc_action_id_t a, sc_runtime_t *rt, const sc_e
 #define SC_MACHINE_DEF tc_machine
 #define SC_MACHINE_GUARD tc_guard_eval
 #define SC_MACHINE_ACTION tc_action_exec
+#define SC_MACHINE_ACTIVE_CAPACITY 1u
 #include "sc/sc_machine.h"
 
 /* Cycle machine: A(0) --completion[guard true]--> A(0) => step limit. */
@@ -120,6 +121,7 @@ static sc_status_t cy_action_exec(sc_action_id_t a, sc_runtime_t *rt, const sc_e
 #define SC_MACHINE_DEF cy_machine
 #define SC_MACHINE_GUARD cy_guard_eval
 #define SC_MACHINE_ACTION cy_action_exec
+#define SC_MACHINE_ACTIVE_CAPACITY 1u
 #include "sc/sc_machine.h"
 
 int main(void)

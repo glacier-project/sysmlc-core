@@ -85,6 +85,7 @@ static sc_status_t wn_action_exec(sc_action_id_t a, sc_runtime_t *rt, const sc_e
 #define SC_MACHINE_GUARD wn_guard_eval
 #define SC_MACHINE_ACTION wn_action_exec
 #define SC_MACHINE_HAS_WHEN 1
+#define SC_MACHINE_ACTIVE_CAPACITY 1u
 #include "sc/sc_machine.h"
 
 static void test_internal_transition_disarms_without_changing_state(void)
