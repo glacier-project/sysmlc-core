@@ -10,6 +10,8 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 add_library(statix_statecharts STATIC
   src/sc_runtime_impl.c
-{{ lib_sources }}){% if math_lib %}
-target_link_libraries(statix_statecharts{{ math_lib }}){% endif %}
+{{ lib_sources }})
+{% if math_lib %}
+target_link_libraries(statix_statecharts{{ math_lib }})
+{% endif %}
 {{ runners_tail -}}
