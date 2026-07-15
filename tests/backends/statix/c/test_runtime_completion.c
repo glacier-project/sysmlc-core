@@ -4,6 +4,7 @@
  * completion micro-step, and detectable exhaustion (SC_STATUS_STEP_LIMIT).
  */
 
+#define SC_RUNTIME_IMPLEMENTATION
 #include "sc/sc_runtime.h"
 
 #include <assert.h>

@@ -4,6 +4,7 @@
  */
 
 #include "sc/sc_event_queue.h"
+#define SC_RUNTIME_IMPLEMENTATION
 #include "sc/sc_runtime.h"
 
 #include <stdio.h>

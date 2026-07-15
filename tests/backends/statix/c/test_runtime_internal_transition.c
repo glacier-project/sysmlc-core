@@ -6,6 +6,7 @@
  * lowers to: an armed bit, a real transition, and an internal consumer.
  */
 
+#define SC_RUNTIME_IMPLEMENTATION
 #include "sc/sc_runtime.h"
 
 #include <stdio.h>

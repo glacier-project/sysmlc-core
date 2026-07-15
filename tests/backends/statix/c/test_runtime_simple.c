@@ -5,6 +5,7 @@
  * instance to static machine data and exposes current-state access.
  */
 
+#define SC_RUNTIME_IMPLEMENTATION
 #include "sc/sc_runtime.h"
 
 #include <stdio.h>
