@@ -4,6 +4,17 @@
 /// @file sc_runtime.h
 /// @brief Machine-agnostic statechart runtime support.
 ///
+/// Implementation gate: this header declares sc_runtime_bind/_get_state/
+/// _enqueue/_enqueue_f64/sc_seconds_to_ticks/sc_runtime_regions_all_final
+/// unconditionally, but only DEFINES them when SC_RUNTIME_IMPLEMENTATION is
+/// defined before this include. Exactly one translation unit per link unit
+/// must do:
+///     #define SC_RUNTIME_IMPLEMENTATION
+///     #include "sc/sc_runtime.h"
+/// before any other include of this header (order relative to other TUs
+/// doesn't matter, only that exactly one TU takes the gate). Every other TU
+/// includes it normally and links against that one definition.
+///
 /// The generated <prefix>.c unit owns dispatch because it must call that
 /// statechart's static guard/action switches without function pointers. This
 /// shared runtime only defines common table shapes and the mutable instance
@@ -216,6 +227,162 @@ bool sc_seconds_to_ticks(double seconds, sc_time_t *out_ticks);
 /// @param parallel_state The parallel container's state id.
 /// @return true if every direct region's currently active leaf is final.
 bool sc_runtime_regions_all_final(const sc_runtime_t *runtime, sc_state_id_t parallel_state);
+
+#ifdef SC_RUNTIME_IMPLEMENTATION
+
+sc_status_t sc_runtime_bind(sc_runtime_t *runtime, const sc_machine_t *machine,
+                            void *user_data, sc_activation_t *active,
+                            sc_state_id_t active_capacity)
+{
+    sc_state_id_t i;
+    if ((runtime == NULL) || (machine == NULL) || (machine->transitions == NULL) ||
+        (machine->states == NULL)) {
+        return SC_STATUS_INVALID_ARGUMENT;
+    }
+    if (machine->initial_state >= machine->state_count) {
+        return SC_STATUS_INVALID_ARGUMENT;
+    }
+    if (machine->max_depth > (sc_state_id_t)SC_MAX_DEPTH) {
+        return SC_STATUS_INVALID_ARGUMENT;
+    }
+    if ((active == NULL) || (active_capacity != machine->active_capacity)) {
+        return SC_STATUS_INVALID_ARGUMENT;
+    }
+    for (i = 0u; i < machine->state_count; ++i) {
+        sc_state_id_t parent = machine->states[i].parent;
+        sc_state_id_t child = machine->states[i].initial_child;
+        if ((parent != SC_STATE_INVALID) && (parent >= machine->state_count)) {
+            return SC_STATUS_INVALID_ARGUMENT;
+        }
+        if ((child != SC_STATE_INVALID) && (child >= machine->state_count)) {
+            return SC_STATUS_INVALID_ARGUMENT;
+        }
+    }
+    for (i = 0u; i < machine->transition_count; ++i) {
+        /* Dispatch always indexes states[t->source] directly. states[t->target]
+         * too, except SC_STATE_INVALID: the internal-transition sentinel (no
+         * exit, no entry, action-only -- see sc_machine.h's _take_transition),
+         * used by `when`'s consumer transitions. */
+        if (machine->transitions[i].source >= machine->state_count) {
+            return SC_STATUS_INVALID_ARGUMENT;
+        }
+        if ((machine->transitions[i].target != SC_STATE_INVALID) &&
+            (machine->transitions[i].target >= machine->state_count)) {
+            return SC_STATUS_INVALID_ARGUMENT;
+        }
+    }
+    if (machine->invariant_count > (uint16_t)SC_MAX_INVARIANTS) {
+        return SC_STATUS_INVALID_ARGUMENT;
+    }
+    if ((machine->invariant_count > 0u) && (machine->invariants == NULL)) {
+        return SC_STATUS_INVALID_ARGUMENT;
+    }
+    for (i = 0u; i < machine->invariant_count; ++i) {
+        sc_state_id_t scope = machine->invariants[i].scope;
+        if ((scope != SC_STATE_INVALID) && (scope >= machine->state_count)) {
+            return SC_STATUS_INVALID_ARGUMENT;
+        }
+    }
+    /* Only once every check above has passed do we mutate anything -- no
+     * partially-bound runtime is ever observable as initialized (design Sec.3.4). */
+    for (i = 0u; i < active_capacity; ++i) {
+        active[i].leaf = SC_STATE_INVALID;
+        active[i].entered_at = 0u;
+        active[i].timeout_delivered = false;
+    }
+    runtime->machine = machine;
+    runtime->user_data = user_data;
+    runtime->queue = NULL;
+    runtime->active = active;
+    runtime->active_capacity = active_capacity;
+    runtime->now = 0u;
+    for (i = 0u; i < (sc_state_id_t)SC_MAX_WHEN_TRIGGERS; ++i) {
+        runtime->when_armed[i] = false;
+    }
+    runtime->initialized = true;
+    return SC_STATUS_OK;
+}
+
+sc_status_t sc_runtime_get_state(const sc_runtime_t *runtime, sc_state_id_t *out_state)
+{
+    if ((runtime == NULL) || (out_state == NULL) || (!runtime->initialized)) {
+        return SC_STATUS_INVALID_ARGUMENT;
+    }
+    *out_state = runtime->active[0].leaf;
+    return SC_STATUS_OK;
+}
+
+sc_status_t sc_runtime_enqueue(sc_runtime_t *runtime, sc_event_id_t event_id)
+{
+    sc_event_t event;
+    sc_status_t status;
+    if ((runtime == NULL) || (runtime->queue == NULL)) {
+        return SC_STATUS_INVALID_ARGUMENT;
+    }
+    status = sc_event_init(&event, event_id);
+    if (status != SC_STATUS_OK) {
+        return status;
+    }
+    return sc_event_queue_push(runtime->queue, &event);
+}
+
+sc_status_t sc_runtime_enqueue_f64(sc_runtime_t *runtime, sc_event_id_t event_id, double value)
+{
+    sc_event_t event;
+    const uint8_t *bytes = (const uint8_t *)&value;
+    uint8_t i;
+    sc_status_t status;
+    if ((runtime == NULL) || (runtime->queue == NULL)) {
+        return SC_STATUS_INVALID_ARGUMENT;
+    }
+    if (sizeof(double) > (size_t)SC_EVENT_PAYLOAD_SIZE) {
+        return SC_STATUS_INVALID_ARGUMENT;
+    }
+    status = sc_event_init(&event, event_id);
+    if (status != SC_STATUS_OK) {
+        return status;
+    }
+    for (i = 0u; i < (uint8_t)sizeof(double); ++i) {
+        event.payload[i] = bytes[i];
+    }
+    event.payload_len = (uint8_t)sizeof(double);
+    return sc_event_queue_push(runtime->queue, &event);
+}
+
+bool sc_seconds_to_ticks(double seconds, sc_time_t *out_ticks)
+{
+    double max_seconds;
+    if (out_ticks == NULL) {
+        return false;
+    }
+    if (seconds < 0.0) {
+        return false;
+    }
+    max_seconds = (double)SC_TIME_MAX / (double)SC_TICKS_PER_SECOND;
+    if (seconds > max_seconds) {
+        return false;
+    }
+    *out_ticks = (sc_time_t)(seconds * (double)SC_TICKS_PER_SECOND);
+    return true;
+}
+
+bool sc_runtime_regions_all_final(const sc_runtime_t *runtime, sc_state_id_t parallel_state)
+{
+    const sc_machine_t *machine = runtime->machine;
+    const sc_state_def_t *p = &machine->states[parallel_state];
+    sc_state_id_t i;
+    for (i = 0u; i < p->region_count; ++i) {
+        sc_state_id_t region_root = machine->regions[(size_t)(p->region_first + i)];
+        sc_state_id_t slot = machine->states[region_root].slot;
+        sc_state_id_t leaf = runtime->active[slot].leaf;
+        if ((leaf == SC_STATE_INVALID) || !machine->states[leaf].is_final) {
+            return false;
+        }
+    }
+    return true;
+}
+
+#endif /* SC_RUNTIME_IMPLEMENTATION */
 
 #ifdef __cplusplus
 }
