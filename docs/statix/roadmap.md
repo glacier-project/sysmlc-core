@@ -59,7 +59,7 @@ Each row is a construct statix rejects today; the front-end delivers all of them
   - Example model: sm17
   - Oracle (quake/Sismic): state `invariants`
   - rosetta (LF): Python `assert` woven in
-- **E. Library + external function calls**
+- **E. Library + external function calls (partially landed)**
   - Example model: sm14, sm15
   - Oracle (quake/Sismic): whitelist → `math`; `--python`
   - rosetta (LF): same; `--python`
@@ -87,6 +87,10 @@ Each row is a construct statix rejects today; the front-end delivers all of them
   - Example model: sm11, sm17
   - Oracle (quake/Sismic): flat context / per-state
   - rosetta (LF): companion dataclass / planned
+- **L. Enum literal attributes (landed)**
+  - Example model: sm18
+  - Oracle (quake/Sismic): per-literal primitive projection (`_emit_enum_literal`)
+  - rosetta (LF): named enum type via `register_enum` (declared values ignored)
 
 ## The emission model: one self-contained unit per statechart (foundational)
 
@@ -186,16 +190,14 @@ rosetta.
   `SC_STATUS_CONSTRAINT_VIOLATED` (a status return, not C `assert()`).
   `assert not constraint` wraps `!(...)`. Function-call constraints stay rejected
   until the functions increment.
-- **E Functions + external** — reuse the shared `LIBRARY_FUNCTIONS` table
-  re-targeted to C `math.h` (`fabs`/`fmax`/`fmin`/`sin`/`cos`/`tan`, mindful of
-  `-Wdouble-promotion`); external `calc def`s become user-supplied C functions
-  matched by name and declared in a generated `<prefix>_extern.h`. This is also
-  the escape hatch for non-assignment hardware effects (a `do` that pokes GPIO is
-  a call to a firmware-provided extern) — one feature covers both.
-- **F send / internal-event RTC / payloads** — `send` pushes to the internal
-  queue; the macro-step drains it bounded by `SC_MAX_RTC_STEPS`; payload structs
-  ride in the event's fixed inline buffer, `memcpy`d in on send and read typed on
-  accept (reject payloads over `SC_EVENT_PAYLOAD_SIZE`).
+- **E Functions + external (partially landed)** — allowlisted `NumericalFunctions`/`TrigFunctions` calls lower to `<math.h>` C (`fmax`/`cos`/…) in guards/effects/constraints, with conditional `#include <math.h>` + `-lm`; external calc-defs and the timer-gated sm14/sm15 whole-model conformance remain out of scope.
+- **F send / internal-event RTC / payloads (partially landed)** — `send` pushes to the internal
+  queue; the macro-step drains it bounded by `SC_MAX_RTC_STEPS` (B.1 landed); readable scalar
+  Real payloads use a marshal-on-demand f64 slot (`sc_event_payload_f64`), with sm11
+  Guard/Rejected/Effect conformance-gated and a captured-value harness (B.2 landed); 2-segment
+  chained Real payload reads landed (one composite hop, `reading.sample.value`, sm11
+  `MachineReadablePayloadChain` conformance-gated); 3+ segment chains and whole-payload capture
+  (`MachineReadablePayloadWhole`) remain deferred to a future increment.
 - **G Timers `after`/`at`** — `sc_runtime_tick(rt, elapsed)`; timers armed on
   entry, disarmed on exit, stale expiries invalidated by a per-source activation
   counter (Sismic's mechanism); expiry posts a synthetic event. Per-instance
@@ -205,7 +207,7 @@ rosetta.
 - **H `when`** — evaluate the monitored condition in the RTC micro-step; an armed
   flag re-armed on entry gives edge semantics; a guarded `when` consumes on a
   false guard.
-- **I Parallel regions** — the active config becomes one leaf per region:
+- **I Parallel regions (landed)** — the active config becomes one leaf per region:
   `sc_state_id_t active[SC_MAX_REGIONS]` (generated size, still static). Fork on
   entry, broadcast events to each region, join on all-final, group interrupt on a
   transition sourced at the parallel state. The one feature that adds per-instance
@@ -215,6 +217,13 @@ rosetta.
   `sm`-example (none exercises history today) before it can be conformance-gated.
 - **K String / scoped attributes** — String → fixed-size `char[N]` buffers;
   state-scoped attributes → namespaced context fields. Opportunistic.
+- **L Enum literal attributes (landed)** — each enum *definition* is
+  classified once (native Boolean/Integer/Real projection, or a generated
+  named C enum for String-valued/plain definitions); a shared
+  builder-side resolver guarantees the same literal renders identically
+  in an attribute default, a guard, and an effect. Structured
+  enumerations stay rejected; relational comparison against a generated
+  enum is rejected (only `==`/`!=`), including attribute-to-attribute.
 
 ## Phased roadmap
 
@@ -225,23 +234,23 @@ Conformance-gated, hierarchy before advanced features, untimed before timed.
   - Corpus: SM01 multi-`state def` project compiles, links, and runs
   - Runtime delta: prefixed public API; static guard/action; shared `sc/sc_machine.h` dispatch template
 - **Phase A: UML core (untimed)**
-  - Features: **composite (landed)**, **then done/final (landed)**, **one-shot do (landed)**, **constraints (landed)**, functions/extern
+  - Features: **composite (landed)**, **then done/final (landed)**, **one-shot do (landed)**, **constraints (landed)**, **functions/extern (partially landed)**
   - Corpus: sm08, sm10, sm12, sm14, sm17
   - Runtime delta: state tree + LCA dispatch + MAX_DEPTH; final states; invariant check + new status
-- **Phase B: Internal-event RTC**
-  - Features: `send` + internal queue drain + payloads
+- **Phase B: Internal-event RTC (partially landed)**
+  - Features: **`send` + internal queue drain (landed)**, **readable scalar Real payloads (landed)**, chained/whole/multi-field payloads
   - Corpus: sm11
   - Runtime delta: generalize the bounded micro-step; typed payloads in the event buffer
 - **Phase B.5: Host execution & testbench**
   - Features: `sysmlc statix run`; virtual-time testbench DSL; state/context expectations; JSON/CSV traces; statix-vs-quake trace comparison
   - Corpus: sm01-sm17 reusable scripted traces
   - Runtime delta: hosted runner tooling only; board-clean generated units unchanged
-- **Phase C: Timed subset**
-  - Features: `after`/`at`, `when`
-  - Corpus: sm13, sm16, sm14(full)
-  - Runtime delta: `sc_runtime_tick`; timer table + activation counters; armed-flag observers; documented LF divergence
+- **Phase C: Timed subset (landed)**
+  - Features: **`after`/`at` (landed)**, **`when` (landed)**
+  - Corpus: sm13 (closed), sm16 (closed)
+  - Runtime delta: `<prefix>_tick` + a generated `timeout_due` latch function per machine for `after`/`at`; `<prefix>_settle` + a per-transition `when_armed[]` bit array + internal (no-target) transitions for `when`; documented host-timing and wraparound contracts
 - **Phase D: Concurrency & memory**
-  - Features: parallel regions, history
+  - Features: **parallel regions (landed)**, history
   - Corpus: sm09, + a new history model
   - Runtime delta: per-instance `active[]` / `history[]` arrays sized by generated `#define`s
 

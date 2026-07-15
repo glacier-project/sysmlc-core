@@ -36,6 +36,7 @@ typedef enum sm07_machine_firing_order_action_e {
 
 
 #define SM07_MACHINE_FIRING_ORDER_QUEUE_CAPACITY 8u
+#define SM07_MACHINE_FIRING_ORDER_ACTIVE_CAPACITY 1u
 
 /// @brief Generated context for SM07::MachineFiringOrder.
 typedef struct sm07_machine_firing_order_context_s {
@@ -48,6 +49,7 @@ typedef struct sm07_machine_firing_order_context_s {
 /// @brief Runtime instance for SM07::MachineFiringOrder.
 typedef struct sm07_machine_firing_order_s {
     sc_runtime_t runtime;
+    sc_activation_t active[SM07_MACHINE_FIRING_ORDER_ACTIVE_CAPACITY];
 } sm07_machine_firing_order_t;
 
 /// @brief Initialize a generated context object with model default values.
@@ -81,6 +83,17 @@ sc_state_id_t sm07_machine_firing_order_get_state(const sm07_machine_firing_orde
 /// @param sm Statechart instance to inspect.
 /// @return true if the active leaf is a root-scope final state.
 bool sm07_machine_firing_order_is_final(const sm07_machine_firing_order_t *sm);
+
+/// @brief Number of currently active true leaves.
+/// @param sm Statechart instance to inspect.
+/// @return Count of active true leaves, or 0 before initialization.
+sc_state_id_t sm07_machine_firing_order_active_count(const sm07_machine_firing_order_t *sm);
+
+/// @brief The k-th currently active true leaf, in ascending slot order.
+/// @param sm Statechart instance to inspect.
+/// @param index Which active leaf to return, 0 <= index < sm07_machine_firing_order_active_count(sm).
+/// @return The index-th active leaf, or SC_STATE_INVALID if out of range.
+sc_state_id_t sm07_machine_firing_order_active_state(const sm07_machine_firing_order_t *sm, sc_state_id_t index);
 
 /// @brief Return a stable name for a generated state id.
 /// @param state State identifier to name.

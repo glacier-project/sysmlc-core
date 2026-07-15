@@ -17,6 +17,19 @@ static bool sm04_machine_entry_increment_event_from_name(const char *name, sc_ev
     return false;
 }
 
+static void sm04_machine_entry_increment_print_configuration(const sm04_machine_entry_increment_t *sm)
+{
+    sc_state_id_t count = sm04_machine_entry_increment_active_count(sm);
+    sc_state_id_t i;
+    (void)printf(" configuration=");
+    for (i = 0; i < count; ++i) {
+        if (i > 0) {
+            (void)printf(",");
+        }
+        (void)printf("%s", sm04_machine_entry_increment_state_name(sm04_machine_entry_increment_active_state(sm, i)));
+    }
+}
+
 int main(int argc, char **argv)
 {
     sm04_machine_entry_increment_context_t ctx;
@@ -26,8 +39,10 @@ int main(int argc, char **argv)
 
     sm04_machine_entry_increment_context_init(&ctx);
     status = sm04_machine_entry_increment_init(&sm, &ctx);
-    (void)printf("init status=%s state=%s final=%d\n", sc_status_str(status),
-                 sm04_machine_entry_increment_state_name(sm04_machine_entry_increment_get_state(&sm)), (int)sm04_machine_entry_increment_is_final(&sm));
+    (void)printf("init status=%s state=%s final=%d ctx.counter=%d", sc_status_str(status),
+                 sm04_machine_entry_increment_state_name(sm04_machine_entry_increment_get_state(&sm)), (int)sm04_machine_entry_increment_is_final(&sm), ctx.counter);
+    sm04_machine_entry_increment_print_configuration(&sm);
+    (void)printf("\n");
     if (status != SC_STATUS_OK) {
         return 1;
     }
@@ -39,8 +54,10 @@ int main(int argc, char **argv)
             return 2;
         }
         status = sm04_machine_entry_increment_post(&sm, event_id);
-        (void)printf("event %s status=%s state=%s final=%d\n", argv[i],
-                     sc_status_str(status), sm04_machine_entry_increment_state_name(sm04_machine_entry_increment_get_state(&sm)), (int)sm04_machine_entry_increment_is_final(&sm));
+        (void)printf("event %s status=%s state=%s final=%d ctx.counter=%d", argv[i],
+                     sc_status_str(status), sm04_machine_entry_increment_state_name(sm04_machine_entry_increment_get_state(&sm)), (int)sm04_machine_entry_increment_is_final(&sm), ctx.counter);
+        sm04_machine_entry_increment_print_configuration(&sm);
+        (void)printf("\n");
         if ((status != SC_STATUS_OK) && (status != SC_STATUS_NO_TRANSITION)) {
             return 1;
         }

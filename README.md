@@ -131,6 +131,7 @@ uv run python examples/load_model.py
 
 ```bash
 uv run pre-commit install
+uv run pre-commit run --all-files
 uv run tox
 ```
 
@@ -138,6 +139,8 @@ Run the test suite, type checker, and linter directly:
 
 ```bash
 uv run pytest
+# Requires lfc and Java.
+uv run pytest -m lf
 uv run mypy sysmlc
 uv run ruff check
 ```

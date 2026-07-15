@@ -48,6 +48,10 @@ Responsibilities:
 - Expose machine-agnostic helpers such as current-state access.
 - Provide a fixed-size FIFO event queue over caller storage
   (`sc_event_queue_*`).
+- Convert SI seconds to ticks safely for time-triggered (`after`/`at`)
+  transitions (`sc_seconds_to_ticks`), and define the project-wide
+  `SC_TICKS_PER_SECOND` tick resolution (default `1000u`, override with
+  `-D`, like `SC_MAX_TRANSITIONS`).
 - Define the shared vocabulary: fixed-width ids (`sc_types.h`), status codes
   (`sc_status.h`), and the event value type (`sc_event.h`).
 
@@ -64,7 +68,9 @@ dispatch orchestration** rather than runtime indirection:
 - The shared runtime never declares or calls global `sc_guard_eval()` /
   `sc_action_exec()` hooks.
 - Each generated `<prefix>.c` defines `static` guard/action switches and
-  includes `sc/sc_machine.h` after setting four `SC_MACHINE_*` macros.
+  includes `sc/sc_machine.h` after setting four required `SC_MACHINE_*`
+  macros (plus optional `SC_MACHINE_HAS_QUEUE`/`SC_MACHINE_HAS_TIMER` and
+  the paired `SC_MACHINE_TIMEOUT_DUE` for sending/timed machines).
 - `sc/sc_machine.h` is the single audited dispatch algorithm. It is instantiated
   once per generated unit and calls the file-local static guard/action switches
   directly.
@@ -96,9 +102,13 @@ diff cleanly.
   owns the flat dispatch algorithm (`init`, `dispatch`, `post`, `get_state`)
   and is included once per generated statechart unit.
 - **`<prefix>_runner.c`** — host-only smoke runner: initialize the machine, feed
-  no-payload event ids from command-line arguments, and print a state trace. It
-  may use hosted C facilities such as `<stdio.h>`; it is not part of the board
-  runtime.
+  no-payload event ids from command-line arguments, and print a state trace. A
+  timed machine also accepts `tick:<uint>` arguments, calling `<prefix>_tick`
+  instead of `_post`. A machine with a `when` (change) trigger additionally
+  exposes a public `<prefix>_settle`, called directly by hand-written test
+  harnesses rather than through the runner (the runner has no vocabulary for
+  mutating an arbitrary context attribute by name). It may use hosted C
+  facilities such as `<stdio.h>`; it is not part of the board runtime.
 - **`CMakeLists.txt`** — builds the bundled runtime, every generated statechart
   unit, a combined static library, and one host runner executable per machine.
 
@@ -112,14 +122,16 @@ neutral facts into `StatixBuilder`, which assembles a neutral `CProgram`; the
 serializer renders it to C.
 
 - **`builder.py`** — consumes the neutral facts and assembles `CProgram`. Every
-  representational choice and every rejection lives here: parallel, history,
-  timers, `after`/`at`/`when`, `send` (including `do send`), non-inline `do`,
-  function calls in expressions, and non-scalar / non-composite attributes are
-  rejected loudly (never silently dropped). Composite states, `then done` finals,
-  one-shot `do`, and asserted constraints are supported.
+  representational choice and every rejection lives here: history states,
+  non-inline `do`, external sends, reading accept payload data beyond one Real attribute,
+  external/non-allowlist function calls in expressions, non-scalar / non-composite
+  attributes, and direct parallel-in-parallel (`wrap in composite`) are rejected loudly (never silently dropped). Orthogonal/parallel regions (`StateKind.PARALLEL`), composite states, `then done` finals,
+  one-shot `do`, `send` self-events (id-only, or marshalling one readable Real payload attribute), asserted constraints, leaf-sourced `after`/`at` time triggers (at most one per leaf), and `when` (change triggers, sourced from a leaf state, no self-loops) are supported.
 - **`codegen.py`** — a precedence-driven emitter that lowers guard/effect/
   attribute expression nodes to C, with attribute references resolved against
-  the generated context struct.
+  the generated context struct, allowlisted library function calls lowered
+  to `<math.h>` C (rejecting external calc-defs and Integer-narrowing library
+  assignments), and transition-scoped payload reads (`reading.value` → the event's marshalled f64 slot).
 - **`program.py`** — the frozen `CProgram` / `CProject` dataclasses (states,
   events, guards, actions, transitions, context) — the neutral C model before
   text.
@@ -134,21 +146,46 @@ The SysML v2 importer is **not** statix-specific: it is sysmlc's shared
 anchored to the same Sismic/SCXML run-to-completion reference the other backends
 use.
 
+## Concurrency Model and Join Intrinsic
+
+When the model includes parallel states, `statix` represents the concurrent active configuration using:
+
+- **`active[]`**: A statically-sized `sc_activation_t active[<PREFIX>_ACTIVE_CAPACITY]` array inside `sc_runtime_t`. Every orthogonal region is allocated a dedicated activation slot.
+- **`regions[]`**: A flat, generated array in `<prefix>.c` storing the state IDs of all region roots contiguously. For a parallel state, `region_first` points to its first region root in `regions[]`, and `region_count` gives the region count.
+- **Join Intrinsic (`sc_runtime_regions_all_final`)**: When evaluating a completion (`__completion__`) transition sourced at a parallel state, the runtime checks if all region roots mapped under that parallel state have active descendants that are final leaf states.
+
+## Header-Only C Runtime Packaging
+
+To make integrating `statix`-generated code into firmware projects as frictionless as possible, the entire C runtime library is packaged header-only:
+
+- **`sc/sc_machine.h`**: Instantiated inline per generated statechart.
+- **`sc/sc_status.h` & `sc/sc_event_queue.h`**: Define small utility functions with `static inline` linkage.
+- **`sc/sc_runtime.h`**: Uses an **stb-style implementation gate**. It declares all functions unconditionally, but only defines them in the translation unit that defines `SC_RUNTIME_IMPLEMENTATION` before inclusion.
+
+Exactly one translation unit per link unit must do:
+
+```c
+#define SC_RUNTIME_IMPLEMENTATION
+#include "sc/sc_runtime.h"
+```
+
+Generated projects emit this one-liner unit automatically as `src/sc_runtime_impl.c`. Non-CMake or custom integrations must add that same define to exactly one of their own source files.
+
 ## Data flow (runtime)
 
 ```
-<prefix>_init ─► sc_runtime_bind
-                   │ run entry(initial)
-                   │ settle completion transitions (bounded by SC_MAX_RTC_STEPS)
+<prefix>_init ─► sc_runtime_bind (allocates static active[<PREFIX>_ACTIVE_CAPACITY] slots)
+                   │ run entry(initial) -> _descend (forks regions across active slots)
+                   │ settle completion transitions (bounded by SC_MAX_RTC_STEPS, checks all-final join)
                    ▼
 caller pushes sc_event_t ─► sc_event_queue (static storage)
 caller pops  sc_event_t  ─► <prefix>_dispatch
-                              │ scan transition table (bounded loop)
-                              │   match (current_state, event.id), check guard
-                              │   run exit(source) -> effect -> entry(target)
-                              │   settle completion transitions
+                              │ _select scans active slots (broadcasts across regions / checks group interrupt)
+                              │   if group interrupt: _exit_up_to all regions -> effect -> entry(target) -> _descend
+                              │   if region-local: _take_transition_region per slot
+                              │ _run_completion: loop bounded by SC_MAX_RTC_STEPS (settle join/completion)
                               ▼
-                            current_state := target   (or NO_TRANSITION)
+                            active slots updated to new leaves   (or NO_TRANSITION)
 ```
 
-Everything on this path uses caller-owned, statically-sized storage.
+Everything on this path uses caller-owned, statically-sized storage (`no recursion, no dynamic memory`).

@@ -8,6 +8,17 @@ from typing import Final
 # transition; the serializer emits SC_EVENT_COMPLETION for it.
 COMPLETION_EVENT: Final = "__completion__"
 
+# Python-side marker for the runtime's SC_EVENT_TIMEOUT sentinel. A transition
+# carrying this as its ``event`` is a time-triggered (after/at) transition;
+# the serializer emits SC_EVENT_TIMEOUT for it.
+TIMEOUT_EVENT: Final = "__timeout__"
+
+# Python-side marker for the runtime's SC_STATE_INVALID sentinel used as a
+# transition's target. A transition carrying this as its ``target`` is an
+# internal transition (no exit, no entry, action-only); the serializer emits
+# SC_STATE_INVALID for it. Used by `when`'s consumer transitions.
+INTERNAL_TARGET: Final = "__internal__"
+
 
 @dataclass(frozen=True)
 class CField:
@@ -24,6 +35,26 @@ class CStruct:
 
     name: str
     fields: tuple[CField, ...]
+
+
+@dataclass(frozen=True)
+class CEnum:
+    """A generated named C enum type, from one SysML enum definition.
+
+    ``base`` is the generated type's *base* name (``<machine>_enum_<enum>``,
+    e.g. ``sm18_machine_string_enum_enum_light_color``) — **not** the C type
+    name. This mirrors the ``enum_block`` Jinja macro's existing contract
+    (already used for states/events/guards/actions): the macro appends the
+    ``_e``/``_t`` suffixes itself. Code that needs the actual C type name
+    computes ``f"{base}_t"`` explicitly.
+
+    ``literals`` are the generated constant names, in declaration order
+    (values are implicitly 0..N-1, the same convention the macro already
+    uses for the other four categories).
+    """
+
+    base: str
+    literals: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -55,11 +86,30 @@ class CInvariant:
 
 
 @dataclass(frozen=True)
+class CSend:
+    """A send effect: enqueue an internal event, by event display name.
+
+    ``value_expr`` is the rendered C expression for the one marshalled Real
+    payload value (``sc_runtime_enqueue_f64``), or ``None`` for an id-only
+    send (``sc_runtime_enqueue``) -- sends of events whose payload is never
+    read stay id-only, their constructor arguments dropped unrendered.
+    """
+
+    event: str
+    value_expr: str | None = None
+
+
+@dataclass(frozen=True)
 class CAction:
-    """An action id backed by rendered C statements (each ends in ';')."""
+    """An action id backed by ordered statements.
+
+    Each statement is either a rendered C statement string (ends in ';') or a
+    :class:`CSend`; declaration order is preserved so mixed assign/send
+    bodies fire in model order.
+    """
 
     name: str
-    statements: tuple[str, ...]
+    statements: tuple[str | CSend, ...]
 
 
 @dataclass(frozen=True)
@@ -70,6 +120,12 @@ class CState:
     ``parent``/``initial_child`` are other states' display names, or ``None``
     for a top-level state / a leaf (serialized as ``SC_STATE_INVALID``).
     ``is_final`` marks a synthesized ``then done`` final state.
+    ``slot`` is the activation-array index this state's presence in the
+    active configuration is tracked under (``0`` for every state outside a
+    parallel region). ``region_first``/``region_count`` are only meaningful
+    when this state is itself a parallel container: an index into
+    :attr:`CProgram.regions` and how many entries starting there are its
+    direct region roots.
     """
 
     name: str
@@ -78,6 +134,9 @@ class CState:
     parent: str | None = None
     initial_child: str | None = None
     is_final: bool = False
+    slot: int = 0
+    region_first: int | None = None
+    region_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -97,6 +156,23 @@ class CTransition:
 
 
 @dataclass(frozen=True)
+class CTimeout:
+    """One after/at time trigger, keyed by its (leaf) source state.
+
+    Exactly one of ``literal_ticks``/``attr_expr`` is set. ``literal_ticks``
+    is a compile-time tick constant expression (already range-validated at
+    build time); ``attr_expr`` is a rendered C ``double`` expression in SI
+    seconds (an attribute or chained reference), converted at runtime via
+    ``sc_seconds_to_ticks``.
+    """
+
+    source: str
+    is_at: bool
+    literal_ticks: str | None = None
+    attr_expr: str | None = None
+
+
+@dataclass(frozen=True)
 class CProgram:
     """A complete flat C statechart artifact, before serialization."""
 
@@ -113,6 +189,16 @@ class CProgram:
     initial: str
     max_depth: int = 1
     invariants: tuple[CInvariant, ...] = ()
+    needs_math: bool = False
+    has_send: bool = False
+    timeouts: tuple[CTimeout, ...] = ()
+    has_timer: bool = False
+    timeouts_use_ctx: bool = False
+    has_when: bool = False
+    when_count: int = 0
+    enums: tuple[CEnum, ...] = ()
+    regions: tuple[str, ...] = ()
+    active_capacity: int = 1
 
 
 @dataclass(frozen=True)

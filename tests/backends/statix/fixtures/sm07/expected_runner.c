@@ -17,6 +17,19 @@ static bool sm07_machine_firing_order_event_from_name(const char *name, sc_event
     return false;
 }
 
+static void sm07_machine_firing_order_print_configuration(const sm07_machine_firing_order_t *sm)
+{
+    sc_state_id_t count = sm07_machine_firing_order_active_count(sm);
+    sc_state_id_t i;
+    (void)printf(" configuration=");
+    for (i = 0; i < count; ++i) {
+        if (i > 0) {
+            (void)printf(",");
+        }
+        (void)printf("%s", sm07_machine_firing_order_state_name(sm07_machine_firing_order_active_state(sm, i)));
+    }
+}
+
 int main(int argc, char **argv)
 {
     sm07_machine_firing_order_context_t ctx;
@@ -26,8 +39,10 @@ int main(int argc, char **argv)
 
     sm07_machine_firing_order_context_init(&ctx);
     status = sm07_machine_firing_order_init(&sm, &ctx);
-    (void)printf("init status=%s state=%s final=%d\n", sc_status_str(status),
-                 sm07_machine_firing_order_state_name(sm07_machine_firing_order_get_state(&sm)), (int)sm07_machine_firing_order_is_final(&sm));
+    (void)printf("init status=%s state=%s final=%d ctx.seq=%d ctx.exitAt=%d ctx.effectAt=%d ctx.entryAt=%d", sc_status_str(status),
+                 sm07_machine_firing_order_state_name(sm07_machine_firing_order_get_state(&sm)), (int)sm07_machine_firing_order_is_final(&sm), ctx.seq, ctx.exitAt, ctx.effectAt, ctx.entryAt);
+    sm07_machine_firing_order_print_configuration(&sm);
+    (void)printf("\n");
     if (status != SC_STATUS_OK) {
         return 1;
     }
@@ -39,8 +54,10 @@ int main(int argc, char **argv)
             return 2;
         }
         status = sm07_machine_firing_order_post(&sm, event_id);
-        (void)printf("event %s status=%s state=%s final=%d\n", argv[i],
-                     sc_status_str(status), sm07_machine_firing_order_state_name(sm07_machine_firing_order_get_state(&sm)), (int)sm07_machine_firing_order_is_final(&sm));
+        (void)printf("event %s status=%s state=%s final=%d ctx.seq=%d ctx.exitAt=%d ctx.effectAt=%d ctx.entryAt=%d", argv[i],
+                     sc_status_str(status), sm07_machine_firing_order_state_name(sm07_machine_firing_order_get_state(&sm)), (int)sm07_machine_firing_order_is_final(&sm), ctx.seq, ctx.exitAt, ctx.effectAt, ctx.entryAt);
+        sm07_machine_firing_order_print_configuration(&sm);
+        (void)printf("\n");
         if ((status != SC_STATUS_OK) && (status != SC_STATUS_NO_TRANSITION)) {
             return 1;
         }

@@ -1,13 +1,66 @@
 from __future__ import annotations
 
+from typing import Final
+
 from jinja2 import Environment, PackageLoader
 
 from sysmlc.backends.statix.builder import _c_identifier
 from sysmlc.backends.statix.program import (
     COMPLETION_EVENT,
+    INTERNAL_TARGET,
+    TIMEOUT_EVENT,
     CProgram,
     CProject,
+    CSend,
+    CTimeout,
 )
+
+_TRACE_FORMATS: Final[dict[str, tuple[str, str]]] = {
+    "bool": ("%d", "(int)"),
+    "int32_t": ("%d", ""),
+    "double": ("%g", ""),
+}
+
+_RUNTIME_IMPL_C: Final[str] = (
+    "/// @file sc_runtime_impl.c\n"
+    "/// @brief Single translation unit that instantiates the header-only\n"
+    "/// sc_runtime.h implementation for this project. Do not add any other\n"
+    "/// #define SC_RUNTIME_IMPLEMENTATION in this project -- exactly one is\n"
+    "/// required and this is it.\n"
+    "#define SC_RUNTIME_IMPLEMENTATION\n"
+    '#include "sc/sc_runtime.h"\n'
+)
+
+
+def _trace_fields(program: CProgram) -> list[dict[str, str]]:
+    """Flatten context fields for the runner's trace line.
+
+    Args:
+        program:
+            The program to analyze.
+
+    Returns:
+        list[dict[str, str]]:
+            Each dict has keys ``path``, ``fmt``, and ``cast``.
+
+    """
+    structs_by_name = {s.name: s for s in program.context.structs}
+
+    def walk(path: str, c_type: str) -> list[dict[str, str]]:
+        struct = structs_by_name.get(c_type)
+        if struct is not None:
+            out: list[dict[str, str]] = []
+            for f in struct.fields:
+                out += walk(f"{path}.{f.name}", f.c_type)
+            return out
+        fmt, cast = _TRACE_FORMATS.get(c_type, ("%d", "(int)"))
+        return [{"path": path, "fmt": fmt, "cast": cast}]
+
+    fields: list[dict[str, str]] = []
+    for f in program.context.fields:
+        fields += walk(f.name, f.c_type)
+    return fields
+
 
 _env = Environment(
     loader=PackageLoader("sysmlc.backends.statix", "templates"),
@@ -76,6 +129,8 @@ def _action_entries(program: CProgram) -> list[tuple[str, int]]:
 def _event_token(program: CProgram, event: str) -> str:
     if event == COMPLETION_EVENT:
         return "SC_EVENT_COMPLETION"
+    if event == TIMEOUT_EVENT:
+        return "SC_EVENT_TIMEOUT"
     return _const(program.prefix, "EVENT", event)
 
 
@@ -84,6 +139,45 @@ def _context_initializer(program: CProgram) -> str:
         return "{0}"
     parts = ", ".join(f".{f.name} = {f.init}" for f in program.context.fields)
     return "{" + parts + "}"
+
+
+def _timeout_case_lines(t: CTimeout) -> list[str]:
+    if t.literal_ticks is not None:
+        deadline = t.literal_ticks
+        if t.is_at:
+            return [
+                (
+                    "return (runtime->active[activation_index].entered_at "
+                    f"<= {deadline}) && (runtime->now >= {deadline});"
+                ),
+            ]
+        return [
+            (
+                "return (runtime->now - "
+                "runtime->active[activation_index].entered_at) >= "
+                f"{deadline};"
+            ),
+        ]
+    assert t.attr_expr is not None
+    lines = [
+        "{",
+        "    sc_time_t deadline;",
+        f"    if (!sc_seconds_to_ticks({t.attr_expr}, &deadline)) {{",
+        "        return false;",
+        "    }",
+    ]
+    if t.is_at:
+        lines.append(
+            "    return (runtime->active[activation_index].entered_at "
+            "<= deadline) && (runtime->now >= deadline);"
+        )
+    else:
+        lines.append(
+            "    return (runtime->now - "
+            "runtime->active[activation_index].entered_at) >= deadline;"
+        )
+    lines.append("}")
+    return lines
 
 
 def emit_context_initializer(program: CProgram) -> str:
@@ -127,11 +221,23 @@ def _header_view(program: CProgram) -> dict[str, object]:
         "qn": program.qualified_name,
         "state_count": len(program.states),
         "queue_capacity": program.queue_capacity,
+        "active_capacity": program.active_capacity,
+        "has_send": program.has_send,
+        "has_timer": program.has_timer,
+        "has_when": program.has_when,
         "enums": [
             _enum_view(f"{p}_state", _state_entries(program), state_docs),
             _enum_view(f"{p}_event", _event_entries(program), event_docs),
             _enum_view(f"{p}_guard", _guard_entries(program), guard_docs),
             _enum_view(f"{p}_action", _action_entries(program), action_docs),
+        ],
+        "generated_enums": [
+            _enum_view(
+                e.base,
+                [(const, i) for i, const in enumerate(e.literals)],
+                {},
+            )
+            for e in program.enums
         ],
         "structs": [
             {
@@ -171,6 +277,35 @@ def _source_view(program: CProgram) -> dict[str, object]:
             else _const(p, "STATE", state_name)
         )
 
+    def stmt_lines(statement: str | CSend) -> list[str]:
+        if isinstance(statement, CSend):
+            token = _event_token(program, statement.event)
+            if statement.value_expr is None:
+                call = [
+                    "    sc_status_t send_status = sc_runtime_enqueue(",
+                    f"        runtime, (sc_event_id_t){token});",
+                ]
+            else:
+                call = [
+                    "    sc_status_t send_status = sc_runtime_enqueue_f64(",
+                    f"        runtime, (sc_event_id_t){token},",
+                    f"        {statement.value_expr});",
+                ]
+            return [
+                "{",
+                *call,
+                "    if (send_status != SC_STATUS_OK) {",
+                "        return send_status;",
+                "    }",
+                "}",
+            ]
+        return [statement]
+
+    def region_ref(value: int | None) -> str:
+        if value is None:
+            return "SC_STATE_INVALID"
+        return f"(sc_state_id_t){value}u"
+
     state_rows = [
         {
             "entry": act(s.entry_action_id),
@@ -178,9 +313,13 @@ def _source_view(program: CProgram) -> dict[str, object]:
             "parent": st(s.parent),
             "initial_child": st(s.initial_child),
             "is_final": "true" if s.is_final else "false",
+            "slot": f"(sc_state_id_t){s.slot}u",
+            "region_first": region_ref(s.region_first),
+            "region_count": f"(sc_state_id_t){s.region_count}u",
         }
         for s in program.states
     ]
+    regions_rows = [_const(p, "STATE", name) for name in program.regions]
     transition_rows = [
         {
             "source": _const(p, "STATE", t.source),
@@ -189,7 +328,9 @@ def _source_view(program: CProgram) -> dict[str, object]:
             if t.guard is None
             else _const(p, "GUARD", t.guard),
             "action": act(t.action),
-            "target": _const(p, "STATE", t.target),
+            "target": "SC_STATE_INVALID"
+            if t.target == INTERNAL_TARGET
+            else _const(p, "STATE", t.target),
         }
         for t in program.transitions
     ]
@@ -198,6 +339,8 @@ def _source_view(program: CProgram) -> dict[str, object]:
         "pkg_dir": pkg_dir,
         "stem": stem,
         "prefix": p,
+        "needs_math": program.needs_math,
+        "has_send": program.has_send,
         "state_rows": state_rows,
         "transition_rows": transition_rows,
         "state_count_macro": f"{p.upper()}_STATE_COUNT",
@@ -212,10 +355,24 @@ def _source_view(program: CProgram) -> dict[str, object]:
             {"const": _const(p, "GUARD", g.name), "expr": g.expr}
             for g in program.guards
         ],
+        "guards_use_ctx": any("ctx->" in g.expr for g in program.guards),
+        "has_timer": program.has_timer,
+        "timeouts_use_ctx": program.timeouts_use_ctx,
+        "has_when": program.has_when,
+        "when_count": program.when_count,
+        "regions_rows": regions_rows,
+        "region_row_count": len(program.regions),
+        "active_capacity": program.active_capacity,
+        "timeout_rows": [
+            {"state": st(t.source), "lines": _timeout_case_lines(t)}
+            for t in program.timeouts
+        ],
         "actions": [
             {
                 "const": _const(p, "ACTION", a.name),
-                "statements": list(a.statements),
+                "statements": [
+                    line for s in a.statements for line in stmt_lines(s)
+                ],
             }
             for a in program.actions
         ],
@@ -243,9 +400,11 @@ def _runner_view(program: CProgram) -> dict[str, object]:
         "pkg_dir": pkg_dir,
         "stem": stem,
         "prefix": p,
+        "has_timer": program.has_timer,
         "events": [
             {"name": e, "const": _const(p, "EVENT", e)} for e in program.events
         ],
+        "trace_fields": _trace_fields(program),
     }
 
 
@@ -272,7 +431,12 @@ def _cmakelists_view(project: CProject) -> dict[str, str]:
         + "\n\n".join(runners)
         + ("\n" if runners else "")
     )
-    return {"lib_sources": lib_sources, "runners_tail": runners_tail}
+    needs_math = any(p.needs_math for p in project.programs)
+    return {
+        "lib_sources": lib_sources,
+        "runners_tail": runners_tail,
+        "math_lib": " m" if needs_math else "",
+    }
 
 
 def emit_cmakelists(project: CProject) -> str:
@@ -290,6 +454,7 @@ def emit_project_files(project: CProject) -> dict[str, str]:
         files[f"include/{pkg_dir}/{stem}.h"] = emit_header(program)
         files[f"src/{pkg_dir}/{stem}.c"] = emit_source(program)
         files[f"host/{pkg_dir}/{stem}_runner.c"] = emit_runner(program)
+    files["src/sc_runtime_impl.c"] = _RUNTIME_IMPL_C
     files["CMakeLists.txt"] = emit_cmakelists(project)
     return files
 

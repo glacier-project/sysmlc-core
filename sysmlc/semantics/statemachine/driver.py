@@ -72,6 +72,14 @@ class StateMachineDriver:
                 if isinstance(scope, syside.StateDefinition)
                 else states.state_path(state_def, scope)
             )
+            type_name = next(
+                (
+                    d.name
+                    for d in attr.attribute_definitions.collect()
+                    if getattr(d, "name", None)
+                ),
+                None,
+            )
             builder.bind_attribute(
                 AttributeBinding(
                     scope=scope_path,
@@ -80,6 +88,7 @@ class StateMachineDriver:
                         attr, self._compiler, self._stdlib
                     ),
                     direction=attributes.direction_of(attr),
+                    type_name=type_name,
                 )
             )
 

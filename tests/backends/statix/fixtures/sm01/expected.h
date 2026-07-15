@@ -32,6 +32,7 @@ typedef enum sm01_machine_state_e {
 
 
 #define SM01_MACHINE_QUEUE_CAPACITY 8u
+#define SM01_MACHINE_ACTIVE_CAPACITY 1u
 
 /// @brief Generated context for SM01::Machine.
 typedef struct sm01_machine_context_s {
@@ -41,6 +42,7 @@ typedef struct sm01_machine_context_s {
 /// @brief Runtime instance for SM01::Machine.
 typedef struct sm01_machine_s {
     sc_runtime_t runtime;
+    sc_activation_t active[SM01_MACHINE_ACTIVE_CAPACITY];
 } sm01_machine_t;
 
 /// @brief Initialize a generated context object with model default values.
@@ -74,6 +76,17 @@ sc_state_id_t sm01_machine_get_state(const sm01_machine_t *sm);
 /// @param sm Statechart instance to inspect.
 /// @return true if the active leaf is a root-scope final state.
 bool sm01_machine_is_final(const sm01_machine_t *sm);
+
+/// @brief Number of currently active true leaves.
+/// @param sm Statechart instance to inspect.
+/// @return Count of active true leaves, or 0 before initialization.
+sc_state_id_t sm01_machine_active_count(const sm01_machine_t *sm);
+
+/// @brief The k-th currently active true leaf, in ascending slot order.
+/// @param sm Statechart instance to inspect.
+/// @param index Which active leaf to return, 0 <= index < sm01_machine_active_count(sm).
+/// @return The index-th active leaf, or SC_STATE_INVALID if out of range.
+sc_state_id_t sm01_machine_active_state(const sm01_machine_t *sm, sc_state_id_t index);
 
 /// @brief Return a stable name for a generated state id.
 /// @param state State identifier to name.

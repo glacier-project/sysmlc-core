@@ -17,6 +17,19 @@ static bool sm03_machine_ref_event_from_name(const char *name, sc_event_id_t *ev
     return false;
 }
 
+static void sm03_machine_ref_print_configuration(const sm03_machine_ref_t *sm)
+{
+    sc_state_id_t count = sm03_machine_ref_active_count(sm);
+    sc_state_id_t i;
+    (void)printf(" configuration=");
+    for (i = 0; i < count; ++i) {
+        if (i > 0) {
+            (void)printf(",");
+        }
+        (void)printf("%s", sm03_machine_ref_state_name(sm03_machine_ref_active_state(sm, i)));
+    }
+}
+
 int main(int argc, char **argv)
 {
     sm03_machine_ref_context_t ctx;
@@ -26,8 +39,10 @@ int main(int argc, char **argv)
 
     sm03_machine_ref_context_init(&ctx);
     status = sm03_machine_ref_init(&sm, &ctx);
-    (void)printf("init status=%s state=%s final=%d\n", sc_status_str(status),
-                 sm03_machine_ref_state_name(sm03_machine_ref_get_state(&sm)), (int)sm03_machine_ref_is_final(&sm));
+    (void)printf("init status=%s state=%s final=%d ctx.enabled=%d", sc_status_str(status),
+                 sm03_machine_ref_state_name(sm03_machine_ref_get_state(&sm)), (int)sm03_machine_ref_is_final(&sm), (int)ctx.enabled);
+    sm03_machine_ref_print_configuration(&sm);
+    (void)printf("\n");
     if (status != SC_STATUS_OK) {
         return 1;
     }
@@ -39,8 +54,10 @@ int main(int argc, char **argv)
             return 2;
         }
         status = sm03_machine_ref_post(&sm, event_id);
-        (void)printf("event %s status=%s state=%s final=%d\n", argv[i],
-                     sc_status_str(status), sm03_machine_ref_state_name(sm03_machine_ref_get_state(&sm)), (int)sm03_machine_ref_is_final(&sm));
+        (void)printf("event %s status=%s state=%s final=%d ctx.enabled=%d", argv[i],
+                     sc_status_str(status), sm03_machine_ref_state_name(sm03_machine_ref_get_state(&sm)), (int)sm03_machine_ref_is_final(&sm), (int)ctx.enabled);
+        sm03_machine_ref_print_configuration(&sm);
+        (void)printf("\n");
         if ((status != SC_STATUS_OK) && (status != SC_STATUS_NO_TRANSITION)) {
             return 1;
         }

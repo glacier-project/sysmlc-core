@@ -14,6 +14,9 @@ typedef enum {{ e.base }}_e {
 
 {{ banner }}
 #include "sc/sc_runtime.h"
+{% if has_send %}
+#include "sc/sc_event_queue.h"
+{% endif %}
 
 #ifdef __cplusplus
 extern "C" {
@@ -35,7 +38,13 @@ extern "C" {
 
 
 #define {{ prefix|upper }}_QUEUE_CAPACITY {{ queue_capacity }}u
+#define {{ prefix|upper }}_ACTIVE_CAPACITY {{ active_capacity }}u
 
+{% for e in generated_enums %}
+/// @brief Generated enum type '{{ e.base }}'.
+{{ enum_block(e) }}
+
+{% endfor %}
 {% for st in structs %}
 /// @brief Generated nested context type {{ st.name }}.
 typedef struct {
@@ -58,6 +67,11 @@ typedef struct {{ prefix }}_context_s {
 /// @brief Runtime instance for {{ qn }}.
 typedef struct {{ prefix }}_s {
     sc_runtime_t runtime;
+    sc_activation_t active[{{ prefix|upper }}_ACTIVE_CAPACITY];
+{% if has_send %}
+    sc_event_queue_t queue;
+    sc_event_t queue_storage[{{ queue_capacity }}];
+{% endif %}
 } {{ prefix }}_t;
 
 /// @brief Initialize a generated context object with model default values.
@@ -81,6 +95,31 @@ sc_status_t {{ prefix }}_dispatch({{ prefix }}_t *sm, const sc_event_t *event);
 /// @param event_id Event identifier to dispatch.
 /// @return SC_STATUS_OK if a transition fired, SC_STATUS_NO_TRANSITION if none matched, or an error status.
 sc_status_t {{ prefix }}_post({{ prefix }}_t *sm, sc_event_id_t event_id);
+{% if has_timer %}
+
+/// @brief Advance virtual time and deliver a due after/at occurrence, if any.
+///
+/// The host must call this with a current tick value immediately before
+/// dispatching any event that might enter a time-triggered state, whenever
+/// that timer's precision matters -- state_entered_at is stamped from the
+/// last _tick call, not a live clock read.
+/// @param sm Statechart instance to advance.
+/// @param now Current absolute tick value; must be >= the value passed to
+///        the last _tick call, or SC_STATUS_INVALID_ARGUMENT is returned.
+/// @return SC_STATUS_OK if a transition fired, SC_STATUS_NO_TRANSITION if
+///         nothing was due (or its `if` guard failed), or an error status.
+sc_status_t {{ prefix }}_tick({{ prefix }}_t *sm, sc_time_t now);
+{% endif %}
+{% if has_when %}
+
+/// @brief Re-check completion transitions after external context mutation.
+///
+/// Hosts must call this after mutating context state that a `when` (change
+/// trigger) condition reads, whenever no event dispatch already covers it.
+/// @param sm Statechart instance to settle.
+/// @return SC_STATUS_OK on success (including "nothing to settle"), or an error status.
+sc_status_t {{ prefix }}_settle({{ prefix }}_t *sm);
+{% endif %}
 
 /// @brief Return the currently active state.
 /// @param sm Statechart instance to inspect.
@@ -91,6 +130,17 @@ sc_state_id_t {{ prefix }}_get_state(const {{ prefix }}_t *sm);
 /// @param sm Statechart instance to inspect.
 /// @return true if the active leaf is a root-scope final state.
 bool {{ prefix }}_is_final(const {{ prefix }}_t *sm);
+
+/// @brief Number of currently active true leaves.
+/// @param sm Statechart instance to inspect.
+/// @return Count of active true leaves, or 0 before initialization.
+sc_state_id_t {{ prefix }}_active_count(const {{ prefix }}_t *sm);
+
+/// @brief The k-th currently active true leaf, in ascending slot order.
+/// @param sm Statechart instance to inspect.
+/// @param index Which active leaf to return, 0 <= index < {{ prefix }}_active_count(sm).
+/// @return The index-th active leaf, or SC_STATE_INVALID if out of range.
+sc_state_id_t {{ prefix }}_active_state(const {{ prefix }}_t *sm, sc_state_id_t index);
 
 /// @brief Return a stable name for a generated state id.
 /// @param state State identifier to name.

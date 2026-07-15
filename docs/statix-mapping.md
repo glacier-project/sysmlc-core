@@ -57,13 +57,15 @@ const char *<prefix>_event_name(sc_event_id_t event);
 
 ## 2. States
 
-Every leaf state becomes an `enum` constant (`<PREFIX>_STATE_<NAME>`), numbered
+Every leaf, composite, and parallel state becomes an `enum` constant (`<PREFIX>_STATE_<NAME>`), numbered
 from 0 in declaration order. `<PREFIX>_STATE_COUNT` gives the total.
 
 Each state also gets a row in the per-state table `sc_state_def_t[]`, holding its
-entry-action and exit-action ids, `parent`, and `initial_child`. For a composite
-state, `initial_child` is set and entered by descent; nested names are
-root-relative dotted paths. Parallel or history states remain rejected (see §9).
+entry-action and exit-action ids, `parent`, `initial_child`, `is_final`, `slot`, `region_first`, and `region_count`. For a composite
+state (`region_count == 0`), `initial_child` is set and entered by descent; nested names are
+root-relative dotted paths. For a parallel state (`state name parallel { ... }`), `region_count > 0` gives its number of orthogonal regions and `region_first` points to the contiguous slice in `sc_state_id_t regions[]` storing its region roots (`slot` holds each region's activation slot index). History states remain rejected (see §9).
+
+When a statechart contains parallel states, `statix` calculates its maximum concurrent true leaf count at build time and allocates a static array `sc_activation_t active[<PREFIX>_ACTIVE_CAPACITY]` inside `sc_runtime_t`. When a parallel state is entered (`_descend`), the runtime forks into every direct region, writing each region's active leaf into its pre-allocated slot. During event dispatch (`_select`), region-local transitions fire concurrently across slots (`broadcast`). If an enabled transition is sourced at or above the active parallel container itself (`group interrupt`), the runtime exits every active region once (`clearing their slots`) before taking the trunk transition. An eventless completion transition sourced at a parallel state (`join`) is intrinsically gated on every direct region reaching its own local final leaf (`sc_runtime_regions_all_final`).
 
 ## 3. Initial state and completion (eventless) transitions
 
@@ -91,16 +93,117 @@ state marks the machine (or enclosing composite) complete.
 `<prefix>_is_final(const <prefix>_t *sm)` reports whether the machine has
 *terminated* — that is, the active leaf is a root-scope final state.
 
+## 3a. Internal event queue and self-sends (RTC)
+
+When a machine includes a self-send (`send new E()` or `do send new E()`), statix generates an internal FIFO event queue (`sc_event_queue_t queue` with storage `sc_event_t queue_storage[8]`) inside `<prefix>_t`, and sets `#define SC_MACHINE_HAS_QUEUE 1` before including `sc/sc_machine.h`. The queue capacity defaults to 8 (`<PREFIX>_QUEUE_CAPACITY`). During `<prefix>_init`, `<prefix>_dispatch`, and `<prefix>_post`, an internal drain loop (`_drain_internal`) automatically dequeues and dispatches internal events until the queue is empty or the RTC step limit is reached. If an action enqueues an event when the queue is full, `sc_runtime_enqueue` returns `SC_STATUS_QUEUE_FULL` (drop-when-full semantics).
+
 ## 4. Triggers and signals
 
 `accept E [via port]` is a **signal trigger**: `E` becomes an `enum` event id
 (`<PREFIX>_EVENT_E`, numbered from 1), and the transition matches that id in
-`<prefix>_dispatch` / `<prefix>_post`. A named binding (`accept reading : E`) is
-accepted only
-when the payload data is never read; **reading payload data** (`reading.value`)
-is rejected — it belongs to the deferred send/RTC family (§9).
+`<prefix>_dispatch` / `<prefix>_post`. A named binding (`accept reading : E`) may read the event's single
+marshalled Real value — either directly (`reading.value`) or one composite
+hop deep (`reading.sample.value`) — in the transition's guard and effect;
+deeper chains, whole-payload capture, and non-Real payload data remain
+rejected (§9).
 
-`after` / `at` / `when` triggers are rejected (§9).
+`after` / `at` triggers are supported (§4a); `when` (change) triggers are
+supported too (§4b).
+
+## 4a. Time triggers (`after`/`at`)
+
+`accept after <duration>` and `accept at <instant>` compile to a **latch**,
+not a scheduled event: a generated static `timeout_due(state, runtime)`
+function (hooked in via `#define SC_MACHINE_TIMEOUT_DUE timeout_due`,
+following the exact `guard_eval`/`action_exec` convention) recomputes the
+due-condition against `sc_runtime_t.now`/`state_entered_at` on every call to
+the new public `<prefix>_tick(sm, now)`. `after` is due once `now - entered_at >= duration`; `at` is due once `entered_at <= instant && now >= instant` (entering exactly at the instant still fires, as a zero-delay
+occurrence). A `bool timeout_delivered` latch, set *before* any `if` guard
+on the transition is evaluated, ensures the occurrence is checked **at most
+once per state activation** — a false guard permanently consumes it for
+that activation, exactly like an ordinary transition guard.
+
+A literal duration/instant (`5 [s]`) folds to a compile-time tick constant
+(`5u * SC_TICKS_PER_SECOND`); an attribute-driven one (`after pickDuration`,
+`at deadline`) is converted at runtime via `sc_seconds_to_ticks`, which
+rejects a negative or out-of-range value by making that occurrence
+permanently non-due, never an unsafe cast or a silent wraparound.
+`SC_TICKS_PER_SECOND` (default `1000u`) is a project-wide compile-time
+constant in `sc_runtime.h`, like `SC_MAX_TRANSITIONS` — override with
+`-DSC_TICKS_PER_SECOND=N`, the same mechanism, not a per-machine generated
+value.
+
+Only a **leaf** state may source an `after`/`at` transition, and at most one
+per leaf; both are rejected at build time (§9). Host contract: `_dispatch`/
+`_post` do not take a tick value, so `state_entered_at` reflects only the
+last `_tick` call — call `_tick(sm, now)` with a current value immediately
+before dispatching any event that might enter a timed state, whenever
+timing precision matters. `sc_time_t` (`uint32_t`) wraps after ~49.7 days at
+the default resolution; `_tick` rejects a non-monotonic value loudly
+(`SC_STATUS_INVALID_ARGUMENT`) rather than silently corrupting state, so a
+long-running host must rebase its tick counter and re-`_init` before wrap.
+
+**Overriding `-DSC_TICKS_PER_SECOND`:** a literal duration/instant's build-time
+range check validates against the *default* (`1000`), then emits a symbolic C
+expression (`5u * SC_TICKS_PER_SECOND`) folded by the compiler at whatever
+resolution the project is actually compiled with — for zero runtime cost. A
+literal that was in-range at the default stays representable for any *larger*
+override; a project compiling with a *smaller* `SC_TICKS_PER_SECOND` (or that
+otherwise needs literals beyond ~4294967.295 default-resolution seconds) must
+re-validate its own model, since the generated multiplication is unsigned and
+wraps silently in C rather than failing at compile time. Same override
+contract as `SC_MAX_TRANSITIONS` et al., stated loudly here because a silent
+wrap in a due-condition is a correctness bug, not just a dropped event.
+
+## 4b. Change triggers (`when`)
+
+`accept when <condition> [if <guard>]` compiles to an ordinary eventless
+(`SC_EVENT_COMPLETION`) transition guarded by a per-transition **armed bit**
+(`runtime->when_armed[i]`, a project-wide `bool [SC_MAX_WHEN_TRIGGERS]` array,
+default size `64`) conjoined with the watched condition and any user `if`.
+Each source state's entry action sets its own transitions' armed bits `true`
+*after* any user entry/`do` statements ("armed last", matching quake's own
+convention) — one observation is armed per activation.
+
+A guarded `when` (`if <guard>` present) emits a second, **internal**
+transition alongside the real one: guard `armed && (condition) && !(guard)`, action `armed = false`, no target. The two guards are genuine
+partitions of `condition` (split on `guard`/`!guard`), so table order
+between them never matters. Internal transitions reuse `SC_STATE_INVALID`
+as the target sentinel — `_take_transition` runs the action (if any) and
+returns without exit/entry/`current_state` change, so a false guard at
+delivery disarms the observation without re-running `on entry` (which would
+re-arm it and undo the disarm in the same step).
+
+A bare `when` (no `if`) needs no consumer: the real guard alone fully
+disposes of the observation once taken.
+
+Hosts must call the new `<prefix>_settle(sm)` after mutating context state
+that a `when` condition reads, whenever no event dispatch already covers it
+— an ordinary `_dispatch`/`_post` already runs the same completion
+machinery internally. `_settle` mirrors `_init`'s tail exactly (no
+"matched event" to compare against, so no `SC_STATUS_NO_TRANSITION`
+branch): `_run_completion` → `_drain_internal` → `_check_invariants`.
+
+Two `when` triggers on one source (armed simultaneously true) resolve by
+**declaration order** — statix does not replicate quake/Sismic's
+`NonDeterminismError`; this is a deliberate divergence, not a gap. A `when`
+self-loop, and `when` sourced from a composite (non-leaf) state, are both
+rejected at build time (§9) — composite sourcing is not rejected because
+the mechanism requires it (the armed-bit array is per-transition, not a
+single leaf-scoped scalar like `after`/`at`'s `state_entered_at`), but
+because nothing in the corpus exercises it yet.
+
+The generated `<prefix>.c` emits a compile-time bound check right after
+includes, when the machine has any `when` trigger:
+
+```c
+#if SC_MAX_WHEN_TRIGGERS < 2u
+#error "SC_MAX_WHEN_TRIGGERS too small for this generated machine"
+#endif
+```
+
+so a `-DSC_MAX_WHEN_TRIGGERS` override smaller than a specific machine's own
+count fails to compile rather than indexing `when_armed[]` out of bounds.
 
 ## 5. Guards
 
@@ -126,14 +229,12 @@ generation (loud), not silently mis-rendered.
 
 State entry/exit actions and transition effects become `<PREFIX>_ACTION_*` ids
 whose bodies are lowered C statements in the generated static
-`<prefix>_action_exec`. Only `assign` is supported today; each
+`<prefix>_action_exec`. Only `assign` is supported for general statements; each
 `assign target := expr` becomes
 `ctx->target = <expr>;`. A state's inline `do` activity runs **once** at
-entry — its `assign` statements are appended after the entry action's, in
-declaration order. Firing order follows the Sismic/SCXML reference:
+entry — its statements are appended after the entry action's, in
+declaration order. Self-send statements (`send new E()`) and `do send new E()` are supported for internal events without payloads; each renders as `sc_runtime_enqueue(runtime, <EVENT_ID>);` after any assignment statements. External sends and payload-carrying sends remain rejected. Firing order follows the Sismic/SCXML reference:
 `exit(source) → transition effect → entry(target)`.
-
-`send` effects are rejected (§9).
 
 ## 6a. Asserted constraints (invariants)
 
@@ -150,6 +251,32 @@ chain. The first false active invariant makes the call return
 `SC_STATUS_CONSTRAINT_VIOLATED` (matching Sismic's `InvariantError` at the
 macro-step boundary, including on a no-transition dispatch). Constraints whose
 expression contains a function call are rejected (§9).
+
+## 6b. Library function calls
+
+Allowlisted `NumericalFunctions::abs/max/min` → `fabs`/`fmax`/`fmin` and `TrigFunctions::sin/cos/tan` → `sin`/`cos`/`tan`, all double-typed via `<math.h>` (linked with `-lm` when used). Real-only — a library result assigned to a non-Real attribute is rejected; external calc-defs and non-allowlist functions are rejected.
+
+## 6c. Self-sends and payload marshalling
+
+When a machine *reads* an event's payload, every `send` of that event must
+marshal it: the constructor's single Real argument is copied into the event's
+inline byte buffer (`sc_runtime_enqueue_f64`) and read back as
+`sc_event_payload_f64(event)` in the accepting transition's guard/effect — a
+scalar Real payload slot over the existing event buffer, same machine on both
+ends. Sends of events whose payload is never read stay id-only with their
+constructor arguments dropped, exactly as before. A read event with no
+marshalling send, a send with the wrong argument shape, or a non-Real
+argument is rejected loudly. `_post` and the host runner remain id-only:
+payload-bearing events exist only as internal self-sends.
+
+The readable path may also be **one composite hop deep**
+(`reading.sample.value`, where `sample` is itself a composite machine
+attribute): the marshalling `send` must pass that same composite attribute
+as a bare argument (`send new Measurement(current, sample) to commPort`),
+and the nested field it resolves to must be Real — checked mechanically
+against the generated struct's own field types, not inferred. A chain three
+or more segments deep (`reading.a.b.c`), or resolving to a non-Real field, is
+rejected.
 
 ## 7. Attributes and the context struct
 
@@ -184,21 +311,61 @@ The C type is inferred from the attribute's literal initializer
 (`Boolean`/`Integer`/`Real`), so an attribute needs a default for statix to type
 it in iteration 1.
 
+## 8a. Enum literal attributes
+
+An attribute, guard, or effect may reference an enum literal
+(`Mode::idle`, `LightColor::red`, `GradePoints::A`). Each enum *definition*
+is classified exactly once, the first time any of its literals is
+encountered, into one of three projections:
+
+- **Native** — every literal declares a value, and every declared value is
+  the same one of Boolean/Integer/Real: the attribute's C type is that
+  native scalar, and a literal reference renders as its own declared value
+  (`GradePoints::B` → `3.0`). `g >= GradePoints::B` is a genuinely numeric
+  C comparison.
+- **Generated, String-valued** — every literal declares a String value: a
+  named C enum is generated (`<machine>_enum_<enum>_t`). The declared
+  strings are **never** used as a runtime representation — this preserves
+  only symbolic identity and equality (`==`/`!=`) between literals of that
+  one definition, not general SysML String semantics.
+- **Generated, plain** — no literal declares a value: the same named C enum
+  generation as the String-valued case, with implicit ordinal values
+  (0..N-1) that are an implementation artifact, not a semantic promise —
+  relational comparison (`<`,`<=`,`>`,`>=`) against a generated enum
+  (String-valued or plain) is rejected, even between two enum-typed
+  attributes (`c1 < c2`), where neither operand is itself a literal
+  reference.
+
+Structured enumerations (attribute-carrying, `:>>` redefinitions) are
+always rejected, mirroring `quake`'s exact boundary. Mixed declared-value
+kinds, a computed (non-bare-literal) declared value, and two enum
+definitions colliding after C-identifier sanitization are also rejected.
+
 ## 9. Rejections
 
 statix **never silently drops** a construct: anything outside the supported flat
 subset raises `UnsupportedConstructError` with a clear message. Rejected in
 iteration 1:
 
-| Construct                                                | Status                                 |
-| -------------------------------------------------------- | -------------------------------------- |
-| parallel / history states                                | rejected (composite/leaf supported)    |
-| `after` / `at` / `when` triggers                         | rejected (no timers/change events yet) |
-| `send` effects, `do send`, reading `accept` payload data | rejected (send/RTC family)             |
-| machine-level (state def) entry/do/exit actions          | rejected (put on states)               |
-| non-inline / referenced `do` activities                  | rejected                               |
-| `String` / non-scalar, non-composite attributes          | rejected                               |
-| external / library function calls in expressions         | rejected                               |
+| Construct                                                                                   | Status                                                                                                   |
+| ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| a structured enumeration literal (attribute-carrying, `:>>` redefinitions)                  | rejected (mirrors quake's exact boundary, §8a)                                                           |
+| an enum definition with mixed/incompatible declared-value kinds                             | rejected (every literal must share one declared-value kind, or none may declare one, §8a)                |
+| an enum literal's declared value is a computed expression, not a bare literal               | rejected (only bare Boolean/Integer/Real/String literal defaults are supported, §8a)                     |
+| two enum definitions collide after C-identifier sanitization                                | rejected (rename one, §8a)                                                                               |
+| relational comparison (`<`,`<=`,`>`,`>=`) against a generated (String-valued or plain) enum | rejected (only `==`/`!=` are supported for symbolic enum values, §8a)                                    |
+| history states                                                                              | rejected (parallel/composite/leaf supported; direct parallel inside parallel is rejected)                |
+| `when` sourced from a composite (non-leaf) state                                            | rejected (mirrors the after/at leaf-only rule, §4b)                                                      |
+| `when` self-loop (target equals source)                                                     | rejected (a conservative guardrail, §4b)                                                                 |
+| `after`/`at` sourced from a composite (non-leaf) state                                      | rejected (state_entered_at needs one unambiguous leaf)                                                   |
+| a second `after`/`at` sourced from the same state                                           | rejected (at most one timer per leaf, §4a)                                                               |
+| a literal duration/instant out of the representable tick range                              | rejected at build time (an out-of-range attribute-driven one is never-due at runtime instead, §4a)       |
+| more than 65,533 distinct signal events in one machine                                      | rejected (the top of the 16-bit event id space is reserved for `SC_EVENT_TIMEOUT`/`SC_EVENT_COMPLETION`) |
+| chains 3+ segments deep, whole, or non-Real payload reads                                   | rejected (2-segment Real chains supported; whole capture is future work)                                 |
+| machine-level (state def) entry/do/exit actions                                             | rejected (put on states)                                                                                 |
+| non-inline / referenced `do` activities                                                     | rejected                                                                                                 |
+| `String` / non-scalar, non-composite attributes                                             | rejected                                                                                                 |
+| external / non-allowlist function calls in expressions                                      | rejected (allowlisted library calls supported)                                                           |
 
 ## 10. Forward notes (not settled)
 
@@ -209,8 +376,7 @@ iteration 1:
   so such a path can slot in without a rewrite.
 - **`Real` representation** — see §8; `double` vs `float` vs fixed-point is a
   target decision, not a settled one.
-- **Growth** — hierarchy, parallel, history, timers, and send→accept
-  internal-event RTC are tracked future work for the runtime and the backend.
+- **Growth** — history states are tracked future work for the runtime and backend (timers and parallel regions are supported).
 
 ## 11. Cross-backend conformance
 
@@ -220,3 +386,5 @@ through both Sismic and the generated statix C and asserts they settle in the
 same state. This is a thin slice of the broader cross-backend conformance idea
 described in [positioning.md](statix/positioning.md); the full framework is
 future work.
+
+**Sismic join-gating gap.** Sismic (quake) has a known semantic defect where it fails to gate a parallel state's outgoing completion (eventless) transition on all of its regions reaching final states. Consequently, conformance tests for parallel machines containing joins (such as the Microwave showcase) are validated against hand-derived traces of UML/Sismic semantics rather than direct live quake output comparison.

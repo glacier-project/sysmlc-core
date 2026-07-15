@@ -8,8 +8,12 @@
 
 /* Static state and transition tables (file-local). */
 static const sc_state_def_t states[] = {
-    {SC_ACTION_NONE, SC_ACTION_NONE, SC_STATE_INVALID, SC_STATE_INVALID, false},
-    {SC_ACTION_NONE, SC_ACTION_NONE, SC_STATE_INVALID, SC_STATE_INVALID, false},
+    {SC_ACTION_NONE, SC_ACTION_NONE, SC_STATE_INVALID, SC_STATE_INVALID, false, (sc_state_id_t)0u, SC_STATE_INVALID, (sc_state_id_t)0u},
+    {SC_ACTION_NONE, SC_ACTION_NONE, SC_STATE_INVALID, SC_STATE_INVALID, false, (sc_state_id_t)0u, SC_STATE_INVALID, (sc_state_id_t)0u},
+};
+
+static const sc_state_id_t regions[] = {
+    SC_STATE_INVALID
 };
 
 static const sc_transition_t transitions[] = {
@@ -29,6 +33,9 @@ static const sc_machine_t machine_def = {
     (sc_state_id_t)1u,
     invariants,
     (uint16_t)0u,
+    regions,
+    (sc_state_id_t)0u,
+    (sc_state_id_t)SM01_MACHINE_ACTIVE_CAPACITY,
 };
 
 /* Generated guard/action dispatch. */
@@ -87,4 +94,5 @@ const char *sm01_machine_event_name(sc_event_id_t event)
 #define SC_MACHINE_DEF machine_def
 #define SC_MACHINE_GUARD guard_eval
 #define SC_MACHINE_ACTION action_exec
+#define SC_MACHINE_ACTIVE_CAPACITY SM01_MACHINE_ACTIVE_CAPACITY
 #include "sc/sc_machine.h"
