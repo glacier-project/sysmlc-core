@@ -11,5 +11,6 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 add_library(statix_statecharts STATIC
   src/sc_runtime_impl.c
   src/sm11/machine_mixed.c)
+
 add_executable(sm11_machine_mixed_runner host/sm11/machine_mixed_runner.c)
 target_link_libraries(sm11_machine_mixed_runner statix_statecharts)
