@@ -52,3 +52,7 @@ class UnsupportedConstructError(CodeGenerationError):
 
 class ValuesError(SysmlcError):
     """Raised for an unreadable, ill-formed, or inapplicable values file."""
+
+
+class FmuError(SysmlcError):
+    """Raised for a missing, unsupported, or mismatched FMU archive."""
