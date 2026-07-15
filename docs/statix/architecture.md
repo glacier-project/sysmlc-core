@@ -154,6 +154,23 @@ When the model includes parallel states, `statix` represents the concurrent acti
 - **`regions[]`**: A flat, generated array in `<prefix>.c` storing the state IDs of all region roots contiguously. For a parallel state, `region_first` points to its first region root in `regions[]`, and `region_count` gives the region count.
 - **Join Intrinsic (`sc_runtime_regions_all_final`)**: When evaluating a completion (`__completion__`) transition sourced at a parallel state, the runtime checks if all region roots mapped under that parallel state have active descendants that are final leaf states.
 
+## Header-Only C Runtime Packaging
+
+To make integrating `statix`-generated code into firmware projects as frictionless as possible, the entire C runtime library is packaged header-only:
+
+- **`sc/sc_machine.h`**: Instantiated inline per generated statechart.
+- **`sc/sc_status.h` & `sc/sc_event_queue.h`**: Define small utility functions with `static inline` linkage.
+- **`sc/sc_runtime.h`**: Uses an **stb-style implementation gate**. It declares all functions unconditionally, but only defines them in the translation unit that defines `SC_RUNTIME_IMPLEMENTATION` before inclusion.
+
+Exactly one translation unit per link unit must do:
+
+```c
+#define SC_RUNTIME_IMPLEMENTATION
+#include "sc/sc_runtime.h"
+```
+
+Generated projects emit this one-liner unit automatically as `src/sc_runtime_impl.c`. Non-CMake or custom integrations must add that same define to exactly one of their own source files.
+
 ## Data flow (runtime)
 
 ```

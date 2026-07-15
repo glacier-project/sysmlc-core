@@ -24,7 +24,8 @@ def test_build_and_write_self_contained_project(
     assert (
         tmp_path / "host" / "sm04" / "machine_entry_increment_runner.c"
     ).exists()
-    assert (tmp_path / "src" / "sc" / "sc_runtime.c").exists()
+    assert (tmp_path / "src" / "sc_runtime_impl.c").exists()
+    assert not (tmp_path / "src" / "sc").exists()
     assert (tmp_path / "include" / "sc" / "sc_runtime.h").exists()
     assert (tmp_path / "CMakeLists.txt").exists()
 

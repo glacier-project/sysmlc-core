@@ -8,6 +8,7 @@
  * Sec.4, Sec.5, Sec.6.
  */
 
+#define SC_RUNTIME_IMPLEMENTATION
 #include "sc/sc_runtime.h"
 
 #include <assert.h>

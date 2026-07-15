@@ -4,6 +4,17 @@
 /// @file sc_runtime.h
 /// @brief Machine-agnostic statechart runtime support.
 ///
+/// Implementation gate: this header declares sc_runtime_bind/_get_state/
+/// _enqueue/_enqueue_f64/sc_seconds_to_ticks/sc_runtime_regions_all_final
+/// unconditionally, but only DEFINES them when SC_RUNTIME_IMPLEMENTATION is
+/// defined before this include. Exactly one translation unit per link unit
+/// must do:
+///     #define SC_RUNTIME_IMPLEMENTATION
+///     #include "sc/sc_runtime.h"
+/// before any other include of this header (order relative to other TUs
+/// doesn't matter, only that exactly one TU takes the gate). Every other TU
+/// includes it normally and links against that one definition.
+///
 /// The generated <prefix>.c unit owns dispatch because it must call that
 /// statechart's static guard/action switches without function pointers. This
 /// shared runtime only defines common table shapes and the mutable instance
@@ -55,6 +66,29 @@ extern "C" {
 #define SC_MAX_INVARIANTS 256u
 #endif
 
+/// @brief Ticks per second for time-triggered (after/at) transitions.
+///
+/// A project-wide compile-time constant, like SC_MAX_TRANSITIONS et al.:
+/// every machine in one build shares one tick resolution (sc_runtime.c is
+/// compiled once into a shared static library, so this cannot be a
+/// per-machine generated value). Override at compile time with
+/// -DSC_TICKS_PER_SECOND=N for a different resolution.
+#ifndef SC_TICKS_PER_SECOND
+#define SC_TICKS_PER_SECOND 1000u
+#endif
+
+/// @brief Hard cap on distinct `when` (change-trigger) armed-observation slots.
+///
+/// A project-wide compile-time constant, like SC_MAX_TRANSITIONS et al.: the
+/// generated `<prefix>.c` for any machine with a `when` trigger emits a
+/// compile-time `#if SC_MAX_WHEN_TRIGGERS < <this machine's own count> #error`
+/// check, so an override that is too small for a specific generated machine
+/// fails to compile rather than corrupting memory. Override at compile time
+/// with -DSC_MAX_WHEN_TRIGGERS=N.
+#ifndef SC_MAX_WHEN_TRIGGERS
+#define SC_MAX_WHEN_TRIGGERS 64u
+#endif
+
 /// @brief One row of a generated transition table.
 ///
 /// Represents `source -- event [guard] / action --> target`.
@@ -73,6 +107,9 @@ typedef struct sc_state_def_s {
     sc_state_id_t parent;         ///< @brief Enclosing state id, or SC_STATE_INVALID at top level.
     sc_state_id_t initial_child;  ///< @brief Descend target if composite, else SC_STATE_INVALID.
     bool is_final;                ///< @brief True for a synthesized `then done` final state.
+    sc_state_id_t slot;           ///< @brief Activation-array index this state's presence is tracked under.
+    sc_state_id_t region_first;   ///< @brief Index into machine->regions[], or SC_STATE_INVALID.
+    sc_state_id_t region_count;   ///< @brief 0 unless this state is a parallel container.
 } sc_state_def_t;
 
 /// @brief One asserted invariant: a guard checked while its scope is active.
@@ -91,26 +128,46 @@ typedef struct sc_machine_s {
     sc_state_id_t max_depth; ///< @brief Deepest root->leaf path in this chart.
     const sc_invariant_t *invariants; ///< @brief Generated invariant table (never NULL).
     uint16_t invariant_count; ///< @brief Number of invariant rows (may be 0).
+    const sc_state_id_t *regions; ///< @brief Flat region-root id array, sliced per parallel state (never NULL).
+    sc_state_id_t region_row_count; ///< @brief Length of regions[].
+    sc_state_id_t active_capacity; ///< @brief This machine's own generated max-concurrent-leaf bound.
 } sc_machine_t;
+
+/// @brief One concurrently-active leaf's own mutable bookkeeping.
+typedef struct sc_activation_s {
+    sc_state_id_t leaf;      ///< @brief Active state id in this slot, or SC_STATE_INVALID.
+    sc_time_t entered_at;    ///< @brief When this slot's leaf was entered, in `now`'s units.
+    bool timeout_delivered;  ///< @brief Has this slot's after/at occurrence already been checked?
+} sc_activation_t;
 
 /// @brief Common mutable runtime state embedded by generated instances.
 typedef struct sc_runtime_s {
     const sc_machine_t *machine; ///< @brief Borrowed immutable machine definition.
     void *user_data; ///< @brief Opaque caller-owned context pointer.
     sc_event_queue_t *queue; ///< @brief Internal-event queue, or NULL if the machine sends nothing.
-    sc_state_id_t current_state; ///< @brief Current active state id.
+    sc_activation_t *active; ///< @brief Borrowed, machine-embedded activation array.
+    sc_state_id_t active_capacity; ///< @brief Length of active[] (== machine->active_capacity once bound).
     bool initialized; ///< @brief True after successful runtime binding.
+    sc_time_t now; ///< @brief Last value passed to _tick (0 until the first call).
+    bool when_armed[SC_MAX_WHEN_TRIGGERS]; ///< @brief Per-transition `when` armed-observation bits.
 } sc_runtime_t;
 
-/// @brief Bind runtime state to a generated machine and caller-owned context.
+/// @brief Bind runtime state to a generated machine, context, and activation storage.
 ///
-/// Does not run entry actions or completion transitions; generated statechart
-/// units own those machine-specific calls.
+/// Atomic: validates the machine table (as today) plus that `active_capacity`
+/// matches `machine->active_capacity`, clears every activation slot, and only
+/// then sets `initialized = true` -- no partially-bound runtime is ever
+/// observable as initialized (design Sec.3.4). Does not run entry actions or
+/// completion transitions; generated statechart units own those calls.
 /// @param runtime Runtime instance to bind.
 /// @param machine Immutable generated machine definition.
 /// @param user_data Opaque caller-owned context pointer.
+/// @param active Caller-owned (machine-embedded) activation array, length `active_capacity`.
+/// @param active_capacity Length of `active`; must equal `machine->active_capacity`.
 /// @return SC_STATUS_OK on success, or SC_STATUS_INVALID_ARGUMENT.
-sc_status_t sc_runtime_bind(sc_runtime_t *runtime, const sc_machine_t *machine, void *user_data);
+sc_status_t sc_runtime_bind(sc_runtime_t *runtime, const sc_machine_t *machine,
+                            void *user_data, sc_activation_t *active,
+                            sc_state_id_t active_capacity);
 
 /// @brief Write the current state id to an output pointer.
 /// @param runtime Runtime instance to inspect.
@@ -130,6 +187,202 @@ sc_status_t sc_runtime_get_state(const sc_runtime_t *runtime, sc_state_id_t *out
 /// @return SC_STATUS_OK, SC_STATUS_QUEUE_FULL, or SC_STATUS_INVALID_ARGUMENT
 ///         (NULL runtime, or a machine with no internal-event queue).
 sc_status_t sc_runtime_enqueue(sc_runtime_t *runtime, sc_event_id_t event_id);
+
+/// @brief Post an internal event carrying one Real (double) payload value.
+///
+/// The scalar Real payload slot: the double's object bytes are copied into
+/// the event's inline payload buffer (bounded loop, no allocation) and read
+/// back by sc_event_payload_f64 on the accepting side. Same contract as
+/// sc_runtime_enqueue otherwise.
+/// @param runtime Runtime instance to post into.
+/// @param event_id Event identifier to enqueue.
+/// @param value Payload value to marshal.
+/// @return SC_STATUS_OK, SC_STATUS_QUEUE_FULL, or SC_STATUS_INVALID_ARGUMENT
+///         (NULL runtime, a machine with no internal-event queue, or a
+///         double too large for the payload buffer).
+sc_status_t sc_runtime_enqueue_f64(sc_runtime_t *runtime, sc_event_id_t event_id, double value);
+
+/// @brief Convert SI seconds to ticks, rejecting negative or unrepresentable values.
+///
+/// Used by generated timeout_due functions for attribute-driven (not
+/// literal) after/at durations/instants, whose value is only known at
+/// runtime: rejects out-of-range input *before* the cast that would
+/// otherwise silently wrap, rather than catching a bad result afterward.
+/// @param seconds Duration/instant in SI seconds.
+/// @param out_ticks Destination for the converted tick value.
+/// @return true and writes *out_ticks on success; false (leaves *out_ticks
+///         unset) if seconds is negative or would overflow sc_time_t at the
+///         compiled SC_TICKS_PER_SECOND.
+bool sc_seconds_to_ticks(double seconds, sc_time_t *out_ticks);
+
+/// @brief Whether every direct region of a parallel state is in its own local final leaf.
+///
+/// The join intrinsic (design Sec.6): `_find_transition_at` in sc_machine.h
+/// calls this for any completion transition sourced at a parallel state,
+/// rather than routing through the per-machine guard mechanism (guard_eval is
+/// defined before sc_machine.h's SC__FN-mangled helpers exist, so it cannot
+/// call one). Checks exactly one parallel state's direct regions -- does not
+/// recurse into nested parallel (out of scope this increment).
+/// @param runtime Runtime instance to inspect.
+/// @param parallel_state The parallel container's state id.
+/// @return true if every direct region's currently active leaf is final.
+bool sc_runtime_regions_all_final(const sc_runtime_t *runtime, sc_state_id_t parallel_state);
+
+#ifdef SC_RUNTIME_IMPLEMENTATION
+
+sc_status_t sc_runtime_bind(sc_runtime_t *runtime, const sc_machine_t *machine,
+                            void *user_data, sc_activation_t *active,
+                            sc_state_id_t active_capacity)
+{
+    sc_state_id_t i;
+    if ((runtime == NULL) || (machine == NULL) || (machine->transitions == NULL) ||
+        (machine->states == NULL)) {
+        return SC_STATUS_INVALID_ARGUMENT;
+    }
+    if (machine->initial_state >= machine->state_count) {
+        return SC_STATUS_INVALID_ARGUMENT;
+    }
+    if (machine->max_depth > (sc_state_id_t)SC_MAX_DEPTH) {
+        return SC_STATUS_INVALID_ARGUMENT;
+    }
+    if ((active == NULL) || (active_capacity != machine->active_capacity)) {
+        return SC_STATUS_INVALID_ARGUMENT;
+    }
+    for (i = 0u; i < machine->state_count; ++i) {
+        sc_state_id_t parent = machine->states[i].parent;
+        sc_state_id_t child = machine->states[i].initial_child;
+        if ((parent != SC_STATE_INVALID) && (parent >= machine->state_count)) {
+            return SC_STATUS_INVALID_ARGUMENT;
+        }
+        if ((child != SC_STATE_INVALID) && (child >= machine->state_count)) {
+            return SC_STATUS_INVALID_ARGUMENT;
+        }
+    }
+    for (i = 0u; i < machine->transition_count; ++i) {
+        /* Dispatch always indexes states[t->source] directly. states[t->target]
+         * too, except SC_STATE_INVALID: the internal-transition sentinel (no
+         * exit, no entry, action-only -- see sc_machine.h's _take_transition),
+         * used by `when`'s consumer transitions. */
+        if (machine->transitions[i].source >= machine->state_count) {
+            return SC_STATUS_INVALID_ARGUMENT;
+        }
+        if ((machine->transitions[i].target != SC_STATE_INVALID) &&
+            (machine->transitions[i].target >= machine->state_count)) {
+            return SC_STATUS_INVALID_ARGUMENT;
+        }
+    }
+    if (machine->invariant_count > (uint16_t)SC_MAX_INVARIANTS) {
+        return SC_STATUS_INVALID_ARGUMENT;
+    }
+    if ((machine->invariant_count > 0u) && (machine->invariants == NULL)) {
+        return SC_STATUS_INVALID_ARGUMENT;
+    }
+    for (i = 0u; i < machine->invariant_count; ++i) {
+        sc_state_id_t scope = machine->invariants[i].scope;
+        if ((scope != SC_STATE_INVALID) && (scope >= machine->state_count)) {
+            return SC_STATUS_INVALID_ARGUMENT;
+        }
+    }
+    /* Only once every check above has passed do we mutate anything -- no
+     * partially-bound runtime is ever observable as initialized (design Sec.3.4). */
+    for (i = 0u; i < active_capacity; ++i) {
+        active[i].leaf = SC_STATE_INVALID;
+        active[i].entered_at = 0u;
+        active[i].timeout_delivered = false;
+    }
+    runtime->machine = machine;
+    runtime->user_data = user_data;
+    runtime->queue = NULL;
+    runtime->active = active;
+    runtime->active_capacity = active_capacity;
+    runtime->now = 0u;
+    for (i = 0u; i < (sc_state_id_t)SC_MAX_WHEN_TRIGGERS; ++i) {
+        runtime->when_armed[i] = false;
+    }
+    runtime->initialized = true;
+    return SC_STATUS_OK;
+}
+
+sc_status_t sc_runtime_get_state(const sc_runtime_t *runtime, sc_state_id_t *out_state)
+{
+    if ((runtime == NULL) || (out_state == NULL) || (!runtime->initialized)) {
+        return SC_STATUS_INVALID_ARGUMENT;
+    }
+    *out_state = runtime->active[0].leaf;
+    return SC_STATUS_OK;
+}
+
+sc_status_t sc_runtime_enqueue(sc_runtime_t *runtime, sc_event_id_t event_id)
+{
+    sc_event_t event;
+    sc_status_t status;
+    if ((runtime == NULL) || (runtime->queue == NULL)) {
+        return SC_STATUS_INVALID_ARGUMENT;
+    }
+    status = sc_event_init(&event, event_id);
+    if (status != SC_STATUS_OK) {
+        return status;
+    }
+    return sc_event_queue_push(runtime->queue, &event);
+}
+
+sc_status_t sc_runtime_enqueue_f64(sc_runtime_t *runtime, sc_event_id_t event_id, double value)
+{
+    sc_event_t event;
+    const uint8_t *bytes = (const uint8_t *)&value;
+    uint8_t i;
+    sc_status_t status;
+    if ((runtime == NULL) || (runtime->queue == NULL)) {
+        return SC_STATUS_INVALID_ARGUMENT;
+    }
+    if (sizeof(double) > (size_t)SC_EVENT_PAYLOAD_SIZE) {
+        return SC_STATUS_INVALID_ARGUMENT;
+    }
+    status = sc_event_init(&event, event_id);
+    if (status != SC_STATUS_OK) {
+        return status;
+    }
+    for (i = 0u; i < (uint8_t)sizeof(double); ++i) {
+        event.payload[i] = bytes[i];
+    }
+    event.payload_len = (uint8_t)sizeof(double);
+    return sc_event_queue_push(runtime->queue, &event);
+}
+
+bool sc_seconds_to_ticks(double seconds, sc_time_t *out_ticks)
+{
+    double max_seconds;
+    if (out_ticks == NULL) {
+        return false;
+    }
+    if (seconds < 0.0) {
+        return false;
+    }
+    max_seconds = (double)SC_TIME_MAX / (double)SC_TICKS_PER_SECOND;
+    if (seconds > max_seconds) {
+        return false;
+    }
+    *out_ticks = (sc_time_t)(seconds * (double)SC_TICKS_PER_SECOND);
+    return true;
+}
+
+bool sc_runtime_regions_all_final(const sc_runtime_t *runtime, sc_state_id_t parallel_state)
+{
+    const sc_machine_t *machine = runtime->machine;
+    const sc_state_def_t *p = &machine->states[parallel_state];
+    sc_state_id_t i;
+    for (i = 0u; i < p->region_count; ++i) {
+        sc_state_id_t region_root = machine->regions[(size_t)(p->region_first + i)];
+        sc_state_id_t slot = machine->states[region_root].slot;
+        sc_state_id_t leaf = runtime->active[slot].leaf;
+        if ((leaf == SC_STATE_INVALID) || !machine->states[leaf].is_final) {
+            return false;
+        }
+    }
+    return true;
+}
+
+#endif /* SC_RUNTIME_IMPLEMENTATION */
 
 #ifdef __cplusplus
 }

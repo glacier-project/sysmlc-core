@@ -70,6 +70,31 @@ static inline sc_status_t sc_event_set_payload(sc_event_t *event, const uint8_t 
     return SC_STATUS_OK;
 }
 
+/// @brief Read the event's single Real (double) payload value.
+///
+/// Counterpart of sc_runtime_enqueue_f64: copies sizeof(double) payload
+/// bytes back into a double with a bounded loop. Defensive: returns 0.0
+/// when the event is NULL or the payload is not exactly one marshalled
+/// double (payload_len mismatch). Unreachable in generated code -- the
+/// generator only emits this read for events whose every send marshals f64.
+/// Producer and consumer are the same machine, so byte order is not a
+/// portability concern for internally queued events.
+/// @param event Event to read, or NULL.
+/// @return The marshalled double, or 0.0 on any mismatch.
+static inline double sc_event_payload_f64(const sc_event_t *event)
+{
+    double value = 0.0;
+    uint8_t *bytes = (uint8_t *)&value;
+    uint8_t i;
+    if ((event == NULL) || (event->payload_len != (uint8_t)sizeof(double))) {
+        return 0.0;
+    }
+    for (i = 0u; i < (uint8_t)sizeof(double); ++i) {
+        bytes[i] = event->payload[i];
+    }
+    return value;
+}
+
 #ifdef __cplusplus
 }
 #endif

@@ -10,61 +10,43 @@ add_compile_options(-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wdo
 
 include_directories(${RUNTIME_DIR}/include)
 
-add_library(sc_runtime STATIC
-  ${RUNTIME_DIR}/src/sc_status.c
-  ${RUNTIME_DIR}/src/sc_event_queue.c
-  ${RUNTIME_DIR}/src/sc_runtime.c)
-
 enable_testing()
 
 add_executable(test_event_queue test_event_queue.c)
-target_link_libraries(test_event_queue sc_runtime)
 add_test(NAME test_event_queue COMMAND test_event_queue)
 
 add_executable(test_runtime_simple test_runtime_simple.c)
-target_link_libraries(test_runtime_simple sc_runtime)
 add_test(NAME test_runtime_simple COMMAND test_runtime_simple)
 
 add_executable(test_runtime_completion test_runtime_completion.c)
-target_link_libraries(test_runtime_completion sc_runtime)
 add_test(NAME test_runtime_completion COMMAND test_runtime_completion)
 
 add_executable(test_runtime_enqueue test_runtime_enqueue.c)
-target_link_libraries(test_runtime_enqueue sc_runtime)
 add_test(NAME test_runtime_enqueue COMMAND test_runtime_enqueue)
 
 add_executable(test_runtime_send test_runtime_send.c)
-target_link_libraries(test_runtime_send sc_runtime)
 add_test(NAME test_runtime_send COMMAND test_runtime_send)
 
 add_executable(test_payload_f64 test_payload_f64.c)
-target_link_libraries(test_payload_f64 sc_runtime)
 add_test(NAME test_payload_f64 COMMAND test_payload_f64)
 
 add_executable(test_runtime_payload test_runtime_payload.c)
-target_link_libraries(test_runtime_payload sc_runtime)
 add_test(NAME test_runtime_payload COMMAND test_runtime_payload)
 
 add_executable(test_runtime_tick test_runtime_tick.c)
-target_link_libraries(test_runtime_tick sc_runtime)
 add_test(NAME test_runtime_tick COMMAND test_runtime_tick)
 
 add_executable(test_runtime_timer test_runtime_timer.c)
-target_link_libraries(test_runtime_timer sc_runtime)
 add_test(NAME test_runtime_timer COMMAND test_runtime_timer)
 
 add_executable(test_runtime_when test_runtime_when.c)
-target_link_libraries(test_runtime_when sc_runtime)
 add_test(NAME test_runtime_when COMMAND test_runtime_when)
 
 add_executable(test_runtime_internal_transition test_runtime_internal_transition.c)
-target_link_libraries(test_runtime_internal_transition sc_runtime)
 add_test(NAME test_runtime_internal_transition COMMAND test_runtime_internal_transition)
 
 add_executable(test_runtime_activation test_runtime_activation.c)
-target_link_libraries(test_runtime_activation sc_runtime)
 add_test(NAME test_runtime_activation COMMAND test_runtime_activation)
 
 add_executable(test_runtime_parallel test_runtime_parallel.c)
-target_link_libraries(test_runtime_parallel sc_runtime)
 add_test(NAME test_runtime_parallel COMMAND test_runtime_parallel)

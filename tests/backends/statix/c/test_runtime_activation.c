@@ -5,6 +5,7 @@
  * docs/superpowers/specs/2026-07-14-statix-parallel-regions-design.md Sec.3.4, Sec.6.
  */
 
+#define SC_RUNTIME_IMPLEMENTATION
 #include "sc/sc_runtime.h"
 
 #include <stdio.h>

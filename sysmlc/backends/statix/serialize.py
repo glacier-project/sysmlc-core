@@ -21,6 +21,16 @@ _TRACE_FORMATS: Final[dict[str, tuple[str, str]]] = {
     "double": ("%g", ""),
 }
 
+_RUNTIME_IMPL_C: Final[str] = (
+    "/// @file sc_runtime_impl.c\n"
+    "/// @brief Single translation unit that instantiates the header-only\n"
+    "/// sc_runtime.h implementation for this project. Do not add any other\n"
+    "/// #define SC_RUNTIME_IMPLEMENTATION in this project -- exactly one is\n"
+    "/// required and this is it.\n"
+    "#define SC_RUNTIME_IMPLEMENTATION\n"
+    '#include "sc/sc_runtime.h"\n'
+)
+
 
 def _trace_fields(program: CProgram) -> list[dict[str, str]]:
     """Flatten context fields for the runner's trace line.
@@ -444,6 +454,7 @@ def emit_project_files(project: CProject) -> dict[str, str]:
         files[f"include/{pkg_dir}/{stem}.h"] = emit_header(program)
         files[f"src/{pkg_dir}/{stem}.c"] = emit_source(program)
         files[f"host/{pkg_dir}/{stem}_runner.c"] = emit_runner(program)
+    files["src/sc_runtime_impl.c"] = _RUNTIME_IMPL_C
     files["CMakeLists.txt"] = emit_cmakelists(project)
     return files
 

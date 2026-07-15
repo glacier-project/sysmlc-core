@@ -26,8 +26,30 @@ typedef enum sc_status_e {
 
 /// @brief Return a static, never-NULL, human-readable name for a status code.
 /// @param status Status code to name.
-/// @return Static non-NULL status name (bounded switch, no function pointers).
-const char *sc_status_str(sc_status_t status);
+/// @return Static non-NULL status name.
+static inline const char *sc_status_str(sc_status_t status)
+{
+    switch (status) {
+    case SC_STATUS_OK:
+        return "SC_STATUS_OK";
+    case SC_STATUS_ERROR:
+        return "SC_STATUS_ERROR";
+    case SC_STATUS_INVALID_ARGUMENT:
+        return "SC_STATUS_INVALID_ARGUMENT";
+    case SC_STATUS_QUEUE_FULL:
+        return "SC_STATUS_QUEUE_FULL";
+    case SC_STATUS_QUEUE_EMPTY:
+        return "SC_STATUS_QUEUE_EMPTY";
+    case SC_STATUS_NO_TRANSITION:
+        return "SC_STATUS_NO_TRANSITION";
+    case SC_STATUS_STEP_LIMIT:
+        return "SC_STATUS_STEP_LIMIT";
+    case SC_STATUS_CONSTRAINT_VIOLATED:
+        return "SC_STATUS_CONSTRAINT_VIOLATED";
+    default:
+        return "SC_STATUS_UNKNOWN";
+    }
+}
 
 #ifdef __cplusplus
 }

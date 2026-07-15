@@ -6,6 +6,7 @@
  * see sc_machine.h's _take_transition).
  */
 
+#define SC_RUNTIME_IMPLEMENTATION
 #include "sc/sc_runtime.h"
 
 #include <stdio.h>
