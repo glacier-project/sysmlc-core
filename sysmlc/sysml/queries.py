@@ -76,6 +76,48 @@ def state_definitions(model: syside.Model) -> Sequence[syside.StateDefinition]:
     return iter_elements(model, syside.StateDefinition)
 
 
+def fixed_multiplicity(feature: syside.Feature) -> int | None:
+    """The feature's fixed multiplicity, or None when it is not fixed.
+
+    ``Real`` (no multiplicity) and ``Real[1]`` are 1; ``Real[3]`` is 3
+    (syside: bounds ``(None, LiteralInteger)``); a range (``[0..5]``) or
+    a non-literal bound has no fixed size and returns None.
+    """
+    mult = feature.multiplicity
+    if mult is None:
+        return 1
+    if not isinstance(mult, syside.MultiplicityRange):
+        return None
+    lower, upper = mult.bounds
+    if not isinstance(upper, syside.LiteralInteger):
+        return None
+    size = int(upper.value)
+    if lower is not None and (
+        not isinstance(lower, syside.LiteralInteger) or int(lower.value) != size
+    ):
+        return None
+    return size
+
+
+def element_doc(element: syside.Namespace) -> str | None:
+    """The element's ``doc``/comment text, single-line, or None.
+
+    Concatenates the bodies of every owned ``Documentation``/``Comment``
+    member (syside strips the delimiters already) and collapses internal
+    whitespace, so the text is safe to embed in generated one-liners.
+    """
+    bodies = [
+        body
+        for member in element.owned_members.collect()
+        if isinstance(member, syside.Documentation | syside.Comment)
+        for body in [member.body]
+        if body
+    ]
+    if not bodies:
+        return None
+    return " ".join(" ".join(bodies).split())
+
+
 def rig_definitions(model: syside.Model) -> Sequence[syside.PartDefinition]:
     """Part definitions that exhibit two named state usages (testbench rigs)."""
     rigs: list[syside.PartDefinition] = []
