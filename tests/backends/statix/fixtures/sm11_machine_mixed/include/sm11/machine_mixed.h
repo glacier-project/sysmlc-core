@@ -37,6 +37,7 @@ typedef enum sm11_machine_mixed_action_e {
 
 
 #define SM11_MACHINE_MIXED_QUEUE_CAPACITY 8u
+#define SM11_MACHINE_MIXED_ACTIVE_CAPACITY 1u
 
 /// @brief Generated context for SM11::MachineMixed.
 typedef struct sm11_machine_mixed_context_s {
@@ -46,6 +47,7 @@ typedef struct sm11_machine_mixed_context_s {
 /// @brief Runtime instance for SM11::MachineMixed.
 typedef struct sm11_machine_mixed_s {
     sc_runtime_t runtime;
+    sc_activation_t active[SM11_MACHINE_MIXED_ACTIVE_CAPACITY];
     sc_event_queue_t queue;
     sc_event_t queue_storage[8];
 } sm11_machine_mixed_t;
@@ -81,6 +83,17 @@ sc_state_id_t sm11_machine_mixed_get_state(const sm11_machine_mixed_t *sm);
 /// @param sm Statechart instance to inspect.
 /// @return true if the active leaf is a root-scope final state.
 bool sm11_machine_mixed_is_final(const sm11_machine_mixed_t *sm);
+
+/// @brief Number of currently active true leaves.
+/// @param sm Statechart instance to inspect.
+/// @return Count of active true leaves, or 0 before initialization.
+sc_state_id_t sm11_machine_mixed_active_count(const sm11_machine_mixed_t *sm);
+
+/// @brief The k-th currently active true leaf, in ascending slot order.
+/// @param sm Statechart instance to inspect.
+/// @param index Which active leaf to return, 0 <= index < sm11_machine_mixed_active_count(sm).
+/// @return The index-th active leaf, or SC_STATE_INVALID if out of range.
+sc_state_id_t sm11_machine_mixed_active_state(const sm11_machine_mixed_t *sm, sc_state_id_t index);
 
 /// @brief Return a stable name for a generated state id.
 /// @param state State identifier to name.

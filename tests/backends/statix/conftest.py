@@ -37,12 +37,22 @@ _WANTED = {
 }
 
 
+_SHOWCASE_MODELS = Path(__file__).resolve().parents[3] / "models" / "showcase"
+
+
 @pytest.fixture(scope="session")
 def sm_models() -> dict[str, syside.Model]:
     """Load each referenced sm-example once, keyed by folder stem (sm01…)."""
     return {
         stem: load_model(_MODELS / folder) for stem, folder in _WANTED.items()
     }
+
+
+@pytest.fixture(scope="session")
+def sm_models_showcase() -> dict[str, syside.Model]:
+    """Load showcase models referenced across the statix backend tests."""
+    return {"microwave": load_model(_SHOWCASE_MODELS / "microwave")}
+
 
 
 def _run_last_line(
@@ -113,6 +123,20 @@ def statix_run_status(tmp_path: Path) -> Callable[..., str]:
     def _run(program: CProgram, events: tuple[str, ...] = ()) -> str:
         line = _run_last_line(tmp_path, program, events, check=False)
         return line.rsplit("status=", maxsplit=1)[1].split()[0]
+
+    return _run
+
+
+@pytest.fixture
+def statix_run_configuration(tmp_path: Path) -> Callable[..., frozenset[str]]:
+    """Build, compile, run a program; return the full set of active leaves."""
+
+    def _run(
+        program: CProgram, events: tuple[str, ...] = ()
+    ) -> frozenset[str]:
+        line = _run_last_line(tmp_path, program, events)
+        tail = line.rsplit("configuration=", maxsplit=1)[1].strip()
+        return frozenset(tail.split(",")) if tail else frozenset()
 
     return _run
 

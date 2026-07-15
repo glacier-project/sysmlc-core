@@ -299,3 +299,93 @@ def test_sm18_enum_literals_match_sismic(
     assert statix_leaf == sismic_leaf, (
         f"{qn}: statix {statix_leaf!r} != sismic {sismic_leaf!r}"
     )
+
+
+def test_sm09_machine_parallel_matches_sismic_configuration(
+    sm_models: dict, statix_run_configuration: Callable
+) -> None:
+    sc = build_statechart(sm_models["sm09"], "SM09::MachineParallel")
+    interpreter = Interpreter(sc)
+    interpreter.execute()
+    oracle_leaves = frozenset(
+        name
+        for name in interpreter.configuration
+        if not sc.children_for(name)  # leaf-only, matching statix's _active_state
+    )
+    program = build_statix(sm_models["sm09"], "SM09::MachineParallel")
+    assert statix_run_configuration(program) == oracle_leaves
+
+
+def test_sm09_machine_nested_parallel_matches_sismic_configuration(
+    sm_models: dict, statix_run_configuration: Callable
+) -> None:
+    sc = build_statechart(sm_models["sm09"], "SM09::MachineNestedParallel")
+    interpreter = Interpreter(sc)
+    interpreter.execute()
+    oracle_leaves = frozenset(
+        name for name in interpreter.configuration if not sc.children_for(name)
+    )
+    program = build_statix(sm_models["sm09"], "SM09::MachineNestedParallel")
+    assert statix_run_configuration(program) == oracle_leaves
+
+
+def test_microwave_start_forks_both_regions(
+    sm_models_showcase: dict, statix_run_configuration: Callable
+) -> None:
+    program = build_statix(
+        sm_models_showcase["microwave"], "Microwave::MicrowaveBehavior"
+    )
+    config = statix_run_configuration(program, ("StartCmd",))
+    assert config == frozenset({"cooking::heating::heater::warming",
+                                 "cooking::heating::turntable::rotating"})
+
+
+def test_microwave_pause_collapses_then_resume_restarts_both_regions(
+    sm_models_showcase: dict, statix_run_configuration: Callable
+) -> None:
+    program = build_statix(
+        sm_models_showcase["microwave"], "Microwave::MicrowaveBehavior"
+    )
+    # Group interrupt: PauseCmd collapses both regions to one trunk leaf.
+    paused = statix_run_configuration(program, ("StartCmd", "PauseCmd"))
+    assert paused == frozenset({"cooking::paused"})
+    # Reset-on-reentry: ResumeCmd re-forks from each region's own initial
+    # child, not wherever it left off.
+    resumed = statix_run_configuration(
+        program, ("StartCmd", "PauseCmd", "ResumeCmd")
+    )
+    assert resumed == frozenset({"cooking::heating::heater::warming",
+                                  "cooking::heating::turntable::rotating"})
+
+
+def test_microwave_door_open_interrupts_from_a_deep_active_region(
+    sm_models_showcase: dict, statix_run: Callable
+) -> None:
+    program = build_statix(
+        sm_models_showcase["microwave"], "Microwave::MicrowaveBehavior"
+    )
+    assert statix_run(program, ("StartCmd", "DoorOpen")) == "idle"
+
+
+def test_microwave_independent_region_timers_and_join(
+    sm_models_showcase: dict, statix_run_configuration: Callable, statix_run: Callable
+) -> None:
+    """Hand-derived expected trace (design Sec.1): quake/Sismic does not
+    correctly gate `then done` on a parallel state's all-regions-final, so
+    this is verified against reasoned-through UML/Sismic semantics (design
+    Sec.4.1, Sec.6), not a live quake diff.
+    """
+    program = build_statix(
+        sm_models_showcase["microwave"], "Microwave::MicrowaveBehavior"
+    )
+    # After 0.4s: only heater's timer has elapsed; turntable is still
+    # rotating. Join must not fire early -- one region reaching final does
+    # not satisfy regions_all_final.
+    mid = statix_run_configuration(
+        program, ("StartCmd", "tick:400")
+    )
+    assert mid == frozenset({"cooking::heating::heater::done",
+                              "cooking::heating::turntable::rotating"})
+    # After 0.6s: both regions final -> join fires -> collapses through
+    # `cooking::done` to `idle`.
+    assert statix_run(program, ("StartCmd", "tick:400", "tick:600")) == "idle"

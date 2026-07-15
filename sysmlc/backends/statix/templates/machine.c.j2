@@ -11,8 +11,17 @@
 /* Static state and transition tables (file-local). */
 static const sc_state_def_t states[] = {
 {% for r in state_rows %}
-    {{ '{' }}{{ r.entry }}, {{ r.exit }}, {{ r.parent }}, {{ r.initial_child }}, {{ r.is_final }}{{ '}' }},
+    {{ '{' }}{{ r.entry }}, {{ r.exit }}, {{ r.parent }}, {{ r.initial_child }}, {{ r.is_final }}, {{ r.slot }}, {{ r.region_first }}, {{ r.region_count }}{{ '}' }},
 {% endfor %}
+};
+
+static const sc_state_id_t regions[] = {
+{% for r in regions_rows %}
+    {{ r }},
+{% endfor %}
+{% if not regions_rows %}
+    SC_STATE_INVALID
+{% endif %}
 };
 
 static const sc_transition_t transitions[] = {
@@ -46,6 +55,9 @@ static const sc_machine_t machine_def = {
     (sc_state_id_t){{ max_depth }}u,
     invariants,
     (uint16_t){{ invariant_count }}u,
+    regions,
+    (sc_state_id_t){{ region_row_count }}u,
+    (sc_state_id_t){{ prefix|upper }}_ACTIVE_CAPACITY,
 };
 
 /* Generated guard/action dispatch. */
@@ -100,7 +112,7 @@ static sc_status_t action_exec(sc_action_id_t action_id, sc_runtime_t *runtime, 
 }
 {% if has_timer %}
 
-static bool timeout_due(sc_state_id_t state, const sc_runtime_t *runtime)
+static bool timeout_due(sc_state_id_t state, const sc_runtime_t *runtime, sc_state_id_t activation_index)
 {
 {% if timeouts_use_ctx %}
     const {{ prefix }}_context_t *ctx = (const {{ prefix }}_context_t *)runtime->user_data;
@@ -165,6 +177,7 @@ const char *{{ prefix }}_event_name(sc_event_id_t event)
 #define SC_MACHINE_DEF machine_def
 #define SC_MACHINE_GUARD guard_eval
 #define SC_MACHINE_ACTION action_exec
+#define SC_MACHINE_ACTIVE_CAPACITY {{ prefix|upper }}_ACTIVE_CAPACITY
 {% if has_send %}
 #define SC_MACHINE_HAS_QUEUE 1
 {% endif %}

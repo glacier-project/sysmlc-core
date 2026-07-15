@@ -123,6 +123,7 @@ class AttributeBinding:
     name: str
     value: AttributeValue
     direction: AttributeDirection = AttributeDirection.NONE
+    type_name: str | None = None
 
 
 @dataclass(frozen=True)

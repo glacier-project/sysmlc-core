@@ -62,6 +62,43 @@ static sc_status_t SC__FN(_run_state_action)(SC__T *sm, sc_action_id_t action,
 }
 
 /// @brief Find the first enabled transition sourced exactly at one state.
+static bool SC__FN(_is_ancestor)(const sc_machine_t *machine, sc_state_id_t scope,
+                                 sc_state_id_t leaf);
+
+static bool SC__FN(_has_final_descendant)(const sc_machine_t *machine, sc_state_id_t container)
+{
+    sc_state_id_t s;
+    for (s = 0u; s < machine->state_count; ++s) {
+        if (machine->states[s].is_final && SC__FN(_is_ancestor)(machine, container, s)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool SC__FN(_is_container_final)(const SC__T *sm, sc_state_id_t container)
+{
+    const sc_machine_t *machine = sm->runtime.machine;
+    sc_state_id_t i;
+    bool found = false;
+    if (machine->states[container].region_count > 0u) {
+        return sc_runtime_regions_all_final(&sm->runtime, container);
+    }
+    if (!SC__FN(_has_final_descendant)(machine, container)) {
+        return true;
+    }
+    for (i = 0u; i < (sc_state_id_t)SC_MACHINE_ACTIVE_CAPACITY; ++i) {
+        sc_state_id_t leaf = sm->runtime.active[i].leaf;
+        if ((leaf != SC_STATE_INVALID) && SC__FN(_is_ancestor)(machine, container, leaf)) {
+            if (!machine->states[leaf].is_final) {
+                return false;
+            }
+            found = true;
+        }
+    }
+    return found;
+}
+
 ///
 /// Intrinsically gates a completion transition sourced at a parallel state
 /// on every direct region being in its own local final leaf (the join
@@ -83,9 +120,11 @@ static int32_t SC__FN(_find_transition_at)(const sc_machine_t *machine,
             bool enabled = (t->guard == SC_GUARD_NONE)
                                ? true
                                : SC_MACHINE_GUARD(t->guard, &sm->runtime, event);
-            if (enabled && (event_id == SC_EVENT_COMPLETION) &&
-                (machine->states[state].region_count > 0u)) {
-                enabled = sc_runtime_regions_all_final(&sm->runtime, state);
+            if (enabled && (event_id == SC_EVENT_COMPLETION)) {
+                if ((machine->states[state].region_count > 0u) ||
+                    (machine->states[state].initial_child != SC_STATE_INVALID)) {
+                    enabled = SC__FN(_is_container_final)(sm, state);
+                }
             }
             if (enabled) {
                 return (int32_t)i;
@@ -183,7 +222,7 @@ static uint16_t SC__FN(_select)(const SC__T *sm, sc_event_id_t event_id,
     const sc_machine_t *machine = sm->runtime.machine;
     uint16_t count = 0u;
     sc_state_id_t i;
-    for (i = 1u; i < (sc_state_id_t)SC_MACHINE_ACTIVE_CAPACITY; ++i) {
+    for (i = 0u; i < (sc_state_id_t)SC_MACHINE_ACTIVE_CAPACITY; ++i) {
         sc_state_id_t leaf = sm->runtime.active[i].leaf;
         sc_state_id_t stop;
         int32_t idx;
@@ -191,6 +230,9 @@ static uint16_t SC__FN(_select)(const SC__T *sm, sc_event_id_t event_id,
             continue;
         }
         stop = SC__FN(_region_boundary)(machine, leaf);
+        if (stop == SC_STATE_INVALID) {
+            continue;
+        }
         idx = SC__FN(_find_transition_bounded)(machine, leaf, stop, event_id, sm, event);
         if (idx >= 0) {
             out[count].slot = i;
@@ -426,9 +468,12 @@ static sc_status_t SC__FN(_take_transition_region)(SC__T *sm, sc_state_id_t slot
     if (status != SC_STATUS_OK) {
         return status;
     }
-    sm->runtime.active[slot].leaf = leaf;
-    sm->runtime.active[slot].entered_at = sm->runtime.now;
-    sm->runtime.active[slot].timeout_delivered = false;
+    if ((machine->states[leaf].region_count == 0u) ||
+        (machine->states[machine->regions[machine->states[leaf].region_first]].slot != slot)) {
+        sm->runtime.active[slot].leaf = leaf;
+        sm->runtime.active[slot].entered_at = sm->runtime.now;
+        sm->runtime.active[slot].timeout_delivered = false;
+    }
     return SC_STATUS_OK;
 }
 
@@ -490,9 +535,12 @@ static sc_status_t SC__FN(_take_transition_group)(SC__T *sm, const sc_transition
     if (status != SC_STATUS_OK) {
         return status;
     }
-    sm->runtime.active[0].leaf = leaf;
-    sm->runtime.active[0].entered_at = sm->runtime.now;
-    sm->runtime.active[0].timeout_delivered = false;
+    if ((machine->states[leaf].region_count == 0u) ||
+        (machine->states[machine->regions[machine->states[leaf].region_first]].slot != 0u)) {
+        sm->runtime.active[0].leaf = leaf;
+        sm->runtime.active[0].entered_at = sm->runtime.now;
+        sm->runtime.active[0].timeout_delivered = false;
+    }
     return SC_STATUS_OK;
 }
 
@@ -507,7 +555,7 @@ static sc_status_t SC__FN(_fire_selected)(SC__T *sm, const sc_selected_t *select
     for (k = 0u; k < count; ++k) {
         sc_status_t status;
         const sc_transition_t *row = &machine->transitions[(size_t)selected[k].transition];
-        status = (selected[k].slot == 0u)
+        status = (SC__FN(_region_boundary)(machine, row->source) == SC_STATE_INVALID)
                      ? SC__FN(_take_transition_group)(sm, row, event)
                      : SC__FN(_take_transition_region)(sm, selected[k].slot, row, event);
         if (status != SC_STATUS_OK) {
@@ -647,9 +695,12 @@ sc_status_t SC__FN(_init)(SC__T *sm, SC__CTX *ctx)
         if (status != SC_STATUS_OK) {
             return status;
         }
-        sm->runtime.active[0].leaf = leaf;
-        sm->runtime.active[0].entered_at = sm->runtime.now;
-        sm->runtime.active[0].timeout_delivered = false;
+        if ((SC_MACHINE_DEF.states[leaf].region_count == 0u) ||
+            (SC_MACHINE_DEF.states[SC_MACHINE_DEF.regions[SC_MACHINE_DEF.states[leaf].region_first]].slot != 0u)) {
+            sm->runtime.active[0].leaf = leaf;
+            sm->runtime.active[0].entered_at = sm->runtime.now;
+            sm->runtime.active[0].timeout_delivered = false;
+        }
     }
     status = SC__FN(_run_completion)(sm);
     if (status != SC_STATUS_OK) {

@@ -38,6 +38,7 @@ extern "C" {
 
 
 #define {{ prefix|upper }}_QUEUE_CAPACITY {{ queue_capacity }}u
+#define {{ prefix|upper }}_ACTIVE_CAPACITY {{ active_capacity }}u
 
 {% for e in generated_enums %}
 /// @brief Generated enum type '{{ e.base }}'.
@@ -66,6 +67,7 @@ typedef struct {{ prefix }}_context_s {
 /// @brief Runtime instance for {{ qn }}.
 typedef struct {{ prefix }}_s {
     sc_runtime_t runtime;
+    sc_activation_t active[{{ prefix|upper }}_ACTIVE_CAPACITY];
 {% if has_send %}
     sc_event_queue_t queue;
     sc_event_t queue_storage[{{ queue_capacity }}];
@@ -128,6 +130,17 @@ sc_state_id_t {{ prefix }}_get_state(const {{ prefix }}_t *sm);
 /// @param sm Statechart instance to inspect.
 /// @return true if the active leaf is a root-scope final state.
 bool {{ prefix }}_is_final(const {{ prefix }}_t *sm);
+
+/// @brief Number of currently active true leaves.
+/// @param sm Statechart instance to inspect.
+/// @return Count of active true leaves, or 0 before initialization.
+sc_state_id_t {{ prefix }}_active_count(const {{ prefix }}_t *sm);
+
+/// @brief The k-th currently active true leaf, in ascending slot order.
+/// @param sm Statechart instance to inspect.
+/// @param index Which active leaf to return, 0 <= index < {{ prefix }}_active_count(sm).
+/// @return The index-th active leaf, or SC_STATE_INVALID if out of range.
+sc_state_id_t {{ prefix }}_active_state(const {{ prefix }}_t *sm, sc_state_id_t index);
 
 /// @brief Return a stable name for a generated state id.
 /// @param state State identifier to name.
