@@ -12,7 +12,9 @@
 /// @param machine Immutable generated machine definition.
 /// @param user_data Opaque caller-owned context pointer.
 /// @return SC_STATUS_OK on success, or SC_STATUS_INVALID_ARGUMENT.
-sc_status_t sc_runtime_bind(sc_runtime_t *runtime, const sc_machine_t *machine, void *user_data)
+sc_status_t sc_runtime_bind(sc_runtime_t *runtime, const sc_machine_t *machine,
+                            void *user_data, sc_activation_t *active,
+                            sc_state_id_t active_capacity)
 {
     sc_state_id_t i;
     if ((runtime == NULL) || (machine == NULL) || (machine->transitions == NULL) ||
@@ -23,6 +25,9 @@ sc_status_t sc_runtime_bind(sc_runtime_t *runtime, const sc_machine_t *machine, 
         return SC_STATUS_INVALID_ARGUMENT;
     }
     if (machine->max_depth > (sc_state_id_t)SC_MAX_DEPTH) {
+        return SC_STATUS_INVALID_ARGUMENT;
+    }
+    if ((active == NULL) || (active_capacity != machine->active_capacity)) {
         return SC_STATUS_INVALID_ARGUMENT;
     }
     for (i = 0u; i < machine->state_count; ++i) {
@@ -60,13 +65,19 @@ sc_status_t sc_runtime_bind(sc_runtime_t *runtime, const sc_machine_t *machine, 
             return SC_STATUS_INVALID_ARGUMENT;
         }
     }
+    /* Only once every check above has passed do we mutate anything -- no
+     * partially-bound runtime is ever observable as initialized (design Sec.3.4). */
+    for (i = 0u; i < active_capacity; ++i) {
+        active[i].leaf = SC_STATE_INVALID;
+        active[i].entered_at = 0u;
+        active[i].timeout_delivered = false;
+    }
     runtime->machine = machine;
     runtime->user_data = user_data;
     runtime->queue = NULL;
-    runtime->current_state = machine->initial_state;
+    runtime->active = active;
+    runtime->active_capacity = active_capacity;
     runtime->now = 0u;
-    runtime->state_entered_at = 0u;
-    runtime->timeout_delivered = false;
     for (i = 0u; i < (sc_state_id_t)SC_MAX_WHEN_TRIGGERS; ++i) {
         runtime->when_armed[i] = false;
     }
@@ -83,7 +94,7 @@ sc_status_t sc_runtime_get_state(const sc_runtime_t *runtime, sc_state_id_t *out
     if ((runtime == NULL) || (out_state == NULL) || (!runtime->initialized)) {
         return SC_STATUS_INVALID_ARGUMENT;
     }
-    *out_state = runtime->current_state;
+    *out_state = runtime->active[0].leaf;
     return SC_STATUS_OK;
 }
 
@@ -167,5 +178,21 @@ bool sc_seconds_to_ticks(double seconds, sc_time_t *out_ticks)
         return false;
     }
     *out_ticks = (sc_time_t)(seconds * (double)SC_TICKS_PER_SECOND);
+    return true;
+}
+
+bool sc_runtime_regions_all_final(const sc_runtime_t *runtime, sc_state_id_t parallel_state)
+{
+    const sc_machine_t *machine = runtime->machine;
+    const sc_state_def_t *p = &machine->states[parallel_state];
+    sc_state_id_t i;
+    for (i = 0u; i < p->region_count; ++i) {
+        sc_state_id_t region_root = machine->regions[(size_t)(p->region_first + i)];
+        sc_state_id_t slot = machine->states[region_root].slot;
+        sc_state_id_t leaf = runtime->active[slot].leaf;
+        if ((leaf == SC_STATE_INVALID) || !machine->states[leaf].is_final) {
+            return false;
+        }
+    }
     return true;
 }

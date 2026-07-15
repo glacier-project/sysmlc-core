@@ -123,9 +123,105 @@ def test_cross_boundary_transitions_use_dotted_endpoints(
     )
 
 
-def test_rejects_parallel_state(sm_models: dict) -> None:
-    with pytest.raises(UnsupportedConstructError):
-        build_statix(sm_models["sm09"], "SM09::MachineParallel")
+def test_parallel_root_builds_without_rejection(sm_models: dict) -> None:
+    program = build_statix(sm_models["sm09"], "SM09::MachineParallel")
+    assert program.active_capacity == 2
+    root = next(s for s in program.states if s.name == "MachineParallel")
+    assert root.region_count == 2
+    assert root.parent is None
+    assert program.initial == "MachineParallel"
+    lights = next(s for s in program.states if s.name == "lights")
+    sound = next(s for s in program.states if s.name == "sound")
+    assert lights.slot != sound.slot
+    assert {lights.slot, sound.slot} == {0, 1}
+
+
+def test_nested_parallel_builds_without_rejection(sm_models: dict) -> None:
+    program = build_statix(sm_models["sm09"], "SM09::MachineNestedParallel")
+    dual = next(s for s in program.states if s.name == "dual")
+    assert dual.region_count == 2
+    assert dual.parent is None  # top-level substate under composite root
+    assert (
+        program.active_capacity == 2
+    )  # idle (cap=1) vs dual (cap=2): max, not sum
+
+
+def test_microwave_behavior_builds_without_rejection(
+    sm_models_showcase: dict,
+) -> None:
+    program = build_statix(
+        sm_models_showcase["microwave"], "Microwave::MicrowaveBehavior"
+    )
+    heating = next(s for s in program.states if s.name == "cooking::heating")
+    assert heating.region_count == 2
+    assert (
+        program.active_capacity == 2
+    )  # idle/paused (cap=1) vs heating (cap=2): max, not sum
+
+
+def test_nested_parallel_under_active_parallel_is_rejected() -> None:
+    builder = StatixBuilder("Synthetic::Nested")
+    builder.add_state(
+        StateFact(
+            name="Nested",
+            parent=None,
+            kind=StateKind.COMPOSITE,
+            initial_substate="outer",
+            entry_action=None,
+            do_action=None,
+            exit_action=None,
+        )
+    )
+    builder.add_state(
+        StateFact(
+            name="outer",
+            parent="Nested",
+            kind=StateKind.PARALLEL,
+            initial_substate=None,
+            entry_action=None,
+            do_action=None,
+            exit_action=None,
+        )
+    )
+    builder.add_state(
+        StateFact(
+            name="regionA",
+            parent="outer",
+            kind=StateKind.COMPOSITE,
+            initial_substate="inner",
+            entry_action=None,
+            do_action=None,
+            exit_action=None,
+        )
+    )
+    with pytest.raises(UnsupportedConstructError, match="fork level"):
+        builder.add_state(
+            StateFact(
+                name="inner",
+                parent="regionA",
+                kind=StateKind.PARALLEL,
+                initial_substate=None,
+                entry_action=None,
+                do_action=None,
+                exit_action=None,
+            )
+        )
+
+
+def test_final_state_is_still_rejected() -> None:
+    builder = StatixBuilder("Synthetic::Final")
+    with pytest.raises(UnsupportedConstructError, match="FINAL"):
+        builder.add_state(
+            StateFact(
+                name="done",
+                parent="root",
+                kind=StateKind.FINAL,
+                initial_substate=None,
+                entry_action=None,
+                do_action=None,
+                exit_action=None,
+            )
+        )
 
 
 def test_self_send_lowers_to_csend(sm_models: dict) -> None:
@@ -197,9 +293,10 @@ def test_two_done_shares_one_final(sm_models: dict) -> None:
     assert sum(1 for t in program.transitions if t.target == "done") == 2
 
 
-def test_parallel_done_is_rejected(sm_models: dict) -> None:
-    with pytest.raises(UnsupportedConstructError):
-        build_statix(sm_models["sm10"], "SM10::MachineParallelDone")
+def test_parallel_done_builds_without_rejection(sm_models: dict) -> None:
+    program = build_statix(sm_models["sm10"], "SM10::MachineParallelDone")
+    finals = [s for s in program.states if s.is_final]
+    assert len(finals) == 2
 
 
 def _entry_statements(
@@ -292,9 +389,11 @@ def test_machine_level_entry_then_do_is_rejected(sm_models: dict) -> None:
         build_statix(sm_models["sm12"], "SM12::MachineRootEntryThenDo")
 
 
-def test_parallel_do_is_rejected(sm_models: dict) -> None:
-    with pytest.raises(UnsupportedConstructError):
-        build_statix(sm_models["sm12"], "SM12::MachineParallelDo")
+def test_parallel_do_fuses_into_region_entry(sm_models: dict) -> None:
+    program = build_statix(sm_models["sm12"], "SM12::MachineParallelDo")
+    assert _entry_statements(program, "regionA") == (
+        "ctx->counter = ctx->counter + 1;",
+    )
 
 
 def test_builder_compiles_asserted_constraints(sm_models: dict) -> None:

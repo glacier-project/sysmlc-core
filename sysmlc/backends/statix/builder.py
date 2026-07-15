@@ -242,6 +242,10 @@ class StatixBuilder:
         self._when_arms_by_source: dict[str, list[int]] = {}
         self._when_count = 0
         self._has_when = False
+        self._slots: dict[str, int] = {}
+        self._region_roots: dict[str, list[str]] = {}
+        self._active_capacity: int = 1
+        self._regions_flat: list[str] = []
 
     # -- TargetBuilder protocol --
 
@@ -264,11 +268,13 @@ class StatixBuilder:
         if state.parent is None:
             self._root = state
             return
-        if state.kind in (StateKind.PARALLEL, StateKind.FINAL):
+        if state.kind is StateKind.FINAL:
             raise UnsupportedConstructError(
                 f"state {state.name!r} is {state.kind.name}; statix supports "
-                "composite and leaf states only (no parallel/history yet)."
+                "composite, leaf, and parallel states only (history not yet "
+                "supported)."
             )
+        self._reject_nested_parallel_state(state)
         self._state_kinds[state.name] = state.kind
         self._state_facts.append(state)
 
@@ -288,11 +294,14 @@ class StatixBuilder:
         for t in self._transition_facts:
             if not isinstance(t.trigger, WhenTrigger):
                 continue
-            if self._state_kinds.get(t.source) is StateKind.COMPOSITE:
+            if self._state_kinds.get(t.source) in (
+                StateKind.COMPOSITE,
+                StateKind.PARALLEL,
+            ):
                 raise UnsupportedConstructError(
                     f"state {t.source!r} has a change-triggered transition, "
-                    "but it is a composite (non-leaf) state; statix only "
-                    "supports `when` sourced from a leaf state."
+                    "but it is a composite or parallel (non-leaf) state; "
+                    "statix only supports `when` sourced from a leaf state."
                 )
             if isinstance(t.target, str) and t.target == t.source:
                 raise UnsupportedConstructError(
@@ -308,15 +317,33 @@ class StatixBuilder:
     def result(self) -> CProgram:
         """Assemble and return the C statechart program."""
         root = self._root
-        if root is None or root.kind is StateKind.PARALLEL:
+        if root is None:
             raise UnsupportedConstructError(
-                "statix requires a composite root state with leaf substates."
+                "statix requires a composite or parallel root state with "
+                "substates."
             )
-        if root.kind is not StateKind.COMPOSITE:
+        if root.kind not in (StateKind.COMPOSITE, StateKind.PARALLEL):
             raise UnsupportedConstructError(
                 "the state definition declares no substates."
             )
         self._reject_machine_level_actions(root)
+        facts_by_name = self._facts_by_name()
+        self._reject_nested_parallel(facts_by_name)
+        self._assign_activation_layout(facts_by_name)
+        root_state: CState | None = None
+        if root.kind is StateKind.PARALLEL:
+            region_names = self._region_roots[root.name]
+            root_state = CState(
+                name=root.name,
+                entry_action_id=None,
+                exit_action_id=None,
+                parent=None,
+                initial_child=None,
+                slot=self._slots[root.name],
+                region_first=len(self._regions_flat),
+                region_count=len(region_names),
+            )
+            self._regions_flat.extend(region_names)
         context = self._build_context()
         self._real_attribute_names = frozenset(
             f.name for f in context.fields if f.c_type == "double"
@@ -347,12 +374,18 @@ class StatixBuilder:
                     "in this machine marshals it; statix cannot receive "
                     "payload-bearing events from outside yet."
                 )
-        states = real_states + tuple(self._finals.values())
+        states = (
+            ((root_state,) if root_state is not None else ())
+            + real_states
+            + tuple(self._finals.values())
+        )
         invariants = tuple(self._build_invariant(c) for c in self._constraints)
-        if root.initial_substate is None:
-            raise UnsupportedConstructError(
-                "the machine declares no initial state."
-            )
+        if root.kind is StateKind.COMPOSITE:
+            if root.initial_substate is None:
+                raise UnsupportedConstructError(
+                    "the machine declares no initial state."
+                )
+            assert root.initial_substate is not None
         max_depth = max((s.name.count("::") + 1 for s in states), default=1)
         needs_math = self._gen.needs_math or any(
             g.needs_math for g in self._scoped_gens
@@ -364,6 +397,15 @@ class StatixBuilder:
                 f"{_MAX_SIGNAL_EVENTS}); the top of the 16-bit event id "
                 "space is reserved for SC_EVENT_TIMEOUT/SC_EVENT_COMPLETION."
             )
+        assert (
+            root.initial_substate is not None or root.kind is StateKind.PARALLEL
+        )
+        initial_substate = root.initial_substate
+        if root.kind is StateKind.PARALLEL:
+            initial = root.name
+        else:
+            assert initial_substate is not None
+            initial = initial_substate
         return CProgram(
             name=self._name,
             qualified_name=self._qualified_name,
@@ -375,7 +417,7 @@ class StatixBuilder:
             transitions=transitions,
             context=context,
             queue_capacity=_DEFAULT_QUEUE_CAPACITY,
-            initial=root.initial_substate,
+            initial=initial,
             max_depth=max_depth,
             invariants=invariants,
             enums=tuple(self._enums.values()),
@@ -386,6 +428,8 @@ class StatixBuilder:
             timeouts_use_ctx=self._timeouts_use_ctx,
             has_when=self._has_when,
             when_count=self._when_count,
+            regions=tuple(self._regions_flat),
+            active_capacity=self._active_capacity,
         )
 
     def _payload_gen(self, payload_feature: syside.Feature) -> CCodeGen:
@@ -444,6 +488,109 @@ class StatixBuilder:
                     )
         return reads
 
+    def _facts_by_name(self) -> dict[str, StateFact]:
+        assert self._root is not None
+        out: dict[str, StateFact] = {self._root.name: self._root}
+        for fact in self._state_facts:
+            out[fact.name] = fact
+        return out
+
+    def _reject_nested_parallel_state(self, state: StateFact) -> None:
+        if state.kind is not StateKind.PARALLEL:
+            return
+        facts = {f.name: f for f in self._state_facts}
+        if self._root is not None:
+            facts[self._root.name] = self._root
+        parent = state.parent
+        ancestor = facts.get(parent) if parent is not None else None
+        while ancestor is not None:
+            if ancestor.kind is StateKind.PARALLEL:
+                raise UnsupportedConstructError(
+                    f"state {state.name!r} is parallel and nested inside "
+                    f"another parallel state {ancestor.name!r}; statix "
+                    "supports at most one fork level (no nested "
+                    "parallel regions yet)."
+                )
+            parent = ancestor.parent
+            ancestor = facts.get(parent) if parent is not None else None
+
+    def _reject_nested_parallel(
+        self, facts_by_name: dict[str, StateFact]
+    ) -> None:
+        """Reject a PARALLEL state with a PARALLEL ancestor (design Sec.1).
+
+        Walks every PARALLEL fact's full ancestor chain (via `.parent` names,
+        including the root); the statix-parallel-regions-design.md dispatch
+        algorithm and join intrinsic both assume at most one fork level.
+        """
+        for fact in self._state_facts:
+            if fact.kind is not StateKind.PARALLEL:
+                continue
+            parent = fact.parent
+            ancestor = facts_by_name.get(parent) if parent is not None else None
+            while ancestor is not None:
+                if ancestor.kind is StateKind.PARALLEL:
+                    raise UnsupportedConstructError(
+                        f"state {fact.name!r} is parallel and nested inside "
+                        f"another parallel state {ancestor.name!r}; statix "
+                        "supports at most one fork level (no nested "
+                        "parallel regions yet)."
+                    )
+                parent = ancestor.parent
+                ancestor = (
+                    facts_by_name.get(parent) if parent is not None else None
+                )
+
+    def _assign_activation_layout(
+        self, facts_by_name: dict[str, StateFact]
+    ) -> None:
+        """Recursive capacity/slot allocation (design Sec.3.2).
+
+        Composite children share a slot base (mutually exclusive, only one
+        active at a time); a parallel state's regions get disjoint,
+        concatenated ranges (simultaneously active). Populates
+        self._slots (state name -> activation slot), self._region_roots
+        (parallel state name -> ordered list of its region-root names), and
+        self._active_capacity (the whole machine's max concurrent leaf
+        count). Build-time Python recursion over the driver's small,
+        statically-bounded state tree -- never touches the runtime's
+        no-recursion rule (design Sec.10).
+        """
+        assert self._root is not None
+        children: dict[str, list[StateFact]] = {}
+        for fact in self._state_facts:
+            if fact.parent is not None:
+                children.setdefault(fact.parent, []).append(fact)
+
+        def cap(name: str) -> int:
+            fact = facts_by_name[name]
+            kids = children.get(name, [])
+            if fact.kind is StateKind.PARALLEL:
+                return sum(cap(c.name) for c in kids)
+            if kids:
+                return max(cap(c.name) for c in kids)
+            return 1
+
+        def assign(name: str, base: int) -> None:
+            self._slots[name] = base
+            fact = facts_by_name[name]
+            kids = children.get(name, [])
+            if fact.kind is StateKind.PARALLEL:
+                self._region_roots[name] = [c.name for c in kids]
+                offset = base
+                for c in kids:
+                    assign(c.name, offset)
+                    offset += cap(c.name)
+            else:
+                for c in kids:
+                    assign(c.name, base)
+
+        self._slots = {}
+        self._region_roots = {}
+        root_name = self._root.name
+        self._active_capacity = cap(root_name)
+        assign(root_name, 0)
+
     def _reject_machine_level_actions(self, root: StateFact) -> None:
         """Reject inline entry/do/exit actions on the state def itself."""
         for slot in (root.entry_action, root.do_action, root.exit_action):
@@ -464,10 +611,12 @@ class StatixBuilder:
         if isinstance(value, CompositeValue):
             c_type = self._register_struct(value)
             return CField(binding.name, c_type, self._struct_init(value))
-        c_type = self._scalar_c_type(value, binding.name)
+        c_type = self._scalar_c_type(value, binding.name, binding.type_name)
         return CField(binding.name, c_type, self._scalar_init(value, c_type))
 
-    def _scalar_c_type(self, value: AttributeValue, name: str) -> str:
+    def _scalar_c_type(
+        self, value: AttributeValue, name: str, type_name: str | None = None
+    ) -> str:
         if isinstance(value, float):
             return "double"
         if isinstance(value, syside.LiteralBoolean):
@@ -483,6 +632,15 @@ class StatixBuilder:
                 value.referent
             )
             return c_type
+        if value is None and type_name is not None:
+            if type_name == "Integer":
+                return "int32_t"
+            if type_name == "Real":
+                return "double"
+            if type_name == "Boolean":
+                return "bool"
+            if type_name == "String":
+                return "const char*"
         raise UnsupportedConstructError(
             f"attribute {name!r} has no scalar literal default; statix "
             "iteration 1 infers a C type from a Boolean/Integer/Real literal "
@@ -490,6 +648,15 @@ class StatixBuilder:
         )
 
     def _scalar_init(self, value: AttributeValue, c_type: str) -> str:
+        if value is None:
+            if c_type == "int32_t":
+                return "0"
+            if c_type == "double":
+                return "0.0"
+            if c_type == "bool":
+                return "false"
+            if c_type == "const char*":
+                return '""'
         if isinstance(value, float):
             return repr(value) if c_type == "double" else str(int(value))
         assert not isinstance(value, CompositeValue) and value is not None
@@ -634,13 +801,30 @@ class StatixBuilder:
         name = fact.name
         stem = _c_identifier(name)
         root_name = self._root.name if self._root is not None else None
-        parent = None if fact.parent == root_name else fact.parent
+        is_root_parallel = (
+            self._root is not None and self._root.kind is StateKind.PARALLEL
+        )
+        parent = (
+            None
+            if (fact.parent == root_name and not is_root_parallel)
+            else fact.parent
+        )
+        region_first: int | None = None
+        region_count = 0
+        if fact.kind is StateKind.PARALLEL:
+            region_names = self._region_roots[name]
+            region_first = len(self._regions_flat)
+            region_count = len(region_names)
+            self._regions_flat.extend(region_names)
         return CState(
             name=name,
             entry_action_id=self._entry_action_id(fact, stem),
             exit_action_id=self._action_for(fact.exit_action, f"{stem}_exit"),
             parent=parent,
             initial_child=fact.initial_substate,
+            slot=self._slots[name],
+            region_first=region_first,
+            region_count=region_count,
         )
 
     def _final_for(self, scope: str) -> str:
@@ -659,6 +843,7 @@ class StatixBuilder:
                 parent=None if scope == "" else scope,
                 initial_child=None,
                 is_final=True,
+                slot=self._slots.get(scope, 0),
             )
         return name
 
@@ -760,11 +945,14 @@ class StatixBuilder:
         self, source: str, trigger: AfterTrigger | AtTrigger
     ) -> str:
         """Build (or reject) the CTimeout row for one after/at transition."""
-        if self._state_kinds.get(source) is StateKind.COMPOSITE:
+        if self._state_kinds.get(source) in (
+            StateKind.COMPOSITE,
+            StateKind.PARALLEL,
+        ):
             raise UnsupportedConstructError(
                 f"state {source!r} has a time-triggered transition, but it "
-                "is a composite (non-leaf) state; statix only supports "
-                "after/at sourced from a leaf state."
+                "is a composite or parallel (non-leaf) state; statix only "
+                "supports after/at sourced from a leaf state."
             )
         if source in self._timeout_sources:
             raise UnsupportedConstructError(

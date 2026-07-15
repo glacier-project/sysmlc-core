@@ -207,7 +207,7 @@ rosetta.
 - **H `when`** — evaluate the monitored condition in the RTC micro-step; an armed
   flag re-armed on entry gives edge semantics; a guarded `when` consumes on a
   false guard.
-- **I Parallel regions** — the active config becomes one leaf per region:
+- **I Parallel regions (landed)** — the active config becomes one leaf per region:
   `sc_state_id_t active[SC_MAX_REGIONS]` (generated size, still static). Fork on
   entry, broadcast events to each region, join on all-final, group interrupt on a
   transition sourced at the parallel state. The one feature that adds per-instance
@@ -250,7 +250,7 @@ Conformance-gated, hierarchy before advanced features, untimed before timed.
   - Corpus: sm13 (closed), sm16 (closed)
   - Runtime delta: `<prefix>_tick` + a generated `timeout_due` latch function per machine for `after`/`at`; `<prefix>_settle` + a per-transition `when_armed[]` bit array + internal (no-target) transitions for `when`; documented host-timing and wraparound contracts
 - **Phase D: Concurrency & memory**
-  - Features: parallel regions, history
+  - Features: **parallel regions (landed)**, history
   - Corpus: sm09, + a new history model
   - Runtime delta: per-instance `active[]` / `history[]` arrays sized by generated `#define`s
 

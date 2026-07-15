@@ -17,6 +17,19 @@ static bool sm05_machine_chain_nested_event_from_name(const char *name, sc_event
     return false;
 }
 
+static void sm05_machine_chain_nested_print_configuration(const sm05_machine_chain_nested_t *sm)
+{
+    sc_state_id_t count = sm05_machine_chain_nested_active_count(sm);
+    sc_state_id_t i;
+    (void)printf(" configuration=");
+    for (i = 0; i < count; ++i) {
+        if (i > 0) {
+            (void)printf(",");
+        }
+        (void)printf("%s", sm05_machine_chain_nested_state_name(sm05_machine_chain_nested_active_state(sm, i)));
+    }
+}
+
 int main(int argc, char **argv)
 {
     sm05_machine_chain_nested_context_t ctx;
@@ -26,8 +39,10 @@ int main(int argc, char **argv)
 
     sm05_machine_chain_nested_context_init(&ctx);
     status = sm05_machine_chain_nested_init(&sm, &ctx);
-    (void)printf("init status=%s state=%s final=%d ctx.box.inner.z=%g\n", sc_status_str(status),
+    (void)printf("init status=%s state=%s final=%d ctx.box.inner.z=%g", sc_status_str(status),
                  sm05_machine_chain_nested_state_name(sm05_machine_chain_nested_get_state(&sm)), (int)sm05_machine_chain_nested_is_final(&sm), ctx.box.inner.z);
+    sm05_machine_chain_nested_print_configuration(&sm);
+    (void)printf("\n");
     if (status != SC_STATUS_OK) {
         return 1;
     }
@@ -39,8 +54,10 @@ int main(int argc, char **argv)
             return 2;
         }
         status = sm05_machine_chain_nested_post(&sm, event_id);
-        (void)printf("event %s status=%s state=%s final=%d ctx.box.inner.z=%g\n", argv[i],
+        (void)printf("event %s status=%s state=%s final=%d ctx.box.inner.z=%g", argv[i],
                      sc_status_str(status), sm05_machine_chain_nested_state_name(sm05_machine_chain_nested_get_state(&sm)), (int)sm05_machine_chain_nested_is_final(&sm), ctx.box.inner.z);
+        sm05_machine_chain_nested_print_configuration(&sm);
+        (void)printf("\n");
         if ((status != SC_STATUS_OK) && (status != SC_STATUS_NO_TRANSITION)) {
             return 1;
         }

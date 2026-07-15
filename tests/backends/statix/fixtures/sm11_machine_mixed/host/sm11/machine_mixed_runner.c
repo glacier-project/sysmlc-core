@@ -21,6 +21,19 @@ static bool sm11_machine_mixed_event_from_name(const char *name, sc_event_id_t *
     return false;
 }
 
+static void sm11_machine_mixed_print_configuration(const sm11_machine_mixed_t *sm)
+{
+    sc_state_id_t count = sm11_machine_mixed_active_count(sm);
+    sc_state_id_t i;
+    (void)printf(" configuration=");
+    for (i = 0; i < count; ++i) {
+        if (i > 0) {
+            (void)printf(",");
+        }
+        (void)printf("%s", sm11_machine_mixed_state_name(sm11_machine_mixed_active_state(sm, i)));
+    }
+}
+
 int main(int argc, char **argv)
 {
     sm11_machine_mixed_context_t ctx;
@@ -30,8 +43,10 @@ int main(int argc, char **argv)
 
     sm11_machine_mixed_context_init(&ctx);
     status = sm11_machine_mixed_init(&sm, &ctx);
-    (void)printf("init status=%s state=%s final=%d ctx.count=%d\n", sc_status_str(status),
+    (void)printf("init status=%s state=%s final=%d ctx.count=%d", sc_status_str(status),
                  sm11_machine_mixed_state_name(sm11_machine_mixed_get_state(&sm)), (int)sm11_machine_mixed_is_final(&sm), ctx.count);
+    sm11_machine_mixed_print_configuration(&sm);
+    (void)printf("\n");
     if (status != SC_STATUS_OK) {
         return 1;
     }
@@ -43,8 +58,10 @@ int main(int argc, char **argv)
             return 2;
         }
         status = sm11_machine_mixed_post(&sm, event_id);
-        (void)printf("event %s status=%s state=%s final=%d ctx.count=%d\n", argv[i],
+        (void)printf("event %s status=%s state=%s final=%d ctx.count=%d", argv[i],
                      sc_status_str(status), sm11_machine_mixed_state_name(sm11_machine_mixed_get_state(&sm)), (int)sm11_machine_mixed_is_final(&sm), ctx.count);
+        sm11_machine_mixed_print_configuration(&sm);
+        (void)printf("\n");
         if ((status != SC_STATUS_OK) && (status != SC_STATUS_NO_TRANSITION)) {
             return 1;
         }

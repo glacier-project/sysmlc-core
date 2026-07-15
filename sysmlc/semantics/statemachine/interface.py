@@ -113,14 +113,16 @@ def send_via_port(send: syside.SendActionUsage) -> str | None:
 
 
 def send_receiver_is_own_port(send: syside.SendActionUsage) -> bool:
-    """Whether a send's ``to`` receiver is the sending machine's own port.
+    """Whether a send's ``to`` receiver or ``via`` port is the machine's own port.
 
-    ``send E to p`` stores ``p`` as the receiver argument; the receiver is
-    "own" when it is a ``PortUsage`` declared by the same state definition
-    that contains the send. Only that form is a self-directed transfer; any
-    other receiver needs cross-machine addressing.
+    ``send E to p`` stores ``p`` as the receiver argument; ``send E via p`` stores
+    ``p`` as the sender argument. The port is "own" when it is a ``PortUsage``
+    declared by the same state definition that contains the send. Only that form
+    is a self-directed transfer; any other receiver needs cross-machine addressing.
     """
-    referent = _referenced_feature(send.receiver_argument)
+    referent = _referenced_feature(
+        send.receiver_argument
+    ) or _referenced_feature(send.sender_argument)
     if not isinstance(referent, syside.PortUsage):
         return False
     machine = _owning_state_definition(send)

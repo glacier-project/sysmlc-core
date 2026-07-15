@@ -122,10 +122,10 @@ neutral facts into `StatixBuilder`, which assembles a neutral `CProgram`; the
 serializer renders it to C.
 
 - **`builder.py`** — consumes the neutral facts and assembles `CProgram`. Every
-  representational choice and every rejection lives here: parallel, history,
+  representational choice and every rejection lives here: history states,
   non-inline `do`, external sends, reading accept payload data beyond one Real attribute,
-  external/non-allowlist function calls in expressions, and non-scalar / non-composite
-  attributes are rejected loudly (never silently dropped). Composite states, `then done` finals,
+  external/non-allowlist function calls in expressions, non-scalar / non-composite
+  attributes, and direct parallel-in-parallel (`wrap in composite`) are rejected loudly (never silently dropped). Orthogonal/parallel regions (`StateKind.PARALLEL`), composite states, `then done` finals,
   one-shot `do`, `send` self-events (id-only, or marshalling one readable Real payload attribute), asserted constraints, leaf-sourced `after`/`at` time triggers (at most one per leaf), and `when` (change triggers, sourced from a leaf state, no self-loops) are supported.
 - **`codegen.py`** — a precedence-driven emitter that lowers guard/effect/
   attribute expression nodes to C, with attribute references resolved against
@@ -146,21 +146,29 @@ The SysML v2 importer is **not** statix-specific: it is sysmlc's shared
 anchored to the same Sismic/SCXML run-to-completion reference the other backends
 use.
 
+## Concurrency Model and Join Intrinsic
+
+When the model includes parallel states, `statix` represents the concurrent active configuration using:
+
+- **`active[]`**: A statically-sized `sc_activation_t active[<PREFIX>_ACTIVE_CAPACITY]` array inside `sc_runtime_t`. Every orthogonal region is allocated a dedicated activation slot.
+- **`regions[]`**: A flat, generated array in `<prefix>.c` storing the state IDs of all region roots contiguously. For a parallel state, `region_first` points to its first region root in `regions[]`, and `region_count` gives the region count.
+- **Join Intrinsic (`sc_runtime_regions_all_final`)**: When evaluating a completion (`__completion__`) transition sourced at a parallel state, the runtime checks if all region roots mapped under that parallel state have active descendants that are final leaf states.
+
 ## Data flow (runtime)
 
 ```
-<prefix>_init ─► sc_runtime_bind
-                   │ run entry(initial)
-                   │ settle completion transitions (bounded by SC_MAX_RTC_STEPS)
+<prefix>_init ─► sc_runtime_bind (allocates static active[<PREFIX>_ACTIVE_CAPACITY] slots)
+                   │ run entry(initial) -> _descend (forks regions across active slots)
+                   │ settle completion transitions (bounded by SC_MAX_RTC_STEPS, checks all-final join)
                    ▼
 caller pushes sc_event_t ─► sc_event_queue (static storage)
 caller pops  sc_event_t  ─► <prefix>_dispatch
-                              │ scan transition table (bounded loop)
-                              │   match (current_state, event.id), check guard
-                              │   run exit(source) -> effect -> entry(target)
-                              │   settle completion transitions
+                              │ _select scans active slots (broadcasts across regions / checks group interrupt)
+                              │   if group interrupt: _exit_up_to all regions -> effect -> entry(target) -> _descend
+                              │   if region-local: _take_transition_region per slot
+                              │ _run_completion: loop bounded by SC_MAX_RTC_STEPS (settle join/completion)
                               ▼
-                            current_state := target   (or NO_TRANSITION)
+                            active slots updated to new leaves   (or NO_TRANSITION)
 ```
 
-Everything on this path uses caller-owned, statically-sized storage.
+Everything on this path uses caller-owned, statically-sized storage (`no recursion, no dynamic memory`).

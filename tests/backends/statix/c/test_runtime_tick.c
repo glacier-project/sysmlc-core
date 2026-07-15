@@ -22,7 +22,7 @@ static int g_failures = 0;
     } while (0)
 
 static const sc_state_def_t g_states[] = {
-    {SC_ACTION_NONE, SC_ACTION_NONE, SC_STATE_INVALID, SC_STATE_INVALID, false},
+    {SC_ACTION_NONE, SC_ACTION_NONE, SC_STATE_INVALID, SC_STATE_INVALID, false, 0u, SC_STATE_INVALID, 0u},
 };
 
 static const sc_transition_t g_transitions[] = {
@@ -30,7 +30,7 @@ static const sc_transition_t g_transitions[] = {
 };
 
 static const sc_machine_t g_machine = {
-    g_transitions, g_states, 1u, 1u, 0u, 1u, NULL, 0u,
+    g_transitions, g_states, 1u, 1u, 0u, 1u, NULL, 0u, NULL, 0u, 1u,
 };
 
 static void test_sc_time_t_is_a_32_bit_unsigned_tick(void)
@@ -74,10 +74,11 @@ static void test_seconds_to_ticks_rejects_null_out(void)
 static void test_bind_seeds_timer_fields_to_defaults(void)
 {
     sc_runtime_t runtime;
-    CHECK(sc_runtime_bind(&runtime, &g_machine, NULL) == SC_STATUS_OK);
+    sc_activation_t active[1];
+    CHECK(sc_runtime_bind(&runtime, &g_machine, NULL, active, 1u) == SC_STATUS_OK);
     CHECK(runtime.now == 0u);
-    CHECK(runtime.state_entered_at == 0u);
-    CHECK(runtime.timeout_delivered == false);
+    CHECK(runtime.active[0].entered_at == 0u);
+    CHECK(runtime.active[0].timeout_delivered == false);
 }
 
 int main(void)

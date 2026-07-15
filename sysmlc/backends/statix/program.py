@@ -120,6 +120,12 @@ class CState:
     ``parent``/``initial_child`` are other states' display names, or ``None``
     for a top-level state / a leaf (serialized as ``SC_STATE_INVALID``).
     ``is_final`` marks a synthesized ``then done`` final state.
+    ``slot`` is the activation-array index this state's presence in the
+    active configuration is tracked under (``0`` for every state outside a
+    parallel region). ``region_first``/``region_count`` are only meaningful
+    when this state is itself a parallel container: an index into
+    :attr:`CProgram.regions` and how many entries starting there are its
+    direct region roots.
     """
 
     name: str
@@ -128,6 +134,9 @@ class CState:
     parent: str | None = None
     initial_child: str | None = None
     is_final: bool = False
+    slot: int = 0
+    region_first: int | None = None
+    region_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -188,6 +197,8 @@ class CProgram:
     has_when: bool = False
     when_count: int = 0
     enums: tuple[CEnum, ...] = ()
+    regions: tuple[str, ...] = ()
+    active_capacity: int = 1
 
 
 @dataclass(frozen=True)

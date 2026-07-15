@@ -57,13 +57,15 @@ const char *<prefix>_event_name(sc_event_id_t event);
 
 ## 2. States
 
-Every leaf state becomes an `enum` constant (`<PREFIX>_STATE_<NAME>`), numbered
+Every leaf, composite, and parallel state becomes an `enum` constant (`<PREFIX>_STATE_<NAME>`), numbered
 from 0 in declaration order. `<PREFIX>_STATE_COUNT` gives the total.
 
 Each state also gets a row in the per-state table `sc_state_def_t[]`, holding its
-entry-action and exit-action ids, `parent`, and `initial_child`. For a composite
-state, `initial_child` is set and entered by descent; nested names are
-root-relative dotted paths. Parallel or history states remain rejected (see §9).
+entry-action and exit-action ids, `parent`, `initial_child`, `is_final`, `slot`, `region_first`, and `region_count`. For a composite
+state (`region_count == 0`), `initial_child` is set and entered by descent; nested names are
+root-relative dotted paths. For a parallel state (`state name parallel { ... }`), `region_count > 0` gives its number of orthogonal regions and `region_first` points to the contiguous slice in `sc_state_id_t regions[]` storing its region roots (`slot` holds each region's activation slot index). History states remain rejected (see §9).
+
+When a statechart contains parallel states, `statix` calculates its maximum concurrent true leaf count at build time and allocates a static array `sc_activation_t active[<PREFIX>_ACTIVE_CAPACITY]` inside `sc_runtime_t`. When a parallel state is entered (`_descend`), the runtime forks into every direct region, writing each region's active leaf into its pre-allocated slot. During event dispatch (`_select`), region-local transitions fire concurrently across slots (`broadcast`). If an enabled transition is sourced at or above the active parallel container itself (`group interrupt`), the runtime exits every active region once (`clearing their slots`) before taking the trunk transition. An eventless completion transition sourced at a parallel state (`join`) is intrinsically gated on every direct region reaching its own local final leaf (`sc_runtime_regions_all_final`).
 
 ## 3. Initial state and completion (eventless) transitions
 
@@ -352,7 +354,7 @@ iteration 1:
 | an enum literal's declared value is a computed expression, not a bare literal               | rejected (only bare Boolean/Integer/Real/String literal defaults are supported, §8a)                     |
 | two enum definitions collide after C-identifier sanitization                                | rejected (rename one, §8a)                                                                               |
 | relational comparison (`<`,`<=`,`>`,`>=`) against a generated (String-valued or plain) enum | rejected (only `==`/`!=` are supported for symbolic enum values, §8a)                                    |
-| parallel / history states                                                                   | rejected (composite/leaf supported)                                                                      |
+| history states                                                                              | rejected (parallel/composite/leaf supported; direct parallel inside parallel is rejected)                |
 | `when` sourced from a composite (non-leaf) state                                            | rejected (mirrors the after/at leaf-only rule, §4b)                                                      |
 | `when` self-loop (target equals source)                                                     | rejected (a conservative guardrail, §4b)                                                                 |
 | `after`/`at` sourced from a composite (non-leaf) state                                      | rejected (state_entered_at needs one unambiguous leaf)                                                   |
@@ -374,7 +376,7 @@ iteration 1:
   so such a path can slot in without a rewrite.
 - **`Real` representation** — see §8; `double` vs `float` vs fixed-point is a
   target decision, not a settled one.
-- **Growth** — parallel, history, and timers are tracked future work for the runtime and the backend.
+- **Growth** — history states are tracked future work for the runtime and backend (timers and parallel regions are supported).
 
 ## 11. Cross-backend conformance
 
@@ -384,3 +386,5 @@ through both Sismic and the generated statix C and asserts they settle in the
 same state. This is a thin slice of the broader cross-backend conformance idea
 described in [positioning.md](statix/positioning.md); the full framework is
 future work.
+
+**Sismic join-gating gap.** Sismic (quake) has a known semantic defect where it fails to gate a parallel state's outgoing completion (eventless) transition on all of its regions reaching final states. Consequently, conformance tests for parallel machines containing joins (such as the Microwave showcase) are validated against hand-derived traces of UML/Sismic semantics rather than direct live quake output comparison.
