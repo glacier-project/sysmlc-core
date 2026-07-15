@@ -8,12 +8,8 @@ add_compile_options(-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wdo
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 
-add_library(statix_runtime STATIC
-  src/sc/sc_status.c
-  src/sc/sc_event_queue.c
-  src/sc/sc_runtime.c)
-
 add_library(statix_statecharts STATIC
-{{ lib_sources }})
-target_link_libraries(statix_statecharts statix_runtime{{ math_lib }})
+  src/sc_runtime_impl.c
+{{ lib_sources }}){% if math_lib %}
+target_link_libraries(statix_statecharts{{ math_lib }}){% endif %}
 {{ runners_tail -}}
