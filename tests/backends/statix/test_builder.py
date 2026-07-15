@@ -141,16 +141,22 @@ def test_nested_parallel_builds_without_rejection(sm_models: dict) -> None:
     dual = next(s for s in program.states if s.name == "dual")
     assert dual.region_count == 2
     assert dual.parent is None  # top-level substate under composite root
-    assert program.active_capacity == 2  # idle (cap=1) vs dual (cap=2): max, not sum
+    assert (
+        program.active_capacity == 2
+    )  # idle (cap=1) vs dual (cap=2): max, not sum
 
 
-def test_microwave_behavior_builds_without_rejection(sm_models_showcase: dict) -> None:
+def test_microwave_behavior_builds_without_rejection(
+    sm_models_showcase: dict,
+) -> None:
     program = build_statix(
         sm_models_showcase["microwave"], "Microwave::MicrowaveBehavior"
     )
     heating = next(s for s in program.states if s.name == "cooking::heating")
     assert heating.region_count == 2
-    assert program.active_capacity == 2  # idle/paused (cap=1) vs heating (cap=2): max, not sum
+    assert (
+        program.active_capacity == 2
+    )  # idle/paused (cap=1) vs heating (cap=2): max, not sum
 
 
 def test_nested_parallel_under_active_parallel_is_rejected() -> None:

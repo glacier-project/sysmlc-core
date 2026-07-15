@@ -120,9 +120,9 @@ def send_receiver_is_own_port(send: syside.SendActionUsage) -> bool:
     declared by the same state definition that contains the send. Only that form
     is a self-directed transfer; any other receiver needs cross-machine addressing.
     """
-    referent = _referenced_feature(send.receiver_argument) or _referenced_feature(
-        send.sender_argument
-    )
+    referent = _referenced_feature(
+        send.receiver_argument
+    ) or _referenced_feature(send.sender_argument)
     if not isinstance(referent, syside.PortUsage):
         return False
     machine = _owning_state_definition(send)

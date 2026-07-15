@@ -54,7 +54,6 @@ def sm_models_showcase() -> dict[str, syside.Model]:
     return {"microwave": load_model(_SHOWCASE_MODELS / "microwave")}
 
 
-
 def _run_last_line(
     tmp_path: Path,
     program: CProgram,
@@ -131,9 +130,7 @@ def statix_run_status(tmp_path: Path) -> Callable[..., str]:
 def statix_run_configuration(tmp_path: Path) -> Callable[..., frozenset[str]]:
     """Build, compile, run a program; return the full set of active leaves."""
 
-    def _run(
-        program: CProgram, events: tuple[str, ...] = ()
-    ) -> frozenset[str]:
+    def _run(program: CProgram, events: tuple[str, ...] = ()) -> frozenset[str]:
         line = _run_last_line(tmp_path, program, events)
         tail = line.rsplit("configuration=", maxsplit=1)[1].strip()
         return frozenset(tail.split(",")) if tail else frozenset()

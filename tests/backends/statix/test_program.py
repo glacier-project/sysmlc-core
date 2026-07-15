@@ -117,4 +117,3 @@ def test_cstate_and_cprogram_carry_parallel_region_fields() -> None:
     assert leaf.slot == 0
     assert leaf.region_first is None
     assert leaf.region_count == 0
-

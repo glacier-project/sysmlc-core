@@ -398,8 +398,7 @@ class StatixBuilder:
                 "space is reserved for SC_EVENT_TIMEOUT/SC_EVENT_COMPLETION."
             )
         assert (
-            root.initial_substate is not None
-            or root.kind is StateKind.PARALLEL
+            root.initial_substate is not None or root.kind is StateKind.PARALLEL
         )
         initial_substate = root.initial_substate
         if root.kind is StateKind.PARALLEL:

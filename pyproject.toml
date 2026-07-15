@@ -68,6 +68,7 @@ select = [
     "RUF",    # Ruff-specific rules
 ]
 ignore = [
+    "E501",   # line too long (handled by Ruff)
     "D100",   # missing docstring in public module
     "D104",   # missing docstring in public package
     "D105",   # missing docstring in magic method

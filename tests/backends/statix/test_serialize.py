@@ -85,12 +85,14 @@ def test_composite_state_rows_and_max_depth(sm_models: dict) -> None:
     # running is composite: descends into warming; top-level so parent INVALID.
     assert (
         "{SC_ACTION_NONE, SC_ACTION_NONE, SC_STATE_INVALID, "
-        "SM08_MACHINE_NESTED_STATE_RUNNING_WARMING, false, (sc_state_id_t)0u, SC_STATE_INVALID, (sc_state_id_t)0u}," in config
+        "SM08_MACHINE_NESTED_STATE_RUNNING_WARMING, false, (sc_state_id_t)0u, SC_STATE_INVALID, (sc_state_id_t)0u},"
+        in config
     )
     # warming is a leaf under running.
     assert (
         "{SC_ACTION_NONE, SC_ACTION_NONE, SM08_MACHINE_NESTED_STATE_RUNNING, "
-        "SC_STATE_INVALID, false, (sc_state_id_t)0u, SC_STATE_INVALID, (sc_state_id_t)0u}," in config
+        "SC_STATE_INVALID, false, (sc_state_id_t)0u, SC_STATE_INVALID, (sc_state_id_t)0u},"
+        in config
     )
     # Depth of running::warming is 2.
     assert "(sc_state_id_t)2u," in config
@@ -110,12 +112,14 @@ def test_final_state_row_and_prototype(sm_models: dict) -> None:
     # The synthesized `done` row is top-level absorbing: is_final = true.
     assert (
         "{SC_ACTION_NONE, SC_ACTION_NONE, SC_STATE_INVALID, "
-        "SC_STATE_INVALID, true, (sc_state_id_t)0u, SC_STATE_INVALID, (sc_state_id_t)0u}," in config
+        "SC_STATE_INVALID, true, (sc_state_id_t)0u, SC_STATE_INVALID, (sc_state_id_t)0u},"
+        in config
     )
     # Normal leaves stay is_final = false.
     assert (
         "{SC_ACTION_NONE, SC_ACTION_NONE, SC_STATE_INVALID, "
-        "SC_STATE_INVALID, false, (sc_state_id_t)0u, SC_STATE_INVALID, (sc_state_id_t)0u}," in config
+        "SC_STATE_INVALID, false, (sc_state_id_t)0u, SC_STATE_INVALID, (sc_state_id_t)0u},"
+        in config
     )
     assert "bool sm10_machine_root_done_is_final(" in header
 
@@ -384,11 +388,15 @@ def test_regions_table_and_machine_def_fields(sm_models: dict) -> None:
     files, d, s = _files_for(sm_models["sm09"], "SM09::MachineParallel")
     config = files[f"src/{d}/{s}.c"]
     assert "static const sc_state_id_t regions[] = {" in config
-    assert "#define SC_MACHINE_ACTIVE_CAPACITY SM09_MACHINE_PARALLEL_ACTIVE_CAPACITY" in config
+    assert (
+        "#define SC_MACHINE_ACTIVE_CAPACITY SM09_MACHINE_PARALLEL_ACTIVE_CAPACITY"
+        in config
+    )
 
 
 def test_state_rows_carry_slot_and_region_columns(sm_models: dict) -> None:
     files, d, s = _files_for(sm_models["sm09"], "SM09::MachineNestedParallel")
     config = files[f"src/{d}/{s}.c"]
-    # `dual`'s row must reference its own region_first/region_count, not the sentinel.
+    # `dual`'s row must reference its own region_first/region_count, not the
+    # sentinel.
     assert "(sc_state_id_t)0u, (sc_state_id_t)2u}" in config
