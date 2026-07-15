@@ -397,7 +397,16 @@ class StatixBuilder:
                 f"{_MAX_SIGNAL_EVENTS}); the top of the 16-bit event id "
                 "space is reserved for SC_EVENT_TIMEOUT/SC_EVENT_COMPLETION."
             )
-        assert root.initial_substate is not None or root.kind is StateKind.PARALLEL
+        assert (
+            root.initial_substate is not None
+            or root.kind is StateKind.PARALLEL
+        )
+        initial_substate = root.initial_substate
+        if root.kind is StateKind.PARALLEL:
+            initial = root.name
+        else:
+            assert initial_substate is not None
+            initial = initial_substate
         return CProgram(
             name=self._name,
             qualified_name=self._qualified_name,
@@ -409,7 +418,7 @@ class StatixBuilder:
             transitions=transitions,
             context=context,
             queue_capacity=_DEFAULT_QUEUE_CAPACITY,
-            initial=root.name if root.kind is StateKind.PARALLEL else root.initial_substate,
+            initial=initial,
             max_depth=max_depth,
             invariants=invariants,
             enums=tuple(self._enums.values()),
@@ -493,7 +502,8 @@ class StatixBuilder:
         facts = {f.name: f for f in self._state_facts}
         if self._root is not None:
             facts[self._root.name] = self._root
-        ancestor = facts.get(state.parent)
+        parent = state.parent
+        ancestor = facts.get(parent) if parent is not None else None
         while ancestor is not None:
             if ancestor.kind is StateKind.PARALLEL:
                 raise UnsupportedConstructError(
@@ -502,9 +512,12 @@ class StatixBuilder:
                     "supports at most one fork level (no nested "
                     "parallel regions yet)."
                 )
-            ancestor = facts.get(ancestor.parent)
+            parent = ancestor.parent
+            ancestor = facts.get(parent) if parent is not None else None
 
-    def _reject_nested_parallel(self, facts_by_name: dict[str, StateFact]) -> None:
+    def _reject_nested_parallel(
+        self, facts_by_name: dict[str, StateFact]
+    ) -> None:
         """Reject a PARALLEL state with a PARALLEL ancestor (design Sec.1).
 
         Walks every PARALLEL fact's full ancestor chain (via `.parent` names,
@@ -514,7 +527,8 @@ class StatixBuilder:
         for fact in self._state_facts:
             if fact.kind is not StateKind.PARALLEL:
                 continue
-            ancestor = facts_by_name.get(fact.parent)
+            parent = fact.parent
+            ancestor = facts_by_name.get(parent) if parent is not None else None
             while ancestor is not None:
                 if ancestor.kind is StateKind.PARALLEL:
                     raise UnsupportedConstructError(
@@ -523,9 +537,14 @@ class StatixBuilder:
                         "supports at most one fork level (no nested "
                         "parallel regions yet)."
                     )
-                ancestor = facts_by_name.get(ancestor.parent)
+                parent = ancestor.parent
+                ancestor = (
+                    facts_by_name.get(parent) if parent is not None else None
+                )
 
-    def _assign_activation_layout(self, facts_by_name: dict[str, StateFact]) -> None:
+    def _assign_activation_layout(
+        self, facts_by_name: dict[str, StateFact]
+    ) -> None:
         """Recursive capacity/slot allocation (design Sec.3.2).
 
         Composite children share a slot base (mutually exclusive, only one
@@ -541,7 +560,8 @@ class StatixBuilder:
         assert self._root is not None
         children: dict[str, list[StateFact]] = {}
         for fact in self._state_facts:
-            children.setdefault(fact.parent, []).append(fact)
+            if fact.parent is not None:
+                children.setdefault(fact.parent, []).append(fact)
 
         def cap(name: str) -> int:
             fact = facts_by_name[name]
@@ -782,7 +802,14 @@ class StatixBuilder:
         name = fact.name
         stem = _c_identifier(name)
         root_name = self._root.name if self._root is not None else None
-        parent = None if (fact.parent == root_name and self._root.kind is not StateKind.PARALLEL) else fact.parent
+        is_root_parallel = (
+            self._root is not None and self._root.kind is StateKind.PARALLEL
+        )
+        parent = (
+            None
+            if (fact.parent == root_name and not is_root_parallel)
+            else fact.parent
+        )
         region_first: int | None = None
         region_count = 0
         if fact.kind is StateKind.PARALLEL:

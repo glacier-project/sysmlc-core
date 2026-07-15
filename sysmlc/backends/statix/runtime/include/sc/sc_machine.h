@@ -76,27 +76,15 @@ static bool SC__FN(_has_final_descendant)(const sc_machine_t *machine, sc_state_
     return false;
 }
 
-static bool SC__FN(_is_container_final)(const SC__T *sm, sc_state_id_t container)
+static bool SC__FN(_is_composite_completed)(const SC__T *sm, sc_state_id_t container)
 {
     const sc_machine_t *machine = sm->runtime.machine;
-    sc_state_id_t i;
-    bool found = false;
-    if (machine->states[container].region_count > 0u) {
-        return sc_runtime_regions_all_final(&sm->runtime, container);
-    }
     if (!SC__FN(_has_final_descendant)(machine, container)) {
         return true;
     }
-    for (i = 0u; i < (sc_state_id_t)SC_MACHINE_ACTIVE_CAPACITY; ++i) {
-        sc_state_id_t leaf = sm->runtime.active[i].leaf;
-        if ((leaf != SC_STATE_INVALID) && SC__FN(_is_ancestor)(machine, container, leaf)) {
-            if (!machine->states[leaf].is_final) {
-                return false;
-            }
-            found = true;
-        }
-    }
-    return found;
+    sc_state_id_t slot = machine->states[container].slot;
+    sc_state_id_t leaf = sm->runtime.active[slot].leaf;
+    return (leaf != SC_STATE_INVALID) && machine->states[leaf].is_final;
 }
 
 ///
@@ -121,9 +109,10 @@ static int32_t SC__FN(_find_transition_at)(const sc_machine_t *machine,
                                ? true
                                : SC_MACHINE_GUARD(t->guard, &sm->runtime, event);
             if (enabled && (event_id == SC_EVENT_COMPLETION)) {
-                if ((machine->states[state].region_count > 0u) ||
-                    (machine->states[state].initial_child != SC_STATE_INVALID)) {
-                    enabled = SC__FN(_is_container_final)(sm, state);
+                if (machine->states[state].region_count > 0u) {
+                    enabled = sc_runtime_regions_all_final(&sm->runtime, state);
+                } else if (machine->states[state].initial_child != SC_STATE_INVALID) {
+                    enabled = SC__FN(_is_composite_completed)(sm, state);
                 }
             }
             if (enabled) {
@@ -146,6 +135,12 @@ static int32_t SC__FN(_find_transition)(const sc_machine_t *machine,
         if (s == SC_STATE_INVALID) {
             break;
         }
+        if (event_id == SC_EVENT_COMPLETION) {
+            if ((machine->states[s].region_count > 0u) &&
+                !sc_runtime_regions_all_final(&sm->runtime, s)) {
+                break;
+            }
+        }
         idx = SC__FN(_find_transition_at)(machine, s, event_id, sm, event);
         if (idx >= 0) {
             return idx;
@@ -167,6 +162,12 @@ static int32_t SC__FN(_find_transition_bounded)(const sc_machine_t *machine,
         int32_t idx;
         if ((s == SC_STATE_INVALID) || (s == stop)) {
             break;
+        }
+        if (event_id == SC_EVENT_COMPLETION) {
+            if ((machine->states[s].region_count > 0u) &&
+                !sc_runtime_regions_all_final(&sm->runtime, s)) {
+                break;
+            }
         }
         idx = SC__FN(_find_transition_at)(machine, s, event_id, sm, event);
         if (idx >= 0) {

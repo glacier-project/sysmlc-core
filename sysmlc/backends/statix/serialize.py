@@ -136,11 +136,17 @@ def _timeout_case_lines(t: CTimeout) -> list[str]:
         deadline = t.literal_ticks
         if t.is_at:
             return [
-                f"return (runtime->active[activation_index].entered_at <= {deadline}) && "
-                f"(runtime->now >= {deadline});",
+                (
+                    "return (runtime->active[activation_index].entered_at "
+                    f"<= {deadline}) && (runtime->now >= {deadline});"
+                ),
             ]
         return [
-            f"return (runtime->now - runtime->active[activation_index].entered_at) >= {deadline};",
+            (
+                "return (runtime->now - "
+                "runtime->active[activation_index].entered_at) >= "
+                f"{deadline};"
+            ),
         ]
     assert t.attr_expr is not None
     lines = [
@@ -152,12 +158,13 @@ def _timeout_case_lines(t: CTimeout) -> list[str]:
     ]
     if t.is_at:
         lines.append(
-            "    return (runtime->active[activation_index].entered_at <= deadline) && "
-            "(runtime->now >= deadline);"
+            "    return (runtime->active[activation_index].entered_at "
+            "<= deadline) && (runtime->now >= deadline);"
         )
     else:
         lines.append(
-            "    return (runtime->now - runtime->active[activation_index].entered_at) >= deadline;"
+            "    return (runtime->now - "
+            "runtime->active[activation_index].entered_at) >= deadline;"
         )
     lines.append("}")
     return lines
@@ -285,7 +292,9 @@ def _source_view(program: CProgram) -> dict[str, object]:
         return [statement]
 
     def region_ref(value: int | None) -> str:
-        return "SC_STATE_INVALID" if value is None else f"(sc_state_id_t){value}u"
+        if value is None:
+            return "SC_STATE_INVALID"
+        return f"(sc_state_id_t){value}u"
 
     state_rows = [
         {

@@ -386,3 +386,5 @@ through both Sismic and the generated statix C and asserts they settle in the
 same state. This is a thin slice of the broader cross-backend conformance idea
 described in [positioning.md](statix/positioning.md); the full framework is
 future work.
+
+**Sismic join-gating gap.** Sismic (quake) has a known semantic defect where it fails to gate a parallel state's outgoing completion (eventless) transition on all of its regions reaching final states. Consequently, conformance tests for parallel machines containing joins (such as the Microwave showcase) are validated against hand-derived traces of UML/Sismic semantics rather than direct live quake output comparison.

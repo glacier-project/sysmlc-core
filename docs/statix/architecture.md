@@ -146,6 +146,13 @@ The SysML v2 importer is **not** statix-specific: it is sysmlc's shared
 anchored to the same Sismic/SCXML run-to-completion reference the other backends
 use.
 
+## Concurrency Model and Join Intrinsic
+
+When the model includes parallel states, `statix` represents the concurrent active configuration using:
+- **`active[]`**: A statically-sized `sc_activation_t active[<PREFIX>_ACTIVE_CAPACITY]` array inside `sc_runtime_t`. Every orthogonal region is allocated a dedicated activation slot.
+- **`regions[]`**: A flat, generated array in `<prefix>.c` storing the state IDs of all region roots contiguously. For a parallel state, `region_first` points to its first region root in `regions[]`, and `region_count` gives the region count.
+- **Join Intrinsic (`sc_runtime_regions_all_final`)**: When evaluating a completion (`__completion__`) transition sourced at a parallel state, the runtime checks if all region roots mapped under that parallel state have active descendants that are final leaf states.
+
 ## Data flow (runtime)
 
 ```
