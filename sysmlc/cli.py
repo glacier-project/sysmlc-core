@@ -227,22 +227,14 @@ def _add_build_arguments(
     )
     build.add_argument(
         "--timeout",
-        help="(rosetta/frostifier part systems only) LF run timeout for the "
-        'generated main reactor\'s target header, e.g. "5 sec"',
+        help="(rosetta part systems only) LF run timeout for the generated "
+        'main reactor\'s target header, e.g. "5 sec"',
     )
     build.add_argument(
         "--fast",
         action="store_true",
-        help="(rosetta/frostifier part systems only) set `fast: true` in "
-        "the generated main reactor's target header",
-    )
-    build.add_argument(
-        "--frost",
-        help="(frostifier only) git source of Frost "
-        "(github.com/glacier-project/frost): a URL or a local clone. "
-        "Always shallow-cloned — the committed state is what lands in "
-        "the output. Defaults to SYSMLC_FROST_PATH, then ./frost or "
-        "~/CODE/frost when one is a checkout",
+        help="(rosetta part systems only) set `fast: true` in the generated "
+        "main reactor's target header",
     )
 
 
@@ -357,21 +349,11 @@ def _target_options(
     timeout = getattr(args, "timeout", None)
     if timeout is not None:
         options.append(("timeout", timeout))
-    if options and backend.name not in {"rosetta", "frostifier"}:
+    if options and backend.name != "rosetta":
         raise CliError(
             f"backend {backend.name!r} does not support --timeout/--fast"
         )
     return tuple(options)
-
-
-def _parse_frost_arg(args: argparse.Namespace, backend: Backend) -> str | None:
-    """Gate a command's ``--frost`` flag to the frostifier backend."""
-    frost: str | None = getattr(args, "frost", None)
-    if frost is None:
-        return None
-    if backend.name != "frostifier":
-        raise CliError(f"backend {backend.name!r} does not support --frost")
-    return frost
 
 
 def _cmd_build(args: argparse.Namespace) -> int:
@@ -454,42 +436,6 @@ def _cmd_build(args: argparse.Namespace) -> int:
     return _write_artifact(args, backend, element_qn, artifact, python_path)
 
 
-def _frost_fallback(
-    backend: Backend,
-    model: syside.Model,
-    usage_qn: str,
-    frost: str | None,
-) -> Backend:
-    """Frostifier without ``--frost``: FMU-less systems build with rosetta.
-
-    Passing ``--frost`` always keeps frostifier (a machine-only Frost
-    network is a valid build); a system that composes FMU parts or
-    FrostChannel connections also stays with frostifier, whose build
-    then resolves a default checkout (``SYSMLC_FROST_PATH``,
-    ``./frost``, ``~/CODE/frost``) or fails loudly.
-    """
-    if backend.name != "frostifier" or frost is not None:
-        return backend
-    from sysmlc.backends.frostifier.graph import frost_part_graph
-
-    graph = frost_part_graph(model, usage_qn)
-    if graph.fmus or any(conn.frost for conn in graph.connections):
-        return backend
-    rosetta = discover_backends().get("rosetta")
-    if rosetta is None:
-        raise CliError(
-            "the rosetta backend is not installed; cannot fall back for a "
-            "part system without FMU parts"
-        )
-    logger.info(
-        "part usage %r composes no FMU part and no --frost was given; "
-        "building with the rosetta backend (pass --frost for a "
-        "machine-only Frost network)",
-        usage_qn,
-    )
-    return rosetta
-
-
 def _build_part(
     args: argparse.Namespace,
     backend: Backend,
@@ -498,24 +444,19 @@ def _build_part(
     target_options: tuple[tuple[str, str], ...],
 ) -> int:
     """Build a top-level part usage into a main reactor and write it."""
-    if getattr(args, "values", None) is not None:
-        raise CliError("--values is not supported with part systems yet")
-
-    frost = _parse_frost_arg(args, backend)
-    backend = _frost_fallback(backend, model, usage_qn, frost)
     build_part: Callable[..., object] | None = getattr(
         backend, "build_part", None
     )
     if build_part is None:
         raise CliError(f"backend {backend.name!r} cannot build a part system")
+    if getattr(args, "values", None) is not None:
+        raise CliError("--values is not supported with part systems yet")
 
     python_path, external = _parse_python_arg(args, backend)
 
     build_kwargs: dict[str, object] = (
         {"external": external} if external is not None else {}
     )
-    if frost is not None:
-        build_kwargs["frost"] = frost
     artifact = build_part(
         model, usage_qn, target_options=target_options, **build_kwargs
     )
@@ -539,6 +480,9 @@ def _write_artifact(
     written = backend.write(artifact, options)
 
     if python_path is not None:
+        # Place the --python module beside the .lf so its `files:` entry (a
+        # bare filename, resolved by lfc relative to the .lf) reaches src-gen.
+        # The generated companion types module is written by backend.write.
         for path in written:
             if path.suffix == ".lf":
                 shutil.copy(python_path, path.parent / python_path.name)
