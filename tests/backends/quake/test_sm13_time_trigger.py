@@ -176,7 +176,7 @@ def test_absolute_time_trigger_arms_delta_and_fires_at_instant(
     absolute instant.
     """
     sc = build_statechart(model, "SM13::MachineAt")
-    assert sc.preamble == quake_preamble("deadline = 8.0", "_n_idle = 0")
+    assert sc.preamble == quake_preamble("deadlineTime = 8.0", "_n_idle = 0")
     assert len(sc.transitions) == 2
     timed = transition_from(sc, "idle")
     assert timed.target == "running"
@@ -184,7 +184,7 @@ def test_absolute_time_trigger_arms_delta_and_fires_at_instant(
     assert timed.guard == "event.n == _n_idle"
     assert sc.state_for("idle").on_entry == (
         "_n_idle = _n_idle + 1\n"
-        "_d_idle_t1 = (deadline) - time\n"
+        "_d_idle_t1 = (deadlineTime) - time\n"
         "if _d_idle_t1 >= 0:\n"
         "    send('_tick_idle_t1', n=_n_idle, delay=_d_idle_t1, "
         "_sysmlc_tick=('idle', '_n_idle'))"

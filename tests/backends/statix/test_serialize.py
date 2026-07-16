@@ -283,7 +283,7 @@ def test_timeout_due_keeps_ctx_cast_when_attribute_driven(
     source = emit_source(program)
     body = source[source.index("static bool timeout_due") :]
     assert "const sm13_machine_at_context_t *ctx" in body
-    assert "sc_seconds_to_ticks(ctx->deadline, &deadline)" in body
+    assert "sc_seconds_to_ticks(ctx->deadlineTime, &deadline)" in body
     assert (
         "(runtime->active[activation_index].entered_at <= deadline) && "
         "(runtime->now >= deadline)" in body
