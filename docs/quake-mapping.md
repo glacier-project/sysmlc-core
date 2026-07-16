@@ -1037,13 +1037,13 @@ The emitted code checks `instant - time >= 0`, so a past instant is ignored rath
 
 ```sysml
 state def MachineAt {
-    attribute deadline : TimeInstantValue default 8 [s];
+    attribute deadlineTime : TimeInstantValue default 8 [s];
     entry;
         then idle;
     state idle;
     state running;
 
-    transition first idle accept at deadline then running;
+    transition first idle accept at deadlineTime then running;
     transition first running then done;
 }
 ```
@@ -1052,7 +1052,7 @@ state def MachineAt {
 statechart:
   name: MachineAt
   preamble: |
-    deadline = 8.0
+    deadlineTime = 8.0
     _n_idle = 0
   root state:
     initial: idle
@@ -1061,7 +1061,7 @@ statechart:
     - name: idle
       on entry: |
         _n_idle = _n_idle + 1
-        _d_idle_t1 = (deadline) - time
+        _d_idle_t1 = (deadlineTime) - time
         if _d_idle_t1 >= 0:
             send('_tick_idle_t1', n=_n_idle, delay=_d_idle_t1, _sysmlc_tick=('idle', '_n_idle'))
       transitions:
@@ -1073,7 +1073,7 @@ statechart:
 ```
 
 *Why the `_d_*` variable:* the instant is evaluated when `idle` is entered,
-using the current sismic `time`. Entering at `time = 0` with `deadline = 8.0`
+using the current sismic `time`. Entering at `time = 0` with `deadlineTime = 8.0`
 sets `_d_idle_t1` to `8.0` and schedules the tick for `t = 8`. Re-entering at
 `time = 9` sets it to `-1.0`, so no tick is sent and the transition cannot fire
 late. If an `if` guard is present, it is still conjoined with
