@@ -485,13 +485,7 @@ class StatixBuilder:
                 if isinstance(a, syside.AssignmentActionUsage):
                     probe.render_action(a)
             for path in sorted(probe.payload_reads):
-                known = reads.setdefault(trigger.signal_name, path)
-                if known != path:
-                    raise UnsupportedConstructError(
-                        f"event {trigger.signal_name!r} payload is read as "
-                        f"both .{'.'.join(known)} and .{'.'.join(path)}; "
-                        "statix supports one readable path per event."
-                    )
+                reads.setdefault(trigger.signal_name, path)
         return reads
 
     def _facts_by_name(self) -> dict[str, StateFact]:
