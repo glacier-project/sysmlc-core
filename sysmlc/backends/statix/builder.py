@@ -13,6 +13,7 @@ from sysmlc.backends.statix.program import (
     CAction,
     CContext,
     CEnum,
+    CExternFunction,
     CField,
     CGuard,
     CInvariant,
@@ -203,11 +204,17 @@ class StatixBuilder:
         self._name = name
         self._qualified_name = qualified_name
         self._prefix = _c_prefix(qualified_name)
+        self._externs: dict[str, CExternFunction] = {}
         # Guard/action codegen is re-created in result() once the attribute
         # names are known; the init codegen never sees a context pointer.
-        self._gen = CCodeGen(enum_resolver=self._resolve_enum_literal)
+        self._gen = CCodeGen(
+            enum_resolver=self._resolve_enum_literal,
+            extern_resolver=self._resolve_extern_call,
+        )
         self._init_gen = CCodeGen(
-            allow_context=False, enum_resolver=self._resolve_enum_literal
+            allow_context=False,
+            enum_resolver=self._resolve_enum_literal,
+            extern_resolver=self._resolve_extern_call,
         )
         self._root: StateFact | None = None
         self._state_facts: list[StateFact] = []
@@ -355,6 +362,7 @@ class StatixBuilder:
             attribute_names=self._attribute_names,
             real_attributes=self._real_attribute_names,
             enum_resolver=self._resolve_enum_literal,
+            extern_resolver=self._resolve_extern_call,
             attribute_c_types=self._attribute_c_types,
             struct_field_types=struct_field_types,
             generated_enum_types=self._generated_enum_type_names(),
@@ -367,13 +375,7 @@ class StatixBuilder:
             for t in self._transition_facts
             for row in self._build_transition(t)
         )
-        for event in self._payload_reads:
-            if not any(s.event == event for s in self._sends):
-                raise UnsupportedConstructError(
-                    f"the payload of event {event!r} is read, but no `send` "
-                    "in this machine marshals it; statix cannot receive "
-                    "payload-bearing events from outside yet."
-                )
+        # Relaxed check: external payload-bearing events are allowed.
         states = (
             ((root_state,) if root_state is not None else ())
             + real_states
@@ -430,16 +432,20 @@ class StatixBuilder:
             when_count=self._when_count,
             regions=tuple(self._regions_flat),
             active_capacity=self._active_capacity,
+            extern_functions=tuple(self._externs.values()),
         )
 
     def _payload_gen(self, payload_feature: syside.Feature) -> CCodeGen:
+        payload_c_type = self._resolve_extern_type(payload_feature, payload_feature.name or "payload")
         return CCodeGen(
             attribute_names=frozenset(
                 self._attribute_names | {b.name for b in self._bindings}
             ),
             real_attributes=self._real_attribute_names,
             payload_feature=payload_feature,
+            payload_c_type=payload_c_type,
             enum_resolver=self._resolve_enum_literal,
+            extern_resolver=self._resolve_extern_call,
             attribute_c_types=self._attribute_c_types,
             struct_field_types=self._struct_field_types(),
             generated_enum_types=self._generated_enum_type_names(),
@@ -661,6 +667,110 @@ class StatixBuilder:
             return repr(value) if c_type == "double" else str(int(value))
         assert not isinstance(value, CompositeValue) and value is not None
         return self._init_gen.render_expression(value)
+
+    def _resolve_extern_call(
+        self, expr: syside.InvocationExpression, gen: CCodeGen
+    ) -> str | None:
+        """Recognize a bodyless calc def (a pure signature) as an extern C call.
+
+        A calc def WITH a body (result_expression is not None) is a different,
+        larger future feature (compiling an actual expression body to C) and is
+        left to fall through to the existing allowlist-or-reject path.
+
+        `gen` is the SPECIFIC CCodeGen instance currently rendering `expr` (see
+        codegen.py's _emit_invocation) -- arguments are rendered through it, not
+        through a fixed instance, so context-initializer call sites (where a
+        different CCodeGen with allow_context=False is active) render correctly.
+        """
+        func = expr.function
+        if not isinstance(func, (syside.CalculationDefinition, syside.CalculationUsage)):
+            return None
+        if func.result_expression is not None:
+            return None
+        qn = str(func.qualified_name)
+        if qn not in self._externs:
+            c_name = _c_prefix(qn)
+            param_types: list[str] = []
+            param_names: list[str] = []
+            for param in func.inputs.collect():
+                assert param.name is not None
+                param_names.append(param.name)
+                param_types.append(self._resolve_extern_type(param, param.name))
+            if func.result is None:
+                return_type = "void"
+            else:
+                return_type = self._resolve_extern_type(func.result, "return")
+            self._externs[qn] = CExternFunction(
+                name=qn,
+                c_name=c_name,
+                param_types=tuple(param_types),
+                param_names=tuple(param_names),
+                return_type=return_type,
+            )
+        fn = self._externs[qn]
+        args = ", ".join(gen._emit(a, 0) for a in expr.arguments.collect())
+        return f"{fn.c_name}({args})"
+
+    def _resolve_extern_type(self, param: syside.Feature, name: str) -> str:
+        """Resolve a calc parameter's/result's declared type to a C type.
+
+        Mirrors driver.py's _bind_attributes type_name derivation exactly (the
+        first named attribute_definitions() entry), then reuses _scalar_c_type's
+        existing "no value, just a type name" branch for scalars, or registers a
+        type-only struct for a composite (attribute-def) type.
+        """
+        defs_iterator = getattr(param, "attribute_definitions", None) or getattr(param, "definitions", None)
+        definition = next(
+            (
+                d
+                for d in defs_iterator.collect()
+                if getattr(d, "name", None)
+            ),
+            None,
+        ) if defs_iterator is not None else None
+        if definition is None:
+            raise UnsupportedConstructError(
+                f"calc parameter/result {name!r} has no resolvable type; statix "
+                "cannot derive an extern C signature for it.",
+                node=param,
+            )
+        type_name = definition.name
+        assert type_name is not None
+        if type_name in ("Integer", "Real", "Boolean", "String"):
+            return self._scalar_c_type(None, name, type_name)
+        if isinstance(definition, (syside.AttributeDefinition, syside.ItemDefinition)) and definition.owned_attributes.collect():
+            return self._register_struct_from_definition(definition)
+        raise UnsupportedConstructError(
+            f"calc parameter/result {name!r} has type {type_name!r}, which is "
+            "neither a scalar (Integer/Real/Boolean/String) nor a structured "
+            "attribute or item definition; statix cannot derive an extern C "
+            "signature for it.",
+            node=param,
+        )
+
+    def _register_struct_from_definition(self, definition: syside.AttributeDefinition | syside.ItemDefinition) -> str:
+        """Type-only counterpart to _register_struct.
+
+        No bound value exists for
+        a calc parameter (it's a bare type reference), so this walks the
+        definition's OWN declared fields (each resolved via the same
+        attribute_definitions() pattern, recursively) instead of a CompositeValue.
+
+        Uses the IDENTICAL naming formula as _register_struct so a type already
+        registered via an actual attribute binding (e.g. PendulumState via
+        `attribute x : PendulumState`) is found and reused here, not duplicated.
+        """
+        assert definition.name is not None
+        c_type = f"{self._prefix}_{_c_identifier(definition.name)}_t"
+        if c_type in self._structs:
+            return c_type
+        fields: list[CField] = []
+        for field in definition.owned_attributes.collect():
+            assert field.name is not None
+            field_type = self._resolve_extern_type(field, field.name)
+            fields.append(CField(field.name, field_type, ""))
+        self._structs[c_type] = CStruct(name=c_type, fields=tuple(fields))
+        return c_type
 
     def _register_struct(self, composite: CompositeValue) -> str:
         c_type = f"{self._prefix}_{_c_identifier(composite.type_name)}_t"
