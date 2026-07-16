@@ -14,6 +14,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+fmi = [
+    "fmpy>=0.3.26",
+]
 dev = [
     "radon>=6.0.1,<7",
     "lizard>=1.21.2,<2",
@@ -102,8 +105,10 @@ skip-magic-trailing-comma = false
 line-ending = "auto"
 
 [tool.pytest.ini_options]
-addopts = "-m 'not lf and not statix'"
+addopts = "-m 'not lf and not statix and not fmu'"
 markers = [
     "lf: compile and run generated Lingua Franca programs (requires lfc + Java)",
     "statix: compile and run generated C statechart projects (requires a C compiler + CMake)",
+    "fmu: compile and run generated Frost FMU co-simulations (requires lfc + Java + a Frost checkout)",
 ]
+testpaths = ["tests"]
