@@ -113,6 +113,23 @@ class CAction:
 
 
 @dataclass(frozen=True)
+class CExternFunction:
+    """A bodyless calc def, backed by a user-supplied extern C function.
+
+    ``name`` is the calc's SysML qualified name (for diagnostics/dedup keys);
+    ``c_name`` is the sanitized C symbol via ``_c_prefix`` (project-global,
+    not machine-prefixed, since the same calc can be called from multiple
+    generated machines and must resolve to one shared symbol).
+    """
+
+    name: str
+    c_name: str
+    param_types: tuple[str, ...]
+    param_names: tuple[str, ...]
+    return_type: str
+
+
+@dataclass(frozen=True)
 class CState:
     """A state row with optional entry/exit actions and tree links.
 
@@ -199,6 +216,7 @@ class CProgram:
     enums: tuple[CEnum, ...] = ()
     regions: tuple[str, ...] = ()
     active_capacity: int = 1
+    extern_functions: tuple[CExternFunction, ...] = ()
 
 
 @dataclass(frozen=True)
