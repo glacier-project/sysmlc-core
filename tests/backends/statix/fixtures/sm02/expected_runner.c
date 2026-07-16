@@ -34,12 +34,49 @@ static void sm02_machine_print_configuration(const sm02_machine_t *sm)
     }
 }
 
+static void sm02_machine_print_help(const char *argv0)
+{
+    (void)printf("Usage: %s [-h|--help]", argv0);
+    (void)printf(" [EVENT ...]\n\n");
+
+    (void)printf("Machine: SM02::Machine\n");
+    (void)printf("Initial state: idle\n\n");
+
+    (void)printf("States:\n");
+    (void)printf("  idle (initial)\n");
+    (void)printf("  running\n");
+    (void)printf("\n");
+
+    (void)printf("Events:\n");
+    (void)printf("  Tick\n");
+    (void)printf("\n");
+
+    (void)printf("Transitions (source -> event -> target, guard, action):\n");
+    (void)printf("  idle -[Tick]-> running  guard=- action=-\n");
+    (void)printf("\n");
+
+
+
+    (void)printf("Example:\n  %s Tick\n\n", argv0);
+
+    (void)printf("Tracing: enabled by default (all kinds). Disable at compile time with\n");
+    (void)printf("  -DSM02_MACHINE_TRACE_MASK=0, or select specific kinds by OR-ing\n");
+    (void)printf("  SC_TRACE_MASK_ENTER/_EXIT/_TRANSITION/_GUARD/_TIMER_CHECK.\n");
+}
+
 int main(int argc, char **argv)
 {
     sm02_machine_context_t ctx;
     sm02_machine_t sm;
     sc_status_t status;
     int i;
+
+    for (i = 1; i < argc; ++i) {
+        if ((strcmp(argv[i], "-h") == 0) || (strcmp(argv[i], "--help") == 0)) {
+            sm02_machine_print_help(argv[0]);
+            return 0;
+        }
+    }
 
     sm02_machine_context_init(&ctx);
     status = sm02_machine_init(&sm, &ctx);
@@ -53,8 +90,24 @@ int main(int argc, char **argv)
 
     for (i = 1; i < argc; ++i) {
         sc_event_id_t event_id = SC_EVENT_INVALID;
+        /* Exact-or-"=" boundary match (not a bare strncmp prefix check) so
+         * --tickfoo" falls through to the generic unknown-option path below
+         * instead of being misreported as the unsupported --tick option. */
+        if ((strcmp(argv[i], "--tick") == 0) || (strncmp(argv[i], "--tick=", 7) == 0) ||
+            (strcmp(argv[i], "--advance") == 0) || (strncmp(argv[i], "--advance=", 10) == 0)) {
+            const char *opt = (strncmp(argv[i], "--tick", 6) == 0) ? "--tick" : "--advance";
+            (void)fprintf(stderr, "error: option '%s' is not supported by this machine\n", opt);
+            (void)fprintf(stderr, "Try '%s --help' for usage.\n", argv[0]);
+            return 2;
+        }
+        if ((argv[i][0] == '-') && !sm02_machine_event_from_name(argv[i], &event_id)) {
+            (void)fprintf(stderr, "error: unknown option: %s\n", argv[i]);
+            (void)fprintf(stderr, "Try '%s --help' for usage.\n", argv[0]);
+            return 2;
+        }
         if (!sm02_machine_event_from_name(argv[i], &event_id)) {
             (void)fprintf(stderr, "unknown event: %s\n", argv[i]);
+            (void)fprintf(stderr, "Try '%s --help' for usage.\n", argv[0]);
             return 2;
         }
         status = sm02_machine_post(&sm, event_id);
