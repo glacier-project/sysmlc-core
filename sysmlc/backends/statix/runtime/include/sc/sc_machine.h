@@ -38,6 +38,23 @@
 #if defined(SC_MACHINE_HAS_TIMER) && !defined(SC_MACHINE_TIMEOUT_DUE)
 #error "sc/sc_machine.h: SC_MACHINE_HAS_TIMER requires SC_MACHINE_TIMEOUT_DUE"
 #endif
+#if defined(SC_MACHINE_HAS_TRACE) && !defined(SC_MACHINE_TRACE)
+#error "sc/sc_machine.h: SC_MACHINE_HAS_TRACE requires SC_MACHINE_TRACE"
+#endif
+
+/// SC__TRACE_ENABLED must be defined unconditionally (design Sec.1): every
+/// trace call site below writes `#if SC__TRACE_ENABLED(...)` regardless of
+/// whether SC_MACHINE_HAS_TRACE is defined anywhere, so a consumer that never
+/// enables tracing still needs this to expand to a valid constant `0`, not
+/// leave an undefined function-like macro used as a bare identifier in `#if`.
+#ifdef SC_MACHINE_HAS_TRACE
+#ifndef SC_MACHINE_TRACE_MASK
+#define SC_MACHINE_TRACE_MASK SC_TRACE_MASK_ALL
+#endif
+#define SC__TRACE_ENABLED(mask_) (((SC_MACHINE_TRACE_MASK) & (mask_)) != 0u)
+#else
+#define SC__TRACE_ENABLED(mask_) 0
+#endif
 
 #include "sc/sc_runtime.h"
 
@@ -962,4 +979,11 @@ sc_state_id_t SC__FN(_active_state)(const SC__T *sm, sc_state_id_t index)
 #ifdef SC_MACHINE_HAS_WHEN
 #undef SC_MACHINE_HAS_WHEN
 #endif
+#undef SC__TRACE_ENABLED
+#ifdef SC_MACHINE_HAS_TRACE
+#undef SC_MACHINE_HAS_TRACE
+#undef SC_MACHINE_TRACE
+#undef SC_MACHINE_TRACE_MASK
+#endif
 #undef SC_MACHINE_ACTIVE_CAPACITY
+
