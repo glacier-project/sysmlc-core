@@ -122,9 +122,20 @@ static int32_t SC__FN(_find_transition_at)(const sc_machine_t *machine,
     for (i = 0u; i < limit; ++i) {
         const sc_transition_t *t = &machine->transitions[i];
         if ((t->source == state) && (t->event == event_id)) {
-            bool enabled = (t->guard == SC_GUARD_NONE)
-                               ? true
-                               : SC_MACHINE_GUARD(t->guard, &sm->runtime, event);
+            bool enabled;
+            if (t->guard == SC_GUARD_NONE) {
+                enabled = true;
+            } else {
+                enabled = SC_MACHINE_GUARD(t->guard, &sm->runtime, event);
+#if SC__TRACE_ENABLED(SC_TRACE_MASK_GUARD)
+                {
+                    const sc_trace_data_t trace_data = {
+                        .state = t->source, .guard = t->guard, .result = enabled,
+                    };
+                    SC_MACHINE_TRACE(SC_TRACE_GUARD, &sm->runtime, event, &trace_data);
+                }
+#endif
+            }
             if (enabled && (event_id == SC_EVENT_COMPLETION)) {
                 if (machine->states[state].region_count > 0u) {
                     enabled = sc_runtime_regions_all_final(&sm->runtime, state);
@@ -139,6 +150,7 @@ static int32_t SC__FN(_find_transition_at)(const sc_machine_t *machine,
     }
     return -1;
 }
+
 
 /// @brief Inner-first selection: try the active leaf, then each ancestor.
 static int32_t SC__FN(_find_transition)(const sc_machine_t *machine,
@@ -729,9 +741,21 @@ static sc_status_t SC__FN(_check_invariants)(SC__T *sm)
                 }
             }
         }
-        if (active && !SC_MACHINE_GUARD(inv->guard, &sm->runtime, &completion)) {
-            return SC_STATUS_CONSTRAINT_VIOLATED;
+        if (active) {
+            bool ok = SC_MACHINE_GUARD(inv->guard, &sm->runtime, &completion);
+#if SC__TRACE_ENABLED(SC_TRACE_MASK_GUARD)
+            {
+                const sc_trace_data_t trace_data = {
+                    .state = inv->scope, .guard = inv->guard, .result = ok,
+                };
+                SC_MACHINE_TRACE(SC_TRACE_GUARD, &sm->runtime, &completion, &trace_data);
+            }
+#endif
+            if (!ok) {
+                return SC_STATUS_CONSTRAINT_VIOLATED;
+            }
         }
+
     }
     return SC_STATUS_OK;
 }
