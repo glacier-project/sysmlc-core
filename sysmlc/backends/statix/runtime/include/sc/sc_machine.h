@@ -919,15 +919,26 @@ sc_status_t SC__FN(_tick)(SC__T *sm, sc_time_t now)
     (void)sc_event_init(&timeout, SC_EVENT_TIMEOUT);
     for (i = 0u; i < (sc_state_id_t)SC_MACHINE_ACTIVE_CAPACITY; ++i) {
         sc_activation_t *a = &sm->runtime.active[i];
+        bool due_now;
         if ((a->leaf == SC_STATE_INVALID) || a->timeout_delivered) {
             continue;
         }
-        if (SC_MACHINE_TIMEOUT_DUE(a->leaf, &sm->runtime, i)) {
+        due_now = SC_MACHINE_TIMEOUT_DUE(a->leaf, &sm->runtime, i);
+#if SC__TRACE_ENABLED(SC_TRACE_MASK_TIMER_CHECK)
+        {
+            const sc_trace_data_t trace_data = {
+                .state = a->leaf, .result = due_now, .activation_index = i,
+            };
+            SC_MACHINE_TRACE(SC_TRACE_TIMER_CHECK, &sm->runtime, &timeout, &trace_data);
+        }
+#endif
+        if (due_now) {
             a->timeout_delivered = true;
             due[due_count] = i;
             ++due_count;
         }
     }
+
     for (i = 0u; i < (sc_state_id_t)due_count; ++i) {
         sc_state_id_t slot = due[i];
         int32_t idx = SC__FN(_find_transition_at)(machine, sm->runtime.active[slot].leaf,

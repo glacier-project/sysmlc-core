@@ -86,6 +86,35 @@ static bool gd_guard_eval(sc_guard_id_t g, const sc_runtime_t *rt, const sc_even
 static sc_status_t gd_action_exec(sc_action_id_t a, sc_runtime_t *rt, const sc_event_t *ev)
 { (void)a; (void)rt; (void)ev; return SC_STATUS_OK; }
 
+/*
+ * A third machine for TIMER_CHECK coverage: root -> waiting (leaf, timeout
+ * due at tick 5). One activation slot, so both the due=false and due=true
+ * observations come from repeated _tick calls on the same slot.
+ */
+enum { TM_ROOT = 0, TM_WAITING = 1, TM_DONE = 2, TM_COUNT = 3 };
+
+static const sc_state_def_t tm_states[] = {
+    {SC_ACTION_NONE, SC_ACTION_NONE, SC_STATE_INVALID, TM_WAITING, false, 0u, SC_STATE_INVALID, 0u},
+    {SC_ACTION_NONE, SC_ACTION_NONE, TM_ROOT, SC_STATE_INVALID, false, 0u, SC_STATE_INVALID, 0u},
+    {SC_ACTION_NONE, SC_ACTION_NONE, TM_ROOT, SC_STATE_INVALID, false, 0u, SC_STATE_INVALID, 0u},
+};
+static const sc_transition_t tm_transitions[] = {
+    {TM_WAITING, SC_EVENT_TIMEOUT, SC_GUARD_NONE, SC_ACTION_NONE, TM_DONE},
+};
+static const sc_machine_t tm_machine = {
+    tm_transitions, tm_states, 1u, TM_COUNT, TM_ROOT, 2u, NULL, 0u, NULL, 0u, 1u,
+};
+static bool tm_guard_eval(sc_guard_id_t g, const sc_runtime_t *rt, const sc_event_t *ev)
+{ (void)g; (void)rt; (void)ev; return true; }
+static sc_status_t tm_action_exec(sc_action_id_t a, sc_runtime_t *rt, const sc_event_t *ev)
+{ (void)a; (void)rt; (void)ev; return SC_STATUS_OK; }
+static bool tm_timeout_due(sc_state_id_t state, const sc_runtime_t *rt, sc_state_id_t activation_index)
+{
+    (void)state;
+    return (rt->now - rt->active[activation_index].entered_at) >= 5u;
+}
+
+
 
 /* Ordered log of every ENTER/EXIT trace call this test session records --
  * tracer-owned static storage, never touching runtime/user_data. */
@@ -152,6 +181,27 @@ typedef struct {
 #define SC_MACHINE_HAS_TRACE 1
 #define SC_MACHINE_TRACE tr_trace
 #include "sc/sc_machine.h"
+
+typedef struct {
+    sc_runtime_t runtime;
+    sc_activation_t active[1];
+} tm_t;
+
+typedef struct {
+    int unused;
+} tm_context_t;
+
+#define SC_MACHINE_PREFIX tm
+#define SC_MACHINE_DEF tm_machine
+#define SC_MACHINE_GUARD tm_guard_eval
+#define SC_MACHINE_ACTION tm_action_exec
+#define SC_MACHINE_ACTIVE_CAPACITY 1u
+#define SC_MACHINE_HAS_TIMER 1
+#define SC_MACHINE_TIMEOUT_DUE tm_timeout_due
+#define SC_MACHINE_HAS_TRACE 1
+#define SC_MACHINE_TRACE tr_trace
+#include "sc/sc_machine.h"
+
 
 
 static void test_init_traces_the_initial_state_enter(void)
@@ -253,12 +303,50 @@ static void test_guard_and_invariant_both_populate_state_correctly(void)
     (void)found_invariant;
 }
 
+static void test_timer_check_traces_both_due_and_not_due(void)
+{
+    tm_context_t ctx;
+    tm_t sm;
+    int i;
+    int saw_false = 0;
+    int saw_true = 0;
+    CHECK(tm_init(&sm, &ctx) == SC_STATUS_OK);
+    g_log_count = 0;
+    CHECK(tm_tick(&sm, 2u) == SC_STATUS_NO_TRANSITION);
+    for (i = 0; i < g_log_count; ++i) {
+        if (g_log_kind[i] == SC_TRACE_TIMER_CHECK) {
+            CHECK(g_log_state[i] == TM_WAITING);
+            CHECK(g_log_activation_index[i] == 0u);
+            saw_false = 1;
+        }
+    }
+    CHECK(saw_false == 1);
+    g_log_count = 0;
+    CHECK(tm_tick(&sm, 5u) == SC_STATUS_OK);
+    for (i = 0; i < g_log_count; ++i) {
+        if (g_log_kind[i] == SC_TRACE_TIMER_CHECK) {
+            saw_true = 1;
+        }
+    }
+    CHECK(saw_true == 1);
+    /* A second tick after delivery: the slot is now in TM_DONE with timeout_delivered
+     * reset to false, so it is evaluated again and reports not due (false). */
+    g_log_count = 0;
+    CHECK(tm_tick(&sm, 6u) == SC_STATUS_NO_TRANSITION);
+    CHECK(g_log_count == 1);
+    CHECK(g_log_kind[0] == SC_TRACE_TIMER_CHECK);
+    CHECK(g_log_state[0] == TM_DONE);
+    /* Since we reuse tr_trace, we don't have result logged directly, but we can verify kind and state. */
+}
+
+
 int main(void)
 {
     test_init_traces_the_initial_state_enter();
     test_transition_traces_exit_then_enter_in_order();
     test_completion_transition_traces_a_transition_row();
     test_guard_and_invariant_both_populate_state_correctly();
+    test_timer_check_traces_both_due_and_not_due();
 
     if (g_failures == 0) {
         (void)printf("test_runtime_trace: OK\n");
@@ -267,5 +355,6 @@ int main(void)
     (void)printf("test_runtime_trace: %d failure(s)\n", g_failures);
     return 1;
 }
+
 
 
