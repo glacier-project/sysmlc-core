@@ -92,7 +92,67 @@ static {{ prefix }}_opt_result_t {{ prefix }}_parse_numeric_flag(
 
 static void {{ prefix }}_print_help(const char *argv0)
 {
-    (void)printf("%s: help text placeholder (Task 4 replaces this)\n", argv0);
+    (void)printf("Usage: %s [-h|--help]", argv0);
+{% if has_timer %}
+    (void)printf(" [--tick T|--tick=T] [--advance N|--advance=N]");
+{% endif %}
+    (void)printf(" [EVENT ...]\n\n");
+
+    (void)printf("Machine: {{ qualified_name }}\n");
+    (void)printf("Initial state: {{ initial_state }}\n\n");
+
+    (void)printf("States:\n");
+{% for s in help_state_rows %}
+    (void)printf("  {{ s.name }}{% if s.is_initial %} (initial){% endif %}{% if s.is_final %} (final){% endif %}\n");
+{% endfor %}
+    (void)printf("\n");
+
+    (void)printf("Events:\n");
+{% if events %}
+{% for e in events %}
+    (void)printf("  {{ e.name }}\n");
+{% endfor %}
+{% else %}
+    (void)printf("  (none -- this machine accepts no external events)\n");
+{% endif %}
+    (void)printf("\n");
+
+    (void)printf("Transitions (source -> event -> target, guard, action):\n");
+{% for t in help_transition_rows %}
+    (void)printf("  {{ t.source }} -[{{ t.event }}]-> {{ t.target }}  guard={{ t.guard }} action={{ t.action }}\n");
+{% endfor %}
+    (void)printf("\n");
+
+{% if has_timer %}
+    (void)printf("Timers: --tick T sets absolute statechart time to T ticks (must be\n");
+    (void)printf("  monotonically non-decreasing across calls). --advance N performs N\n");
+    (void)printf("  one-second steps (each adds SC_TICKS_PER_SECOND ticks), not N raw\n");
+    (void)printf("  ticks. This build's resolution: SC_TICKS_PER_SECOND=%lu.\n\n",
+                 (unsigned long)SC_TICKS_PER_SECOND);
+{% endif %}
+
+{% if region_names %}
+    (void)printf("Parallel regions: {{ region_names|length }} region(s) ({{ region_names|join(", ") }}),\n");
+    (void)printf("  active_capacity={{ active_capacity }} -- use _active_count/_active_state\n");
+    (void)printf("  (see the generated header) to inspect the full active configuration.\n\n");
+{% endif %}
+
+{% if example.kind == "reachable" %}
+    (void)printf("Example:\n  %s {{ example.event }}\n\n", argv0);
+{% elif example.kind == "timed" %}
+    (void)printf("Example:\n  %s --tick %lu\n\n", argv0,
+                 (unsigned long)({{ example.tick_expr }}));
+{% elif example.kind == "syntax_only" %}
+    (void)printf("Example syntax (this event is not guaranteed to transition from the\n");
+    (void)printf("initial state):\n  %s {{ example.event }}\n\n", argv0);
+{% else %}
+    (void)printf("Example:\n  %s\n  (this machine has no external events; running with no\n", argv0);
+    (void)printf("  arguments alone initializes it to its settled starting configuration)\n\n");
+{% endif %}
+
+    (void)printf("Tracing: enabled by default (all kinds). Disable at compile time with\n");
+    (void)printf("  -D{{ prefix|upper }}_TRACE_MASK=0, or select specific kinds by OR-ing\n");
+    (void)printf("  SC_TRACE_MASK_ENTER/_EXIT/_TRANSITION/_GUARD/_TIMER_CHECK.\n");
 }
 
 int main(int argc, char **argv)
