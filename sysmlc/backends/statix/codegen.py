@@ -118,6 +118,9 @@ class CCodeGen:
         enum_resolver: (
             Callable[[syside.EnumerationUsage], tuple[str, str, bool]] | None
         ) = None,
+        extern_resolver: (
+            Callable[[syside.InvocationExpression, CCodeGen], str | None] | None
+        ) = None,
         attribute_c_types: dict[str, str] | None = None,
         struct_field_types: dict[str, dict[str, str]] | None = None,
         generated_enum_types: frozenset[str] = frozenset(),
@@ -128,6 +131,7 @@ class CCodeGen:
         self._real_attributes = real_attributes
         self._payload_feature = payload_feature
         self._enum_resolver = enum_resolver
+        self._extern_resolver = extern_resolver
         self._attribute_c_types = attribute_c_types or {}
         self._struct_field_types = struct_field_types or {}
         self._generated_enum_types = generated_enum_types
@@ -253,17 +257,27 @@ class CCodeGen:
         func = expr.function
         qn = None if func is None else func.qualified_name
         target = None if qn is None else _C_MATH_FUNCTIONS.get(str(qn))
-        if target is None:
-            raise CCodeGenError(
-                f"unsupported function call {qn!s}; only allowlisted library "
-                "functions (NumericalFunctions/TrigFunctions) are supported "
-                "by statix yet.",
-                node=expr,
-            )
-        self.needs_math = True
-        self._used_math = True
-        args = ", ".join(self._emit(a, 0) for a in expr.arguments.collect())
-        return f"{target}({args})"
+        if target is not None:
+            self.needs_math = True
+            self._used_math = True
+            args = ", ".join(self._emit(a, 0) for a in expr.arguments.collect())
+            return f"{target}({args})"
+        if self._extern_resolver is not None:
+            # Pass `self` (this CCodeGen instance) so the resolver renders
+            # arguments through the SAME instance handling this expression --
+            # there are several CCodeGen instances per builder (e.g. a
+            # context-initializer one with allow_context=False), each with
+            # its own _ctx/_allow_context; using the wrong one would render
+            # arguments in the wrong context.
+            rendered = self._extern_resolver(expr, self)
+            if rendered is not None:
+                return rendered
+        raise CCodeGenError(
+            f"unsupported function call {qn!s}; only allowlisted library "
+            "functions (NumericalFunctions/TrigFunctions) are supported "
+            "by statix yet.",
+            node=expr,
+        )
 
     def _emit_feature_chain(self, expr: syside.FeatureChainExpression) -> str:
         op0 = expr.operands.collect()[0]
