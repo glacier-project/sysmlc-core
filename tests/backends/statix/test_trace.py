@@ -5,8 +5,20 @@ See docs/superpowers/specs/2026-07-16-statix-trace-hook-design.md.
 
 from __future__ import annotations
 
+import subprocess
+from typing import TYPE_CHECKING
+
+import pytest
+
+from sysmlc.backends.base import OutputOptions
+from sysmlc.backends.statix.backend import StatixBackend
 from sysmlc.backends.statix.builder import build_statix
 from sysmlc.backends.statix.serialize import emit_source
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from pathlib import Path
+
 
 
 def test_mask_setup_emitted_for_every_machine(sm_models: dict) -> None:
@@ -83,14 +95,6 @@ def test_trace_hook_generated_with_all_five_cases_by_default(
     assert "#define SC_MACHINE_TRACE trace_hook" in source
 
 
-import subprocess
-from pathlib import Path
-
-import pytest
-
-from sysmlc.backends.base import OutputOptions
-from sysmlc.backends.statix.backend import StatixBackend
-
 _MASK_BITS = {
     "SC_TRACE_MASK_ENTER": 1 << 0,
     "SC_TRACE_MASK_EXIT": 1 << 1,
@@ -134,7 +138,7 @@ def _build_with_mask(build: Path) -> subprocess.CompletedProcess:
 def test_single_bit_masks_compile_clean(
     sm_models: dict, tmp_path: Path, mask_value: int
 ) -> None:
-    prefix, build = _write_and_configure(
+    _prefix, build = _write_and_configure(
         sm_models, tmp_path, "sm13", "SM13::MachineAfterGuard", mask_value
     )
     result = _build_with_mask(build)
@@ -144,7 +148,7 @@ def test_single_bit_masks_compile_clean(
 def test_timer_check_only_on_untimed_machine_compiles_clean(
     sm_models: dict, tmp_path: Path
 ) -> None:
-    prefix, build = _write_and_configure(
+    _prefix, build = _write_and_configure(
         sm_models, tmp_path, "sm03", "SM03::MachineRef", _MASK_BITS["SC_TRACE_MASK_TIMER_CHECK"]
     )
     result = _build_with_mask(build)
@@ -154,11 +158,68 @@ def test_timer_check_only_on_untimed_machine_compiles_clean(
 def test_unsupported_mask_bit_fails_with_intended_error(
     sm_models: dict, tmp_path: Path
 ) -> None:
-    prefix, build = _write_and_configure(
+    _prefix, build = _write_and_configure(
         sm_models, tmp_path, "sm13", "SM13::MachineAfterGuard", 1 << 10
     )
     result = _build_with_mask(build)
     assert result.returncode != 0
     assert "contains unsupported bits" in (result.stdout + result.stderr)
+
+
+def test_generated_runner_emits_trace_before_summary_line(
+    sm_models_showcase: dict, tmp_path: Path
+) -> None:
+    prefix, build = _write_and_configure(
+        sm_models_showcase, tmp_path, "microwave", "Microwave::MicrowaveBehavior", _MASK_ALL
+    )
+    subprocess.run(
+        ["cmake", "--build", str(build)], check=True, capture_output=True
+    )
+    result = subprocess.run(
+        [str(build / f"{prefix}_runner"), "StartCmd"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    lines = result.stdout.strip().splitlines()
+    assert len(lines) > 2, "expected trace lines between init and the StartCmd summary"
+    # The final line remains the ordinary summary line -- unaffected by tracing.
+    assert lines[-1].startswith("event StartCmd status=")
+    assert "state=" in lines[-1]
+    # Every "  trace: " line for the StartCmd command appears before that
+    # command's own summary line, never after.
+    start_cmd_index = next(
+        i for i, line in enumerate(lines) if line.startswith("event StartCmd")
+    )
+    for line in lines[start_cmd_index + 1 :]:
+        assert not line.startswith("  trace:")
+    assert any(line.startswith("  trace: enter") for line in lines)
+    assert any(line.startswith("  trace: transition") for line in lines)
+
+
+def test_existing_statix_run_fixtures_unaffected_by_tracing(
+    sm_models: dict,
+    statix_run: Callable,
+    statix_run_final: Callable,
+    statix_run_status: Callable,
+    statix_run_configuration: Callable,
+) -> None:
+    program = build_statix(sm_models["sm01"], "SM01::Machine")
+    assert statix_run(program) is not None
+    assert statix_run_final(program) is not None
+    assert statix_run_status(program) is not None
+    assert statix_run_configuration(program) is not None
+
+
+
+def test_zero_mask_override_restores_terse_output(
+    sm_models_showcase: dict, tmp_path: Path
+) -> None:
+    _prefix, build = _write_and_configure(
+        sm_models_showcase, tmp_path, "microwave", "Microwave::MicrowaveBehavior", 0
+    )
+    result = _build_with_mask(build)
+    assert result.returncode == 0, result.stdout + result.stderr
+
 
 
