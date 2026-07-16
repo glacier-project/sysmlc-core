@@ -121,6 +121,7 @@ class CCodeGen:
         extern_resolver: (
             Callable[[syside.InvocationExpression, CCodeGen], str | None] | None
         ) = None,
+        payload_c_type: str | None = None,
         attribute_c_types: dict[str, str] | None = None,
         struct_field_types: dict[str, dict[str, str]] | None = None,
         generated_enum_types: frozenset[str] = frozenset(),
@@ -130,6 +131,7 @@ class CCodeGen:
         self._attribute_names = attribute_names
         self._real_attributes = real_attributes
         self._payload_feature = payload_feature
+        self._payload_c_type = payload_c_type
         self._enum_resolver = enum_resolver
         self._extern_resolver = extern_resolver
         self._attribute_c_types = attribute_c_types or {}
@@ -228,6 +230,13 @@ class CCodeGen:
             _c_type, rendered, _is_generated = self._enum_resolver(ref)
             return rendered
         if self._payload_feature is not None and ref == self._payload_feature:
+            if self._payload_c_type is not None and self._payload_c_type in self._struct_field_types:
+                fields = self._struct_field_types[self._payload_c_type]
+                for fname in fields:
+                    self.payload_reads.add((fname,))
+                self._used_payload = True
+                parts = [f".{fname} = sc_event_payload_f64(event)" for fname in fields]
+                return f"({self._payload_c_type}){{{', '.join(parts)}}}"
             raise CCodeGenError(
                 "whole payload reference without a sub-feature is unsupported "
                 "by statix yet.",
