@@ -329,6 +329,14 @@ static sc_status_t SC__FN(_exit_up_to)(SC__T *sm, sc_state_id_t from,
         if ((s == stop) || (s == SC_STATE_INVALID)) {
             break;
         }
+#if SC__TRACE_ENABLED(SC_TRACE_MASK_EXIT)
+        {
+            const sc_trace_data_t trace_data = {
+                .state = s, .activation_index = machine->states[s].slot,
+            };
+            SC_MACHINE_TRACE(SC_TRACE_EXIT, &sm->runtime, event, &trace_data);
+        }
+#endif
         status = SC__FN(_run_state_action)(sm, machine->states[s].exit_action, event);
         if (status != SC_STATUS_OK) {
             return status;
@@ -340,6 +348,7 @@ static sc_status_t SC__FN(_exit_up_to)(SC__T *sm, sc_state_id_t from,
     }
     return SC_STATUS_OK;
 }
+
 
 /// @brief Run entry actions outer-first from (excluding) `stop` down to `target`.
 ///
@@ -373,6 +382,14 @@ static sc_status_t SC__FN(_enter_down_to)(SC__T *sm, sc_state_id_t stop,
     while (n > 0u) {
         sc_status_t status;
         n = (uint16_t)(n - 1u);
+#if SC__TRACE_ENABLED(SC_TRACE_MASK_ENTER)
+        {
+            const sc_trace_data_t trace_data = {
+                .state = path[n], .activation_index = machine->states[path[n]].slot,
+            };
+            SC_MACHINE_TRACE(SC_TRACE_ENTER, &sm->runtime, event, &trace_data);
+        }
+#endif
         status = SC__FN(_run_state_action)(sm, machine->states[path[n]].entry_action, event);
         if (status != SC_STATUS_OK) {
             return status;
@@ -380,6 +397,7 @@ static sc_status_t SC__FN(_enter_down_to)(SC__T *sm, sc_state_id_t stop,
     }
     return SC_STATUS_OK;
 }
+
 
 /// @brief Descend an ordinary (non-parallel) chain into initial children
 /// until a leaf or a parallel container is reached; write it to *out_leaf.
@@ -402,6 +420,14 @@ static sc_status_t SC__FN(_descend_chain)(SC__T *sm, sc_state_id_t start,
             break;
         }
         cur = child;
+#if SC__TRACE_ENABLED(SC_TRACE_MASK_ENTER)
+        {
+            const sc_trace_data_t trace_data = {
+                .state = cur, .activation_index = machine->states[cur].slot,
+            };
+            SC_MACHINE_TRACE(SC_TRACE_ENTER, &sm->runtime, event, &trace_data);
+        }
+#endif
         status = SC__FN(_run_state_action)(sm, machine->states[cur].entry_action, event);
         if (status != SC_STATUS_OK) {
             return status;
@@ -410,6 +436,7 @@ static sc_status_t SC__FN(_descend_chain)(SC__T *sm, sc_state_id_t start,
     *out_leaf = cur;
     return SC_STATUS_OK;
 }
+
 
 /// @brief Descend into `start`, forking into every region if it (or the
 /// chain below it) lands on a parallel container. Writes the trunk-level
@@ -433,6 +460,14 @@ static sc_status_t SC__FN(_descend)(SC__T *sm, sc_state_id_t start,
         sc_state_id_t root = machine->regions[(size_t)(machine->states[cur].region_first + r)];
         sc_state_id_t region_leaf;
         sc_state_id_t slot;
+#if SC__TRACE_ENABLED(SC_TRACE_MASK_ENTER)
+        {
+            const sc_trace_data_t trace_data = {
+                .state = root, .activation_index = machine->states[root].slot,
+            };
+            SC_MACHINE_TRACE(SC_TRACE_ENTER, &sm->runtime, event, &trace_data);
+        }
+#endif
         status = SC__FN(_run_state_action)(sm, machine->states[root].entry_action, event);
         if (status != SC_STATUS_OK) {
             return status;
@@ -446,6 +481,7 @@ static sc_status_t SC__FN(_descend)(SC__T *sm, sc_state_id_t start,
         sm->runtime.active[slot].entered_at = sm->runtime.now;
         sm->runtime.active[slot].timeout_delivered = false;
     }
+
     return SC_STATUS_OK;
 }
 
@@ -701,12 +737,22 @@ sc_status_t SC__FN(_init)(SC__T *sm, SC__CTX *ctx)
     sm->runtime.queue = &sm->queue;
 #endif
     (void)sc_event_init(&completion, SC_EVENT_COMPLETION);
+#if SC__TRACE_ENABLED(SC_TRACE_MASK_ENTER)
+    {
+        const sc_trace_data_t trace_data = {
+            .state = SC_MACHINE_DEF.initial_state,
+            .activation_index = SC_MACHINE_DEF.states[SC_MACHINE_DEF.initial_state].slot,
+        };
+        SC_MACHINE_TRACE(SC_TRACE_ENTER, &sm->runtime, &completion, &trace_data);
+    }
+#endif
     status = SC__FN(_run_state_action)(
         sm, SC_MACHINE_DEF.states[SC_MACHINE_DEF.initial_state].entry_action,
         &completion);
     if (status != SC_STATUS_OK) {
         return status;
     }
+
     {
         sc_state_id_t leaf;
         status = SC__FN(_descend)(sm, SC_MACHINE_DEF.initial_state, &completion, &leaf);
