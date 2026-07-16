@@ -63,6 +63,10 @@ static sc_status_t tr_action_exec(sc_action_id_t a, sc_runtime_t *rt, const sc_e
 static sc_trace_kind_t g_log_kind[TR_LOG_CAPACITY];
 static sc_state_id_t g_log_state[TR_LOG_CAPACITY];
 static sc_state_id_t g_log_activation_index[TR_LOG_CAPACITY];
+static sc_state_id_t g_log_source[TR_LOG_CAPACITY];
+static sc_state_id_t g_log_target[TR_LOG_CAPACITY];
+static int32_t g_log_transition_index[TR_LOG_CAPACITY];
+static sc_action_id_t g_log_action[TR_LOG_CAPACITY];
 static int g_log_count = 0;
 
 static void tr_trace(sc_trace_kind_t kind, const sc_runtime_t *runtime,
@@ -74,9 +78,14 @@ static void tr_trace(sc_trace_kind_t kind, const sc_runtime_t *runtime,
         g_log_kind[g_log_count] = kind;
         g_log_state[g_log_count] = data->state;
         g_log_activation_index[g_log_count] = data->activation_index;
+        g_log_source[g_log_count] = data->source;
+        g_log_target[g_log_count] = data->target;
+        g_log_transition_index[g_log_count] = data->transition_index;
+        g_log_action[g_log_count] = data->action;
         ++g_log_count;
     }
 }
+
 
 typedef struct {
     sc_runtime_t runtime;
@@ -117,41 +126,56 @@ static void test_transition_traces_exit_then_enter_in_order(void)
     CHECK(tr_init(&sm, &ctx) == SC_STATUS_OK);
     g_log_count = 0;
     CHECK(tr_post(&sm, E_START) == SC_STATUS_OK);
-    /* idle -> running descends to warming, and then warming -> hot fires via completion.
-     * Log: EXIT idle, ENTER running, ENTER warming, EXIT warming, ENTER hot. */
-    CHECK(g_log_count == 5);
-    CHECK(g_log_kind[0] == SC_TRACE_EXIT);
-    CHECK(g_log_state[0] == S_IDLE);
-    CHECK(g_log_kind[1] == SC_TRACE_ENTER);
-    CHECK(g_log_state[1] == S_RUNNING);
+    /* Log: TRANSITION (idle->running), EXIT idle, ENTER running, ENTER warming,
+     * TRANSITION (warming->hot), EXIT warming, ENTER hot. */
+    CHECK(g_log_count == 7);
+    CHECK(g_log_kind[0] == SC_TRACE_TRANSITION);
+    CHECK(g_log_source[0] == S_IDLE);
+    CHECK(g_log_target[0] == S_RUNNING);
+    CHECK(g_log_transition_index[0] == 0);
+    CHECK(g_log_action[0] == SC_ACTION_NONE);
+    CHECK(g_log_activation_index[0] == 0u);
+
+    CHECK(g_log_kind[1] == SC_TRACE_EXIT);
+    CHECK(g_log_state[1] == S_IDLE);
     CHECK(g_log_kind[2] == SC_TRACE_ENTER);
-    CHECK(g_log_state[2] == S_WARMING);
-    CHECK(g_log_kind[3] == SC_TRACE_EXIT);
+    CHECK(g_log_state[2] == S_RUNNING);
+    CHECK(g_log_kind[3] == SC_TRACE_ENTER);
     CHECK(g_log_state[3] == S_WARMING);
-    CHECK(g_log_kind[4] == SC_TRACE_ENTER);
-    CHECK(g_log_state[4] == S_HOT);
+
+    CHECK(g_log_kind[4] == SC_TRACE_TRANSITION);
+    CHECK(g_log_source[4] == S_WARMING);
+    CHECK(g_log_target[4] == S_HOT);
+    CHECK(g_log_transition_index[4] == 1);
 }
 
-
-static void test_completion_transition_traces_exit_then_enter(void)
+static void test_completion_transition_traces_a_transition_row(void)
 {
     tr_context_t ctx;
     tr_t sm;
     CHECK(tr_init(&sm, &ctx) == SC_STATUS_OK);
     CHECK(tr_post(&sm, E_START) == SC_STATUS_OK);
     g_log_count = 0;
-    /* warming -> hot fires via _run_completion inside _post; re-dispatch a
-     * harmless event to observe it deterministically is unnecessary since
-     * _post already ran completion -- assert against the log captured
-     * during the _post call above instead by re-checking state directly. */
-    CHECK(tr_get_state(&sm) == S_HOT);
+    {
+        tr_t sm2;
+        tr_context_t ctx2;
+        CHECK(tr_init(&sm2, &ctx2) == SC_STATUS_OK);
+        g_log_count = 0;
+        CHECK(tr_post(&sm2, E_START) == SC_STATUS_OK);
+        CHECK(g_log_count == 7);
+        CHECK(g_log_kind[4] == SC_TRACE_TRANSITION);
+        CHECK(g_log_source[4] == S_WARMING);
+        CHECK(g_log_target[4] == S_HOT);
+        CHECK(g_log_transition_index[4] == 1);
+        CHECK(tr_get_state(&sm2) == S_HOT);
+    }
 }
 
 int main(void)
 {
     test_init_traces_the_initial_state_enter();
     test_transition_traces_exit_then_enter_in_order();
-    test_completion_transition_traces_exit_then_enter();
+    test_completion_transition_traces_a_transition_row();
 
     if (g_failures == 0) {
         (void)printf("test_runtime_trace: OK\n");
@@ -160,3 +184,4 @@ int main(void)
     (void)printf("test_runtime_trace: %d failure(s)\n", g_failures);
     return 1;
 }
+

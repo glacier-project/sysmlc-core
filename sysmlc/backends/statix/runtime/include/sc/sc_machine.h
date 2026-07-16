@@ -490,17 +490,27 @@ static sc_status_t SC__FN(_take_transition_region)(SC__T *sm, sc_state_id_t slot
                                                    const sc_transition_t *t,
                                                    const sc_event_t *event)
 {
-    const sc_machine_t *machine;
+    const sc_machine_t *machine = sm->runtime.machine;
     sc_state_id_t scope;
     sc_state_id_t leaf;
     sc_status_t status;
+#if SC__TRACE_ENABLED(SC_TRACE_MASK_TRANSITION)
+    {
+        const sc_trace_data_t trace_data = {
+            .source = t->source, .target = t->target,
+            .transition_index = (int32_t)(t - machine->transitions),
+            .action = t->action, .activation_index = slot,
+        };
+        SC_MACHINE_TRACE(SC_TRACE_TRANSITION, &sm->runtime, event, &trace_data);
+    }
+#endif
     if (t->target == SC_STATE_INVALID) {
         if (t->action != SC_ACTION_NONE) {
             return SC_MACHINE_ACTION(t->action, &sm->runtime, event);
         }
         return SC_STATUS_OK;
     }
-    machine = sm->runtime.machine;
+
     scope = (t->source == t->target)
                 ? machine->states[t->source].parent
                 : SC__FN(_lca)(machine, t->source, t->target);
@@ -548,12 +558,23 @@ static sc_status_t SC__FN(_take_transition_group)(SC__T *sm, const sc_transition
     sc_state_id_t leaf;
     sc_status_t status;
     sc_state_id_t i;
+#if SC__TRACE_ENABLED(SC_TRACE_MASK_TRANSITION)
+    {
+        const sc_trace_data_t trace_data = {
+            .source = t->source, .target = t->target,
+            .transition_index = (int32_t)(t - machine->transitions),
+            .action = t->action, .activation_index = 0u,
+        };
+        SC_MACHINE_TRACE(SC_TRACE_TRANSITION, &sm->runtime, event, &trace_data);
+    }
+#endif
     if (t->target == SC_STATE_INVALID) {
         if (t->action != SC_ACTION_NONE) {
             return SC_MACHINE_ACTION(t->action, &sm->runtime, event);
         }
         return SC_STATUS_OK;
     }
+
     scope = (t->source == t->target)
                 ? machine->states[t->source].parent
                 : SC__FN(_lca)(machine, t->source, t->target);
