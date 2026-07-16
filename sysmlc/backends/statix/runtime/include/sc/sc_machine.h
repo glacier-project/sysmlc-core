@@ -1088,4 +1088,3 @@ sc_state_id_t SC__FN(_active_state)(const SC__T *sm, sc_state_id_t index)
 #undef SC_MACHINE_TRACE_MASK
 #endif
 #undef SC_MACHINE_ACTIVE_CAPACITY
-

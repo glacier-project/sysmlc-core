@@ -20,7 +20,6 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-
 def test_mask_setup_emitted_for_every_machine(sm_models: dict) -> None:
     program = build_statix(sm_models["sm01"], "SM01::Machine")
     source = emit_source(program)
@@ -28,9 +27,13 @@ def test_mask_setup_emitted_for_every_machine(sm_models: dict) -> None:
     assert f"#ifndef {prefix_upper}_TRACE_MASK" in source
     assert f"#define {prefix_upper}_TRACE_MASK SC_TRACE_MASK_ALL" in source
     assert (
-        f"#if (({prefix_upper}_TRACE_MASK) & ~(SC_TRACE_MASK_ALL)) != 0u" in source
+        f"#if (({prefix_upper}_TRACE_MASK) & ~(SC_TRACE_MASK_ALL)) != 0u"
+        in source
     )
-    assert f'#error "{prefix_upper}_TRACE_MASK contains unsupported bits"' in source
+    assert (
+        f'#error "{prefix_upper}_TRACE_MASK contains unsupported bits"'
+        in source
+    )
     assert "#define SC_MACHINE_TRACE_MASK" in source
     assert "#undef SC_MACHINE_TRACE_MASK" in source
 
@@ -52,7 +55,8 @@ def test_timed_machine_available_mask_is_all(sm_models: dict) -> None:
     source = emit_source(program)
     prefix_upper = program.prefix.upper()
     assert (
-        f"#define {prefix_upper}_TRACE_AVAILABLE_MASK SC_TRACE_MASK_ALL" in source
+        f"#define {prefix_upper}_TRACE_AVAILABLE_MASK SC_TRACE_MASK_ALL"
+        in source
     )
 
 
@@ -113,7 +117,14 @@ def _write_and_configure(
     build = tmp_path / "build"
     define = f"-D{program.prefix.upper()}_TRACE_MASK={mask_value}u"
     subprocess.run(
-        ["cmake", "-S", str(tmp_path), "-B", str(build), f"-DCMAKE_C_FLAGS={define}"],
+        [
+            "cmake",
+            "-S",
+            str(tmp_path),
+            "-B",
+            str(build),
+            f"-DCMAKE_C_FLAGS={define}",
+        ],
         check=True,
         capture_output=True,
     )
@@ -149,7 +160,11 @@ def test_timer_check_only_on_untimed_machine_compiles_clean(
     sm_models: dict, tmp_path: Path
 ) -> None:
     _prefix, build = _write_and_configure(
-        sm_models, tmp_path, "sm03", "SM03::MachineRef", _MASK_BITS["SC_TRACE_MASK_TIMER_CHECK"]
+        sm_models,
+        tmp_path,
+        "sm03",
+        "SM03::MachineRef",
+        _MASK_BITS["SC_TRACE_MASK_TIMER_CHECK"],
     )
     result = _build_with_mask(build)
     assert result.returncode == 0, result.stdout + result.stderr
@@ -170,7 +185,11 @@ def test_generated_runner_emits_trace_before_summary_line(
     sm_models_showcase: dict, tmp_path: Path
 ) -> None:
     prefix, build = _write_and_configure(
-        sm_models_showcase, tmp_path, "microwave", "Microwave::MicrowaveBehavior", _MASK_ALL
+        sm_models_showcase,
+        tmp_path,
+        "microwave",
+        "Microwave::MicrowaveBehavior",
+        _MASK_ALL,
     )
     subprocess.run(
         ["cmake", "--build", str(build)], check=True, capture_output=True
@@ -182,7 +201,9 @@ def test_generated_runner_emits_trace_before_summary_line(
         text=True,
     )
     lines = result.stdout.strip().splitlines()
-    assert len(lines) > 2, "expected trace lines between init and the StartCmd summary"
+    assert len(lines) > 2, (
+        "expected trace lines between init and the StartCmd summary"
+    )
     # The final line remains the ordinary summary line -- unaffected by tracing.
     assert lines[-1].startswith("event StartCmd status=")
     assert "state=" in lines[-1]
@@ -211,15 +232,15 @@ def test_existing_statix_run_fixtures_unaffected_by_tracing(
     assert statix_run_configuration(program) is not None
 
 
-
 def test_zero_mask_override_restores_terse_output(
     sm_models_showcase: dict, tmp_path: Path
 ) -> None:
     _prefix, build = _write_and_configure(
-        sm_models_showcase, tmp_path, "microwave", "Microwave::MicrowaveBehavior", 0
+        sm_models_showcase,
+        tmp_path,
+        "microwave",
+        "Microwave::MicrowaveBehavior",
+        0,
     )
     result = _build_with_mask(build)
     assert result.returncode == 0, result.stdout + result.stderr
-
-
-

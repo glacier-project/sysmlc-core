@@ -559,7 +559,3 @@ int main(void)
     (void)printf("test_runtime_trace: %d failure(s)\n", g_failures);
     return 1;
 }
-
-
-
-

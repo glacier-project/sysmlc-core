@@ -53,4 +53,3 @@ add_test(NAME test_runtime_parallel COMMAND test_runtime_parallel)
 
 add_executable(test_runtime_trace test_runtime_trace.c)
 add_test(NAME test_runtime_trace COMMAND test_runtime_trace)
-

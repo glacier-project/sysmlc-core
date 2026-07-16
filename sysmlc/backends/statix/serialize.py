@@ -352,7 +352,11 @@ def _source_view(program: CProgram) -> dict[str, object]:
         ],
         "invariant_count": len(program.invariants),
         "guards": [
-            {"const": _const(p, "GUARD", g.name), "expr": g.expr, "name": g.name}
+            {
+                "const": _const(p, "GUARD", g.name),
+                "expr": g.expr,
+                "name": g.name,
+            }
             for g in program.guards
         ],
         "guards_use_ctx": any("ctx->" in g.expr for g in program.guards),
@@ -377,7 +381,6 @@ def _source_view(program: CProgram) -> dict[str, object]:
             }
             for a in program.actions
         ],
-
         "context_initializer": _context_initializer(program),
         "state_names": [
             {"const": _const(p, "STATE", s.name), "name": s.name}

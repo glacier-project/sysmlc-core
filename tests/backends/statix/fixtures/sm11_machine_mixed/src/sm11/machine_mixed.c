@@ -204,4 +204,3 @@ static void trace_hook(sc_trace_kind_t kind, const sc_runtime_t *runtime,
 #define SC_MACHINE_HAS_QUEUE 1
 #include "sc/sc_machine.h"
 #undef SC_MACHINE_TRACE_MASK
-
