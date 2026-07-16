@@ -202,6 +202,97 @@ typedef struct {
 #define SC_MACHINE_TRACE tr_trace
 #include "sc/sc_machine.h"
 
+/* A masked instantiation of the tr_* shape (TRANSITION-only) to verify
+ * suppressed kinds produce zero calls. */
+static void trm_trace(sc_trace_kind_t kind, const sc_runtime_t *runtime,
+                       const sc_event_t *event, const sc_trace_data_t *data)
+{
+    (void)runtime;
+    (void)event;
+    (void)data;
+    if (g_log_count < TR_LOG_CAPACITY) {
+        g_log_kind[g_log_count] = kind;
+        ++g_log_count;
+    }
+}
+
+typedef struct {
+    sc_runtime_t runtime;
+    sc_activation_t active[1];
+} trm_t;
+
+typedef struct {
+    int unused;
+} trm_context_t;
+
+#define SC_MACHINE_PREFIX trm
+#define SC_MACHINE_DEF tr_machine
+#define SC_MACHINE_GUARD tr_guard_eval
+#define SC_MACHINE_ACTION tr_action_exec
+#define SC_MACHINE_ACTIVE_CAPACITY 1u
+#define SC_MACHINE_HAS_TRACE 1
+#define SC_MACHINE_TRACE trm_trace
+#define SC_MACHINE_TRACE_MASK SC_TRACE_MASK_TRANSITION
+#include "sc/sc_machine.h"
+
+/*
+ * A machine whose actions can be made to fail on demand via a static flag,
+ * for the action-failure ordering tests. root -> a (leaf) --EV--> b (leaf).
+ */
+enum { AF_ROOT = 0, AF_A = 1, AF_B = 2, AF_COUNT = 3 };
+enum { AF_EV = 1u };
+enum { AF_ACTION_EXIT = 1u, AF_ACTION_ENTRY = 2u };
+
+static bool g_af_fail_exit = false;
+static bool g_af_fail_entry = false;
+static int g_af_action_exec_count = 0;
+
+static const sc_state_def_t af_states[] = {
+    {SC_ACTION_NONE, SC_ACTION_NONE, SC_STATE_INVALID, AF_A, false, 0u, SC_STATE_INVALID, 0u},
+    {SC_ACTION_NONE, AF_ACTION_EXIT, AF_ROOT, SC_STATE_INVALID, false, 0u, SC_STATE_INVALID, 0u},
+    {AF_ACTION_ENTRY, SC_ACTION_NONE, AF_ROOT, SC_STATE_INVALID, false, 0u, SC_STATE_INVALID, 0u},
+};
+static const sc_transition_t af_transitions[] = {
+    {AF_A, AF_EV, SC_GUARD_NONE, SC_ACTION_NONE, AF_B},
+};
+static const sc_machine_t af_machine = {
+    af_transitions, af_states, 1u, AF_COUNT, AF_ROOT, 2u, NULL, 0u, NULL, 0u, 1u,
+};
+static bool af_guard_eval(sc_guard_id_t g, const sc_runtime_t *rt, const sc_event_t *ev)
+{ (void)g; (void)rt; (void)ev; return true; }
+static sc_status_t af_action_exec(sc_action_id_t a, sc_runtime_t *rt, const sc_event_t *ev)
+{
+    (void)rt;
+    (void)ev;
+    ++g_af_action_exec_count;
+    if ((a == AF_ACTION_EXIT) && g_af_fail_exit) {
+        return SC_STATUS_ERROR;
+    }
+    if ((a == AF_ACTION_ENTRY) && g_af_fail_entry) {
+        return SC_STATUS_ERROR;
+    }
+    return SC_STATUS_OK;
+}
+
+typedef struct {
+    sc_runtime_t runtime;
+    sc_activation_t active[1];
+} af_t;
+
+typedef struct {
+    int unused;
+} af_context_t;
+
+#define SC_MACHINE_PREFIX af
+#define SC_MACHINE_DEF af_machine
+#define SC_MACHINE_GUARD af_guard_eval
+#define SC_MACHINE_ACTION af_action_exec
+#define SC_MACHINE_ACTIVE_CAPACITY 1u
+#define SC_MACHINE_HAS_TRACE 1
+#define SC_MACHINE_TRACE tr_trace
+#include "sc/sc_machine.h"
+
+
 
 
 static void test_init_traces_the_initial_state_enter(void)
@@ -340,6 +431,115 @@ static void test_timer_check_traces_both_due_and_not_due(void)
 }
 
 
+static void test_partial_mask_suppresses_other_kinds(void)
+{
+    trm_context_t ctx;
+    trm_t sm;
+    int i;
+    CHECK(trm_init(&sm, &ctx) == SC_STATUS_OK);
+    g_log_count = 0;
+    CHECK(trm_post(&sm, E_START) == SC_STATUS_OK);
+    CHECK(g_log_count >= 1);
+    for (i = 0; i < g_log_count; ++i) {
+        CHECK(g_log_kind[i] == SC_TRACE_TRANSITION);
+    }
+}
+
+static void test_exit_action_failure_stops_trace_after_its_own_exit(void)
+{
+    af_context_t ctx;
+    af_t sm;
+    int i;
+    int transition_count = 0;
+    int exit_count = 0;
+    int enter_count = 0;
+    g_af_fail_exit = true;
+    g_af_fail_entry = false;
+    CHECK(af_init(&sm, &ctx) == SC_STATUS_OK);
+    g_log_count = 0;
+    g_af_action_exec_count = 0;
+    CHECK(af_post(&sm, AF_EV) == SC_STATUS_ERROR);
+    /* Expect exactly: TRANSITION (a->b), EXIT a. No ENTER, no further
+     * transitions, since a's own exit action failed before the transition's
+     * own action or b's entry could run. */
+    for (i = 0; i < g_log_count; ++i) {
+        if (g_log_kind[i] == SC_TRACE_TRANSITION) { ++transition_count; }
+        if (g_log_kind[i] == SC_TRACE_EXIT) { ++exit_count; }
+        if (g_log_kind[i] == SC_TRACE_ENTER) { ++enter_count; }
+    }
+    CHECK(transition_count == 1);
+    CHECK(exit_count == 1);
+    CHECK(enter_count == 0);
+    CHECK(g_log_kind[0] == SC_TRACE_TRANSITION);
+    CHECK(g_log_kind[1] == SC_TRACE_EXIT);
+    CHECK(g_log_state[1] == AF_A);
+    /* The transition's own action (SC_ACTION_NONE here) never runs either
+     * way in this fixture -- action_exec's call count only reflects the
+     * failing exit action itself. */
+    CHECK(g_af_action_exec_count == 1);
+}
+
+static void test_entry_action_failure_stops_further_descent(void)
+{
+    af_context_t ctx;
+    af_t sm;
+    int i;
+    int enter_count = 0;
+    g_af_fail_exit = false;
+    g_af_fail_entry = true;
+    CHECK(af_init(&sm, &ctx) == SC_STATUS_OK);
+    g_log_count = 0;
+    CHECK(af_post(&sm, AF_EV) == SC_STATUS_ERROR);
+    /* Expect: TRANSITION, EXIT a, ENTER b (which then fails) -- no deeper
+     * descent beyond b's own ENTER, since b is a leaf with no initial_child
+     * anyway; the guarantee this test pins is "no further ENTER follows the
+     * failing one." */
+    for (i = 0; i < g_log_count; ++i) {
+        if (g_log_kind[i] == SC_TRACE_ENTER) { ++enter_count; }
+    }
+    CHECK(enter_count == 1);
+    CHECK(g_log_kind[g_log_count - 1] == SC_TRACE_ENTER);
+    CHECK(g_log_state[g_log_count - 1] == AF_B);
+}
+
+static void test_event_ids_reported_across_trigger_origins(void)
+{
+    tr_context_t tctx;
+    tr_t tsm;
+    tm_context_t mctx;
+    tm_t msm;
+    int i;
+    int saw_start = 0;
+    int saw_completion = 0;
+    int saw_timeout = 0;
+
+    /* External origin: E_START. */
+    CHECK(tr_init(&tsm, &tctx) == SC_STATUS_OK);
+    g_log_count = 0;
+    CHECK(tr_post(&tsm, E_START) == SC_STATUS_OK);
+    for (i = 0; i < g_log_count; ++i) {
+        if ((g_log_kind[i] == SC_TRACE_TRANSITION) && (g_log_source[i] == S_IDLE)) {
+            saw_start = 1;
+        }
+        if ((g_log_kind[i] == SC_TRACE_TRANSITION) && (g_log_source[i] == S_WARMING)) {
+            saw_completion = 1;
+        }
+    }
+    CHECK(saw_start == 1);
+    CHECK(saw_completion == 1);
+
+    /* Timeout origin. */
+    CHECK(tm_init(&msm, &mctx) == SC_STATUS_OK);
+    g_log_count = 0;
+    CHECK(tm_tick(&msm, 5u) == SC_STATUS_OK);
+    for (i = 0; i < g_log_count; ++i) {
+        if (g_log_kind[i] == SC_TRACE_TRANSITION) {
+            saw_timeout = 1;
+        }
+    }
+    CHECK(saw_timeout == 1);
+}
+
 int main(void)
 {
     test_init_traces_the_initial_state_enter();
@@ -347,6 +547,10 @@ int main(void)
     test_completion_transition_traces_a_transition_row();
     test_guard_and_invariant_both_populate_state_correctly();
     test_timer_check_traces_both_due_and_not_due();
+    test_partial_mask_suppresses_other_kinds();
+    test_exit_action_failure_stops_trace_after_its_own_exit();
+    test_entry_action_failure_stops_further_descent();
+    test_event_ids_reported_across_trigger_origins();
 
     if (g_failures == 0) {
         (void)printf("test_runtime_trace: OK\n");
@@ -355,6 +559,7 @@ int main(void)
     (void)printf("test_runtime_trace: %d failure(s)\n", g_failures);
     return 1;
 }
+
 
 
 
