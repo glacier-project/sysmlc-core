@@ -54,6 +54,29 @@ def sm_models_showcase() -> dict[str, syside.Model]:
     return {"microwave": load_model(_SHOWCASE_MODELS / "microwave")}
 
 
+def _expand_legacy_tick_tokens(events: tuple[str, ...]) -> list[str]:
+    """Translate convenience "tick:N"/"advance:N" tokens to --tick/--advance.
+
+    Existing test parametrizations across this test suite were written
+    against the old positional syntax before the runner's CLI grammar
+    changed to --tick/--advance (see
+    docs/superpowers/plans/2026-07-16-statix-runner-help.md). This keeps
+    those parametrizations readable and working without a full rewrite;
+    the runner binary itself never accepts the colon syntax any more (it
+    actively rejects it with a migration error -- see
+    tests/backends/statix/test_compile_run.py's dedicated migration tests).
+    """
+    expanded: list[str] = []
+    for e in events:
+        if e.startswith("tick:"):
+            expanded.extend(["--tick", e[len("tick:") :]])
+        elif e.startswith("advance:"):
+            expanded.extend(["--advance", e[len("advance:") :]])
+        else:
+            expanded.append(e)
+    return expanded
+
+
 def _run_last_line(
     tmp_path: Path,
     program: CProgram,
@@ -74,7 +97,7 @@ def _run_last_line(
         capture_output=True,
     )
     out = subprocess.run(
-        [str(build / f"{program.prefix}_runner"), *events],
+        [str(build / f"{program.prefix}_runner"), *_expand_legacy_tick_tokens(events)],
         check=check,
         capture_output=True,
         text=True,
