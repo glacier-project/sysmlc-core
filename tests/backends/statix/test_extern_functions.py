@@ -51,7 +51,7 @@ def test_bodyless_calc_with_structured_param_reuses_the_attribute_struct() -> No
     assert step.param_types[0] in struct_names
     assert step.return_type in struct_names
     assert step.param_types[0] == step.return_type
-    assert len(program.context.structs) == 1
+    assert len(program.context.structs) == 2
 
 
 def test_cmake_configure_fails_without_extern_impl(tmp_path: Path) -> None:

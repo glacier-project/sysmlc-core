@@ -558,6 +558,11 @@ def _extern_header(project: CProject) -> str | None:
         " */",
         "",
         '#include "sc/sc_types.h"',
+    ]
+    for program in project.programs:
+        pkg_dir, stem = _paths(program)
+        lines.append(f'#include "{pkg_dir}/{stem}.h"')
+    lines += [
         "",
         "#ifdef __cplusplus",
         'extern "C" {',

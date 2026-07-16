@@ -351,12 +351,12 @@ class StatixBuilder:
                 region_count=len(region_names),
             )
             self._regions_flat.extend(region_names)
-        context = self._build_context()
+        context_fields = tuple(self._field(binding) for binding in self._bindings)
         self._real_attribute_names = frozenset(
-            f.name for f in context.fields if f.c_type == "double"
+            f.name for f in context_fields if f.c_type == "double"
         )
-        self._attribute_names = frozenset(f.name for f in context.fields)
-        self._attribute_c_types = {f.name: f.c_type for f in context.fields}
+        self._attribute_names = frozenset(f.name for f in context_fields)
+        self._attribute_c_types = {f.name: f.c_type for f in context_fields}
         struct_field_types = self._struct_field_types()
         self._gen = CCodeGen(
             attribute_names=self._attribute_names,
@@ -408,6 +408,7 @@ class StatixBuilder:
         else:
             assert initial_substate is not None
             initial = initial_substate
+        context = CContext(fields=context_fields, structs=tuple(self._structs.values()))
         return CProgram(
             name=self._name,
             qualified_name=self._qualified_name,
