@@ -81,3 +81,84 @@ def test_trace_hook_generated_with_all_five_cases_by_default(
         assert f"case {kind}:" in source
     assert "#define SC_MACHINE_HAS_TRACE 1" in source
     assert "#define SC_MACHINE_TRACE trace_hook" in source
+
+
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from sysmlc.backends.base import OutputOptions
+from sysmlc.backends.statix.backend import StatixBackend
+
+_MASK_BITS = {
+    "SC_TRACE_MASK_ENTER": 1 << 0,
+    "SC_TRACE_MASK_EXIT": 1 << 1,
+    "SC_TRACE_MASK_TRANSITION": 1 << 2,
+    "SC_TRACE_MASK_GUARD": 1 << 3,
+    "SC_TRACE_MASK_TIMER_CHECK": 1 << 4,
+}
+_MASK_ALL = (1 << 5) - 1
+
+
+def _write_and_configure(
+    sm_models: dict, tmp_path: Path, stem: str, qn: str, mask_value: int
+) -> tuple[str, Path]:
+    program = build_statix(sm_models[stem], qn)
+    StatixBackend().write(program, OutputOptions(output_dir=tmp_path))
+    build = tmp_path / "build"
+    define = f"-D{program.prefix.upper()}_TRACE_MASK={mask_value}u"
+    subprocess.run(
+        ["cmake", "-S", str(tmp_path), "-B", str(build), f"-DCMAKE_C_FLAGS={define}"],
+        check=True,
+        capture_output=True,
+    )
+    return program.prefix, build
+
+
+def _build_with_mask(build: Path) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [
+            "cmake",
+            "--build",
+            str(build),
+            "--target",
+            "statix_statecharts",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+
+@pytest.mark.parametrize("mask_value", [0, *_MASK_BITS.values(), _MASK_ALL])
+def test_single_bit_masks_compile_clean(
+    sm_models: dict, tmp_path: Path, mask_value: int
+) -> None:
+    prefix, build = _write_and_configure(
+        sm_models, tmp_path, "sm13", "SM13::MachineAfterGuard", mask_value
+    )
+    result = _build_with_mask(build)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_timer_check_only_on_untimed_machine_compiles_clean(
+    sm_models: dict, tmp_path: Path
+) -> None:
+    prefix, build = _write_and_configure(
+        sm_models, tmp_path, "sm03", "SM03::MachineRef", _MASK_BITS["SC_TRACE_MASK_TIMER_CHECK"]
+    )
+    result = _build_with_mask(build)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_unsupported_mask_bit_fails_with_intended_error(
+    sm_models: dict, tmp_path: Path
+) -> None:
+    prefix, build = _write_and_configure(
+        sm_models, tmp_path, "sm13", "SM13::MachineAfterGuard", 1 << 10
+    )
+    result = _build_with_mask(build)
+    assert result.returncode != 0
+    assert "contains unsupported bits" in (result.stdout + result.stderr)
+
+
