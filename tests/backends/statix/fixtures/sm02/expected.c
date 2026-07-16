@@ -6,6 +6,21 @@
 
 #include "sm02/machine.h"
 
+#ifndef SM02_MACHINE_TRACE_MASK
+#define SM02_MACHINE_TRACE_MASK SC_TRACE_MASK_ALL
+#endif
+#if ((SM02_MACHINE_TRACE_MASK) & ~(SC_TRACE_MASK_ALL)) != 0u
+#error "SM02_MACHINE_TRACE_MASK contains unsupported bits"
+#endif
+#define SM02_MACHINE_TRACE_AVAILABLE_MASK (SC_TRACE_MASK_ALL & ~SC_TRACE_MASK_TIMER_CHECK)
+#define SC_MACHINE_TRACE_MASK \
+    ((SM02_MACHINE_TRACE_MASK) & (SM02_MACHINE_TRACE_AVAILABLE_MASK))
+
+#if SC_MACHINE_TRACE_MASK != 0u
+#include <stdio.h>
+#endif
+
+
 /* Static state and transition tables (file-local). */
 static const sc_state_def_t states[] = {
     {SC_ACTION_NONE, SC_ACTION_NONE, SC_STATE_INVALID, SC_STATE_INVALID, false, (sc_state_id_t)0u, SC_STATE_INVALID, (sc_state_id_t)0u},
@@ -91,6 +106,80 @@ const char *sm02_machine_event_name(sc_event_id_t event)
     }
 }
 
+#if (SC_MACHINE_TRACE_MASK & SC_TRACE_MASK_GUARD)
+static const char *guard_name(sc_guard_id_t guard)
+{
+    switch (guard) {
+    default:
+        return "SC_GUARD_UNKNOWN";
+    }
+}
+#endif
+
+#if (SC_MACHINE_TRACE_MASK & SC_TRACE_MASK_TRANSITION)
+static const char *action_name(sc_action_id_t action)
+{
+    switch (action) {
+    case SC_ACTION_NONE:
+        return "SC_ACTION_NONE";
+    default:
+        return "SC_ACTION_UNKNOWN";
+    }
+}
+#endif
+
+#if SC_MACHINE_TRACE_MASK != 0u
+static void trace_hook(sc_trace_kind_t kind, const sc_runtime_t *runtime,
+                        const sc_event_t *event, const sc_trace_data_t *data)
+{
+    (void)runtime;
+    (void)event;
+    switch (kind) {
+#if (SC_MACHINE_TRACE_MASK & SC_TRACE_MASK_ENTER)
+    case SC_TRACE_ENTER:
+        (void)printf("  trace: enter state=%s slot=%d\n",
+                     sm02_machine_state_name(data->state), (int)data->activation_index);
+        break;
+#endif
+#if (SC_MACHINE_TRACE_MASK & SC_TRACE_MASK_EXIT)
+    case SC_TRACE_EXIT:
+        (void)printf("  trace: exit state=%s slot=%d\n",
+                     sm02_machine_state_name(data->state), (int)data->activation_index);
+        break;
+#endif
+#if (SC_MACHINE_TRACE_MASK & SC_TRACE_MASK_TRANSITION)
+    case SC_TRACE_TRANSITION:
+        (void)printf("  trace: transition #%d %s -[%s]-> %s action=%s slot=%d\n",
+                     (int)data->transition_index,
+                     sm02_machine_state_name(data->source),
+                     sm02_machine_event_name(event->id),
+                     sm02_machine_state_name(data->target),
+                     action_name(data->action),
+                     (int)data->activation_index);
+        break;
+#endif
+#if (SC_MACHINE_TRACE_MASK & SC_TRACE_MASK_GUARD)
+    case SC_TRACE_GUARD:
+        (void)printf("  trace: guard=%s state=%s result=%s\n",
+                     guard_name(data->guard), sm02_machine_state_name(data->state),
+                     data->result ? "true" : "false");
+        break;
+#endif
+#if (SC_MACHINE_TRACE_MASK & SC_TRACE_MASK_TIMER_CHECK)
+    case SC_TRACE_TIMER_CHECK:
+        (void)printf("  trace: timer state=%s slot=%d due=%s\n",
+                     sm02_machine_state_name(data->state),
+                     (int)data->activation_index, data->result ? "true" : "false");
+        break;
+#endif
+    default:
+        break;
+    }
+}
+#define SC_MACHINE_HAS_TRACE 1
+#define SC_MACHINE_TRACE trace_hook
+#endif
+
 /* Instantiate the shared dispatch for this machine. */
 #define SC_MACHINE_PREFIX sm02_machine
 #define SC_MACHINE_DEF machine_def
@@ -98,3 +187,5 @@ const char *sm02_machine_event_name(sc_event_id_t event)
 #define SC_MACHINE_ACTION action_exec
 #define SC_MACHINE_ACTIVE_CAPACITY SM02_MACHINE_ACTIVE_CAPACITY
 #include "sc/sc_machine.h"
+#undef SC_MACHINE_TRACE_MASK
+
