@@ -498,7 +498,7 @@ def emit_runner(program: CProgram) -> str:
     return _env.get_template("runner.c.j2").render(**_runner_view(program))
 
 
-def _cmakelists_view(project: CProject) -> dict[str, str]:
+def _cmakelists_view(project: CProject) -> dict[str, object]:
     lib_sources = "\n".join(
         f"  src/{d}/{s}.c" for d, s in (_paths(p) for p in project.programs)
     )
@@ -521,6 +521,7 @@ def _cmakelists_view(project: CProject) -> dict[str, str]:
         "lib_sources": lib_sources,
         "runners_tail": runners_tail,
         "math_lib": " m" if needs_math else "",
+        "has_extern": any(p.extern_functions for p in project.programs),
     }
 
 
