@@ -7,10 +7,19 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 add_compile_options(-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wdouble-promotion -Werror)
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
+{% if has_extern %}
+if(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/src/extern_impl.c)
+  message(FATAL_ERROR
+    "This Statix project uses external calculations.\n"
+    "Provide src/extern_impl.c implementing the functions declared in\n"
+    "include/statix_extern.h.")
+endif()
+{% endif %}
 
 add_library(statix_statecharts STATIC
   src/sc_runtime_impl.c
-{{ lib_sources }})
+{% if has_extern %}  src/extern_impl.c
+{% endif %}{{ lib_sources }})
 {% if math_lib %}
 target_link_libraries(statix_statecharts{{ math_lib }})
 {% endif %}

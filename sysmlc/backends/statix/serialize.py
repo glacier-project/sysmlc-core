@@ -9,6 +9,7 @@ from sysmlc.backends.statix.program import (
     COMPLETION_EVENT,
     INTERNAL_TARGET,
     TIMEOUT_EVENT,
+    CExternFunction,
     CProgram,
     CProject,
     CSend,
@@ -341,6 +342,7 @@ def _source_view(program: CProgram) -> dict[str, object]:
         "prefix": p,
         "needs_math": program.needs_math,
         "has_send": program.has_send,
+        "has_extern": bool(program.extern_functions),
         "state_rows": state_rows,
         "transition_rows": transition_rows,
         "state_count_macro": f"{p.upper()}_STATE_COUNT",
@@ -397,6 +399,61 @@ def emit_source(program: CProgram) -> str:
     return _env.get_template("machine.c.j2").render(**_source_view(program))
 
 
+def _initial_configuration(program: CProgram) -> set[str]:
+    """Every state name active immediately after _init, before any event.
+
+    Walks program.initial down through initial_child (and, at a parallel
+    container, into every region root's own initial_child chain) -- the
+    exact set _init/_descend enter. Used to find which transitions are
+    genuinely reachable "from here" for the generated example command.
+    """
+    by_name = {s.name: s for s in program.states}
+    configuration: set[str] = set()
+    frontier = [program.initial]
+    while frontier:
+        name = frontier.pop()
+        if name in configuration:
+            continue
+        configuration.add(name)
+        state = by_name[name]
+        if state.region_count and state.region_first is not None:
+            frontier.extend(
+                program.regions[
+                    state.region_first : state.region_first + state.region_count
+                ]
+            )
+        elif state.initial_child is not None:
+            frontier.append(state.initial_child)
+    return configuration
+
+
+def _example_command(program: CProgram) -> dict[str, object]:
+    """Select the generated --help example, per the documented fallback tiers.
+
+    1. An externally-triggered transition reachable from the initial
+       configuration -- a genuinely meaningful example.
+    2. Else, if the machine has a timer with at least one literal (not
+       attribute-derived) deadline, a --tick example using that literal
+       expression (rendered at C runtime, since it depends on the compiled
+       SC_TICKS_PER_SECOND -- never a Python-computed decimal).
+    3. Else, if the model has any external event at all, the first one,
+       explicitly labeled syntax-only (not guaranteed to transition).
+    4. Else, no meaningful example exists; the help text notes running with
+       no arguments alone settles the machine.
+    """
+    configuration = _initial_configuration(program)
+    for t in program.transitions:
+        if (t.source in configuration) and (t.event in program.events):
+            return {"kind": "reachable", "event": t.event}
+    if program.has_timer:
+        for timeout in program.timeouts:
+            if timeout.literal_ticks is not None:
+                return {"kind": "timed", "tick_expr": timeout.literal_ticks}
+    if program.events:
+        return {"kind": "syntax_only", "event": program.events[0]}
+    return {"kind": "none"}
+
+
 def _runner_view(program: CProgram) -> dict[str, object]:
     p = program.prefix
     pkg_dir, stem = _paths(program)
@@ -410,6 +467,33 @@ def _runner_view(program: CProgram) -> dict[str, object]:
             {"name": e, "const": _const(p, "EVENT", e)} for e in program.events
         ],
         "trace_fields": _trace_fields(program),
+        "qualified_name": program.qualified_name,
+        "initial_state": program.initial,
+        "help_state_rows": [
+            {
+                "name": s.name,
+                "is_initial": s.name == program.initial,
+                "is_final": s.is_final,
+            }
+            for s in program.states
+        ],
+        "help_transition_rows": [
+            {
+                "source": t.source,
+                "event": "(completion)"
+                if t.event == COMPLETION_EVENT
+                else "(timeout)"
+                if t.event == TIMEOUT_EVENT
+                else t.event,
+                "guard": t.guard or "-",
+                "action": t.action or "-",
+                "target": t.target,
+            }
+            for t in program.transitions
+        ],
+        "region_names": list(program.regions),
+        "active_capacity": program.active_capacity,
+        "example": _example_command(program),
     }
 
 
@@ -418,7 +502,7 @@ def emit_runner(program: CProgram) -> str:
     return _env.get_template("runner.c.j2").render(**_runner_view(program))
 
 
-def _cmakelists_view(project: CProject) -> dict[str, str]:
+def _cmakelists_view(project: CProject) -> dict[str, object]:
     lib_sources = "\n".join(
         f"  src/{d}/{s}.c" for d, s in (_paths(p) for p in project.programs)
     )
@@ -441,6 +525,7 @@ def _cmakelists_view(project: CProject) -> dict[str, str]:
         "lib_sources": lib_sources,
         "runners_tail": runners_tail,
         "math_lib": " m" if needs_math else "",
+        "has_extern": any(p.extern_functions for p in project.programs),
     }
 
 
@@ -449,6 +534,61 @@ def emit_cmakelists(project: CProject) -> str:
     return _env.get_template("cmakelists.txt.j2").render(
         **_cmakelists_view(project)
     )
+
+
+def _extern_header(project: CProject) -> str | None:
+    """Render include/statix_extern.h, or None if nothing needs it.
+
+    Deduped by CExternFunction.name across every program in the project --
+    the same calc called from two different generated machines must
+    resolve to exactly one declaration, not a duplicate/conflicting one.
+    """
+    seen: dict[str, CExternFunction] = {}
+    for program in project.programs:
+        for fn in program.extern_functions:
+            seen.setdefault(fn.name, fn)
+    if not seen:
+        return None
+    lines = [
+        "#ifndef STATIX_EXTERN_H",
+        "#define STATIX_EXTERN_H",
+        "",
+        "/*",
+        " * AUTO-GENERATED by sysmlc statix backend. DO NOT EDIT.",
+        " *",
+        " * Declares every bodyless `calc def` used by this project as an",
+        " * extern C function. Provide src/extern_impl.c implementing each",
+        " * one -- statix never generates, overwrites, or deletes that file.",
+        " */",
+        "",
+        '#include "sc/sc_types.h"',
+    ]
+    for program in project.programs:
+        pkg_dir, stem = _paths(program)
+        lines.append(f'#include "{pkg_dir}/{stem}.h"')
+    lines += [
+        "",
+        "#ifdef __cplusplus",
+        'extern "C" {',
+        "#endif",
+        "",
+    ]
+    for fn in seen.values():
+        params = ", ".join(
+            f"{t} {n}"
+            for t, n in zip(fn.param_types, fn.param_names, strict=True)
+        )
+        lines.append(f"/* {fn.name} */")
+        lines.append(f"{fn.return_type} {fn.c_name}({params});")
+        lines.append("")
+    lines += [
+        "#ifdef __cplusplus",
+        "}",
+        "#endif",
+        "",
+        "#endif /* STATIX_EXTERN_H */",
+    ]
+    return "\n".join(lines)
 
 
 def emit_project_files(project: CProject) -> dict[str, str]:
@@ -460,6 +600,9 @@ def emit_project_files(project: CProject) -> dict[str, str]:
         files[f"src/{pkg_dir}/{stem}.c"] = emit_source(program)
         files[f"host/{pkg_dir}/{stem}_runner.c"] = emit_runner(program)
     files["src/sc_runtime_impl.c"] = _RUNTIME_IMPL_C
+    extern_header = _extern_header(project)
+    if extern_header is not None:
+        files["include/statix_extern.h"] = extern_header
     files["CMakeLists.txt"] = emit_cmakelists(project)
     return files
 

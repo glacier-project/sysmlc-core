@@ -2,6 +2,8 @@
 #include "{{ pkg_dir }}/{{ stem }}.h"
 {% if needs_math %}#include <math.h>
 {% endif %}
+{% if has_extern %}#include "statix_extern.h"
+{% endif %}
 {% if has_when %}
 #if SC_MAX_WHEN_TRIGGERS < {{ when_count }}u
 #error "SC_MAX_WHEN_TRIGGERS too small for this generated machine"

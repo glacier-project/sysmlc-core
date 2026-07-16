@@ -41,53 +41,119 @@ static void {{ prefix }}_print_configuration(const {{ prefix }}_t *sm)
 }
 {% if has_timer %}
 
-static bool {{ prefix }}_parse_tick(const char *arg, sc_time_t *out_tick)
-{
-    unsigned long parsed;
-    char *end = NULL;
-    if ((arg == NULL) || (out_tick == NULL) || (strncmp(arg, "tick:", 5) != 0)) {
-        return false;
-    }
-    if ((arg[5] == '\0') || (arg[5] == '-')) {
-        /* Reject "tick:" with no digits, and a negative value outright --
-         * strtoul's own negative-wraparound handling would otherwise be the
-         * only thing standing between a typo'd test input and a huge tick. */
-        return false;
-    }
-    parsed = strtoul(arg + 5, &end, 10);
-    if ((end == NULL) || (*end != '\0')) {
-        return false;
-    }
-    if (parsed > (unsigned long)SC_TIME_MAX) {
-        /* Reject out-of-range explicitly rather than truncating a huge
-         * unsigned long down to sc_time_t, which would silently alias to
-         * some other, smaller tick value. */
-        return false;
-    }
-    *out_tick = (sc_time_t)parsed;
-    return true;
-}
+typedef enum {
+    {{ prefix|upper }}_OPT_NOT_MATCHED,
+    {{ prefix|upper }}_OPT_OK,
+    {{ prefix|upper }}_OPT_MISSING_VALUE,
+    {{ prefix|upper }}_OPT_INVALID_VALUE,
+} {{ prefix }}_opt_result_t;
 
-static bool {{ prefix }}_parse_advance(const char *arg, unsigned long *out_count)
+/// @brief Recognize `flag value` or `flag=value` at argv[*io_index], consuming
+/// a following argv slot for the space-separated form (so that value is never
+/// subsequently re-examined as an event name). `*out_raw` is the raw value
+/// text actually parsed (consistent between both forms, for error messages).
+static {{ prefix }}_opt_result_t {{ prefix }}_parse_numeric_flag(
+    const char *flag, int argc, char **argv, int *io_index,
+    unsigned long *out_value, const char **out_raw)
 {
-    unsigned long parsed;
+    const char *arg = argv[*io_index];
+    size_t flag_len = strlen(flag);
+    const char *value_str;
     char *end = NULL;
-    if ((arg == NULL) || (out_count == NULL) || (strncmp(arg, "advance:", 8) != 0)) {
-        return false;
+    if (strncmp(arg, flag, flag_len) != 0) {
+        return {{ prefix|upper }}_OPT_NOT_MATCHED;
     }
-    if ((arg[8] == '\0') || (arg[8] == '-')) {
-        /* Reject "advance:" with no digits, and a negative value outright,
-         * for the same reason _parse_tick rejects them. */
-        return false;
+    if (arg[flag_len] == '=') {
+        value_str = arg + flag_len + 1;
+    } else if (arg[flag_len] == '\0') {
+        if ((*io_index + 1) >= argc) {
+            return {{ prefix|upper }}_OPT_MISSING_VALUE;
+        }
+        ++(*io_index);
+        value_str = argv[*io_index];
+    } else {
+        return {{ prefix|upper }}_OPT_NOT_MATCHED;
     }
-    parsed = strtoul(arg + 8, &end, 10);
+    *out_raw = value_str;
+    if ((value_str[0] == '\0') || (value_str[0] == '-')) {
+        /* Empty ("--tick=") and negative values are both rejected here, same
+         * as legacy _parse_tick/_parse_advance's "tick:"/"tick:-1" handling --
+         * only the missing-argument case (nothing follows in space form)
+         * gets the distinct OPT_MISSING_VALUE result. */
+        return {{ prefix|upper }}_OPT_INVALID_VALUE;
+    }
+    *out_value = strtoul(value_str, &end, 10);
     if ((end == NULL) || (*end != '\0')) {
-        return false;
+        return {{ prefix|upper }}_OPT_INVALID_VALUE;
     }
-    *out_count = parsed;
-    return true;
+    return {{ prefix|upper }}_OPT_OK;
 }
 {% endif %}
+
+static void {{ prefix }}_print_help(const char *argv0)
+{
+    (void)printf("Usage: %s [-h|--help]", argv0);
+{% if has_timer %}
+    (void)printf(" [--tick T|--tick=T] [--advance N|--advance=N]");
+{% endif %}
+    (void)printf(" [EVENT ...]\n\n");
+
+    (void)printf("Machine: {{ qualified_name }}\n");
+    (void)printf("Initial state: {{ initial_state }}\n\n");
+
+    (void)printf("States:\n");
+{% for s in help_state_rows %}
+    (void)printf("  {{ s.name }}{% if s.is_initial %} (initial){% endif %}{% if s.is_final %} (final){% endif %}\n");
+{% endfor %}
+    (void)printf("\n");
+
+    (void)printf("Events:\n");
+{% if events %}
+{% for e in events %}
+    (void)printf("  {{ e.name }}\n");
+{% endfor %}
+{% else %}
+    (void)printf("  (none -- this machine accepts no external events)\n");
+{% endif %}
+    (void)printf("\n");
+
+    (void)printf("Transitions (source -> event -> target, guard, action):\n");
+{% for t in help_transition_rows %}
+    (void)printf("  {{ t.source }} -[{{ t.event }}]-> {{ t.target }}  guard={{ t.guard }} action={{ t.action }}\n");
+{% endfor %}
+    (void)printf("\n");
+
+{% if has_timer %}
+    (void)printf("Timers: --tick T sets absolute statechart time to T ticks (must be\n");
+    (void)printf("  monotonically non-decreasing across calls). --advance N performs N\n");
+    (void)printf("  one-second steps (each adds SC_TICKS_PER_SECOND ticks), not N raw\n");
+    (void)printf("  ticks. This build's resolution: SC_TICKS_PER_SECOND=%lu.\n\n",
+                 (unsigned long)SC_TICKS_PER_SECOND);
+{% endif %}
+
+{% if region_names %}
+    (void)printf("Parallel regions: {{ region_names|length }} region(s) ({{ region_names|join(", ") }}),\n");
+    (void)printf("  active_capacity={{ active_capacity }} -- use _active_count/_active_state\n");
+    (void)printf("  (see the generated header) to inspect the full active configuration.\n\n");
+{% endif %}
+
+{% if example.kind == "reachable" %}
+    (void)printf("Example:\n  %s {{ example.event }}\n\n", argv0);
+{% elif example.kind == "timed" %}
+    (void)printf("Example:\n  %s --tick %lu\n\n", argv0,
+                 (unsigned long)({{ example.tick_expr }}));
+{% elif example.kind == "syntax_only" %}
+    (void)printf("Example syntax (this event is not guaranteed to transition from the\n");
+    (void)printf("initial state):\n  %s {{ example.event }}\n\n", argv0);
+{% else %}
+    (void)printf("Example:\n  %s\n  (this machine has no external events; running with no\n", argv0);
+    (void)printf("  arguments alone initializes it to its settled starting configuration)\n\n");
+{% endif %}
+
+    (void)printf("Tracing: enabled by default (all kinds). Disable at compile time with\n");
+    (void)printf("  -D{{ prefix|upper }}_TRACE_MASK=0, or select specific kinds by OR-ing\n");
+    (void)printf("  SC_TRACE_MASK_ENTER/_EXIT/_TRANSITION/_GUARD/_TIMER_CHECK.\n");
+}
 
 int main(int argc, char **argv)
 {
@@ -98,6 +164,13 @@ int main(int argc, char **argv)
 {% if has_timer %}
     sc_time_t current_tick = 0u;
 {% endif %}
+
+    for (i = 1; i < argc; ++i) {
+        if ((strcmp(argv[i], "-h") == 0) || (strcmp(argv[i], "--help") == 0)) {
+            {{ prefix }}_print_help(argv[0]);
+            return 0;
+        }
+    }
 
     {{ prefix }}_context_init(&ctx);
     status = {{ prefix }}_init(&sm, &ctx);
@@ -112,31 +185,30 @@ int main(int argc, char **argv)
     for (i = 1; i < argc; ++i) {
         sc_event_id_t event_id = SC_EVENT_INVALID;
 {% if has_timer %}
-        sc_time_t tick_value;
-        unsigned long advance_count;
-        if ({{ prefix }}_parse_tick(argv[i], &tick_value)) {
-            current_tick = tick_value;
-            status = {{ prefix }}_tick(&sm, current_tick);
-            (void)printf("tick %lu status=%s state=%s final=%d{{ trace_fmt() }}",
-                         (unsigned long)current_tick, sc_status_str(status),
-                         {{ prefix }}_state_name({{ prefix }}_get_state(&sm)), (int){{ prefix }}_is_final(&sm){{ trace_args() }});
-            {{ prefix }}_print_configuration(&sm);
-            (void)printf("\n");
-            if ((status != SC_STATUS_OK) && (status != SC_STATUS_NO_TRANSITION)) {
-                return 1;
+        {
+            unsigned long value;
+            const char *raw = NULL;
+            {{ prefix }}_opt_result_t r =
+                {{ prefix }}_parse_numeric_flag("--tick", argc, argv, &i, &value, &raw);
+            if (r == {{ prefix|upper }}_OPT_MISSING_VALUE) {
+                (void)fprintf(stderr, "error: --tick requires a value\n");
+                (void)fprintf(stderr, "Try '%s --help' for usage.\n", argv[0]);
+                return 2;
             }
-            continue;
-        }
-        if ({{ prefix }}_parse_advance(argv[i], &advance_count)) {
-            unsigned long step;
-            for (step = 0u; step < advance_count; ++step) {
-                if (current_tick > (sc_time_t)(SC_TIME_MAX - (sc_time_t)SC_TICKS_PER_SECOND)) {
-                    (void)fprintf(stderr, "advance: tick value would exceed SC_TIME_MAX\n");
-                    return 1;
+            if (r == {{ prefix|upper }}_OPT_INVALID_VALUE) {
+                (void)fprintf(stderr, "error: invalid tick value: %s\n", raw);
+                (void)fprintf(stderr, "Try '%s --help' for usage.\n", argv[0]);
+                return 2;
+            }
+            if (r == {{ prefix|upper }}_OPT_OK) {
+                if (value > (unsigned long)SC_TIME_MAX) {
+                    (void)fprintf(stderr, "error: invalid tick value: %s\n", raw);
+                    (void)fprintf(stderr, "Try '%s --help' for usage.\n", argv[0]);
+                    return 2;
                 }
-                current_tick = (sc_time_t)(current_tick + (sc_time_t)SC_TICKS_PER_SECOND);
+                current_tick = (sc_time_t)value;
                 status = {{ prefix }}_tick(&sm, current_tick);
-                (void)printf("advance %lu status=%s state=%s final=%d{{ trace_fmt() }}",
+                (void)printf("tick %lu status=%s state=%s final=%d{{ trace_fmt() }}",
                              (unsigned long)current_tick, sc_status_str(status),
                              {{ prefix }}_state_name({{ prefix }}_get_state(&sm)), (int){{ prefix }}_is_final(&sm){{ trace_args() }});
                 {{ prefix }}_print_configuration(&sm);
@@ -144,12 +216,72 @@ int main(int argc, char **argv)
                 if ((status != SC_STATUS_OK) && (status != SC_STATUS_NO_TRANSITION)) {
                     return 1;
                 }
+                continue;
             }
-            continue;
+        }
+        {
+            unsigned long advance_count;
+            const char *raw = NULL;
+            {{ prefix }}_opt_result_t r =
+                {{ prefix }}_parse_numeric_flag("--advance", argc, argv, &i, &advance_count, &raw);
+            if (r == {{ prefix|upper }}_OPT_MISSING_VALUE) {
+                (void)fprintf(stderr, "error: --advance requires a value\n");
+                (void)fprintf(stderr, "Try '%s --help' for usage.\n", argv[0]);
+                return 2;
+            }
+            if (r == {{ prefix|upper }}_OPT_INVALID_VALUE) {
+                (void)fprintf(stderr, "error: invalid advance value: %s\n", raw);
+                (void)fprintf(stderr, "Try '%s --help' for usage.\n", argv[0]);
+                return 2;
+            }
+            if (r == {{ prefix|upper }}_OPT_OK) {
+                unsigned long step;
+                for (step = 0u; step < advance_count; ++step) {
+                    if (current_tick > (sc_time_t)(SC_TIME_MAX - (sc_time_t)SC_TICKS_PER_SECOND)) {
+                        (void)fprintf(stderr, "advance: tick value would exceed SC_TIME_MAX\n");
+                        return 1;
+                    }
+                    current_tick = (sc_time_t)(current_tick + (sc_time_t)SC_TICKS_PER_SECOND);
+                    status = {{ prefix }}_tick(&sm, current_tick);
+                    (void)printf("advance %lu status=%s state=%s final=%d{{ trace_fmt() }}",
+                                 (unsigned long)current_tick, sc_status_str(status),
+                                 {{ prefix }}_state_name({{ prefix }}_get_state(&sm)), (int){{ prefix }}_is_final(&sm){{ trace_args() }});
+                    {{ prefix }}_print_configuration(&sm);
+                    (void)printf("\n");
+                    if ((status != SC_STATUS_OK) && (status != SC_STATUS_NO_TRANSITION)) {
+                        return 1;
+                    }
+                }
+                continue;
+            }
+        }
+        if ((strncmp(argv[i], "tick:", 5) == 0) || (strncmp(argv[i], "advance:", 8) == 0)) {
+            const char *replacement = (strncmp(argv[i], "tick:", 5) == 0) ? "--tick" : "--advance";
+            (void)fprintf(stderr, "error: '%s' is no longer supported; use '%s ...'\n",
+                          argv[i], replacement);
+            (void)fprintf(stderr, "Try '%s --help' for usage.\n", argv[0]);
+            return 2;
+        }
+{% else %}
+        /* Exact-or-"=" boundary match (not a bare strncmp prefix check) so
+         * --tickfoo" falls through to the generic unknown-option path below
+         * instead of being misreported as the unsupported --tick option. */
+        if ((strcmp(argv[i], "--tick") == 0) || (strncmp(argv[i], "--tick=", 7) == 0) ||
+            (strcmp(argv[i], "--advance") == 0) || (strncmp(argv[i], "--advance=", 10) == 0)) {
+            const char *opt = (strncmp(argv[i], "--tick", 6) == 0) ? "--tick" : "--advance";
+            (void)fprintf(stderr, "error: option '%s' is not supported by this machine\n", opt);
+            (void)fprintf(stderr, "Try '%s --help' for usage.\n", argv[0]);
+            return 2;
         }
 {% endif %}
+        if ((argv[i][0] == '-') && !{{ prefix }}_event_from_name(argv[i], &event_id)) {
+            (void)fprintf(stderr, "error: unknown option: %s\n", argv[i]);
+            (void)fprintf(stderr, "Try '%s --help' for usage.\n", argv[0]);
+            return 2;
+        }
         if (!{{ prefix }}_event_from_name(argv[i], &event_id)) {
             (void)fprintf(stderr, "unknown event: %s\n", argv[i]);
+            (void)fprintf(stderr, "Try '%s --help' for usage.\n", argv[0]);
             return 2;
         }
         status = {{ prefix }}_post(&sm, event_id);
