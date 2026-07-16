@@ -139,6 +139,7 @@ package FurutaPendulum {
              *     )
              */
     }
+
     calc def swingup_torque {
         in r : AngleReading;
         return : Real;

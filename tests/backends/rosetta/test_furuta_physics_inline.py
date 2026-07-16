@@ -23,9 +23,13 @@ from sysmlc.sysml.textual_representation import (
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _SYSMLC = str(_PROJECT_ROOT / ".venv" / "bin" / "sysmlc")
 _MODEL_DIR = str(
-    _PROJECT_ROOT / "models" / "showcase" / "furuta-pendulum_inline"
+    _PROJECT_ROOT
+    / "models"
+    / "showcase"
+    / "furuta-pendulum"
+    / "non-deterministic-textual-rep"
 )
-_SYSML_FILE = str(Path(_MODEL_DIR) / "furuta_pendulum_inline.sysml")
+_SYSML_FILE = str(Path(_MODEL_DIR) / "furuta_pendulum.sysml")
 
 
 # ---------------------------------------------------------------------------
@@ -41,7 +45,7 @@ def physics_module(tmp_path_factory: pytest.TempPathFactory) -> ModuleType:
     model, _ = syside.load_model([_SYSML_FILE])
 
     result = extract_textual(
-        model, "furuta::physics", module_name="furuta_physics_inline"
+        model, "furuta::physics", module_name="furuta_physics"
     )
     assert result is not None
     stem, src_lines = result
@@ -53,7 +57,7 @@ def physics_module(tmp_path_factory: pytest.TempPathFactory) -> ModuleType:
 
     sys.modules.pop(stem, None)
 
-    mod = importlib.import_module("furuta_physics_inline")
+    mod = importlib.import_module("furuta_physics")
     return mod
 
 

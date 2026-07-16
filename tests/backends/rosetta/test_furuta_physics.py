@@ -34,12 +34,19 @@ _MODULE_PATH = (
     / "models"
     / "showcase"
     / "furuta-pendulum"
+    / "non-deterministic"
     / "furuta_physics.py"
 )
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _SYSMLC = str(_PROJECT_ROOT / ".venv" / "bin" / "sysmlc")
-_MODEL_DIR = str(_PROJECT_ROOT / "models" / "showcase" / "furuta-pendulum")
+_MODEL_DIR = str(
+    _PROJECT_ROOT
+    / "models"
+    / "showcase"
+    / "furuta-pendulum"
+    / "non-deterministic"
+)
 _PHYSICS_FILE = str(_MODULE_PATH)
 
 

@@ -442,10 +442,13 @@ def test_furuta_closed_loop_stabilizes(tmp_path: Path) -> None:
     # condition.  Debug logs must contain "entered Controller.stabilizing".
     logs, rc = run_part(
         tmp_path,
-        SHOWCASE_DIR / "furuta-pendulum",
+        SHOWCASE_DIR / "furuta-pendulum" / "non-deterministic",
         "FurutaPendulum::furutaSystem",
         timeout="20 sec",
-        python_file=SHOWCASE_DIR / "furuta-pendulum" / "furuta_physics.py",
+        python_file=SHOWCASE_DIR
+        / "furuta-pendulum"
+        / "non-deterministic"
+        / "furuta_physics.py",
     )
     assert rc == 0, logs
     assert "entered Controller.stabilizing" in logs
@@ -459,8 +462,14 @@ def test_part_runs_self_sufficiently_without_pythonpath(tmp_path: Path) -> None:
     # run_part, this test writes no sitecustomize and clears PYTHONPATH: the
     # only path by which furutaSystem_types/furuta_physics can be imported is
     # files:.  Exit 0 means the closed loop reached the Balanced verdict.
-    model = load_model(SHOWCASE_DIR / "furuta-pendulum")
-    python_file = SHOWCASE_DIR / "furuta-pendulum" / "furuta_physics.py"
+    model = load_model(SHOWCASE_DIR / "furuta-pendulum" / "non-deterministic")
+    python_file = (
+        SHOWCASE_DIR
+        / "furuta-pendulum"
+        / "non-deterministic"
+        / "furuta_physics.py"
+    )
+
     names = frozenset(
         n.name
         for n in ast.parse(python_file.read_text()).body
