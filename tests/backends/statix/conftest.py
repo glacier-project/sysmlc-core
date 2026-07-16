@@ -97,7 +97,10 @@ def _run_last_line(
         capture_output=True,
     )
     out = subprocess.run(
-        [str(build / f"{program.prefix}_runner"), *_expand_legacy_tick_tokens(events)],
+        [
+            str(build / f"{program.prefix}_runner"),
+            *_expand_legacy_tick_tokens(events),
+        ],
         check=check,
         capture_output=True,
         text=True,

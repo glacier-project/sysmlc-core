@@ -38,7 +38,9 @@ def test_extern_call_site_uses_the_c_name() -> None:
     assert "sm15_p_step(ctx->x, 0.1)" in source
 
 
-def test_bodyless_calc_with_structured_param_reuses_the_attribute_struct() -> None:
+def test_bodyless_calc_with_structured_param_reuses_the_attribute_struct() -> (
+    None
+):
     model = load_model("models/sm-examples/furuta-pendulum")
     program = build_statix(model, "FurutaPendulum::PendulumSimulation")
     step = next(
@@ -69,7 +71,9 @@ def test_cmake_configure_fails_without_extern_impl(tmp_path: Path) -> None:
     assert "src/extern_impl.c" in result.stdout + result.stderr
 
 
-def test_project_without_extern_calcs_has_no_requirement(tmp_path: Path) -> None:
+def test_project_without_extern_calcs_has_no_requirement(
+    tmp_path: Path,
+) -> None:
     model = load_model("models/sm-examples/sm01-helloworld")
     program = build_statix(model, "SM01::Machine")
     StatixBackend().write(program, OutputOptions(output_dir=tmp_path))

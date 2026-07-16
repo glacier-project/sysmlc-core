@@ -410,9 +410,7 @@ def test_example_command_prefers_reachable_transition(sm_models: dict) -> None:
 def test_example_command_falls_back_to_timed(sm_models: dict) -> None:
     from sysmlc.backends.statix.serialize import _example_command
 
-    program = build_statix(
-        sm_models["sm13"], "SM13::MachineAfterReentry"
-    )
+    program = build_statix(sm_models["sm13"], "SM13::MachineAfterReentry")
     example = _example_command(program)
     # MachineAfterReentry's initial state ("idle") has both an externally
     # triggered transition (Leave) and a timer -- "reachable" must win.

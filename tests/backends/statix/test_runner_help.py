@@ -131,7 +131,9 @@ def test_help_shows_parallel_region_info_when_applicable(
 def test_untimed_machine_help_omits_tick_advance(
     sm_models: dict, tmp_path: Path
 ) -> None:
-    program, build = _build_and_compile(sm_models, tmp_path, "sm01", "SM01::Machine")
+    program, build = _build_and_compile(
+        sm_models, tmp_path, "sm01", "SM01::Machine"
+    )
     result = subprocess.run(
         [str(build / f"{program.prefix}_runner"), "--help"],
         capture_output=True,
@@ -162,7 +164,11 @@ def test_events_and_ticks_interleave_correctly(
         text=True,
         check=True,
     )
-    lines = [line.strip() for line in result.stdout.splitlines() if line.strip() and not line.lstrip().startswith("trace:")]
+    lines = [
+        line.strip()
+        for line in result.stdout.splitlines()
+        if line.strip() and not line.lstrip().startswith("trace:")
+    ]
     kinds = [line.split(" ", 1)[0] for line in lines]
     assert kinds == ["init", "tick", "event", "tick", "event"]
 
@@ -179,6 +185,10 @@ def test_advance_zero_produces_no_step_output(
         text=True,
         check=True,
     )
-    lines = [line.strip() for line in result.stdout.splitlines() if line.strip() and not line.lstrip().startswith("trace:")]
+    lines = [
+        line.strip()
+        for line in result.stdout.splitlines()
+        if line.strip() and not line.lstrip().startswith("trace:")
+    ]
     assert len(lines) == 1
     assert lines[0].startswith("init ")

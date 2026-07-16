@@ -351,7 +351,9 @@ class StatixBuilder:
                 region_count=len(region_names),
             )
             self._regions_flat.extend(region_names)
-        context_fields = tuple(self._field(binding) for binding in self._bindings)
+        context_fields = tuple(
+            self._field(binding) for binding in self._bindings
+        )
         self._real_attribute_names = frozenset(
             f.name for f in context_fields if f.c_type == "double"
         )
@@ -408,7 +410,9 @@ class StatixBuilder:
         else:
             assert initial_substate is not None
             initial = initial_substate
-        context = CContext(fields=context_fields, structs=tuple(self._structs.values()))
+        context = CContext(
+            fields=context_fields, structs=tuple(self._structs.values())
+        )
         return CProgram(
             name=self._name,
             qualified_name=self._qualified_name,
@@ -437,7 +441,9 @@ class StatixBuilder:
         )
 
     def _payload_gen(self, payload_feature: syside.Feature) -> CCodeGen:
-        payload_c_type = self._resolve_extern_type(payload_feature, payload_feature.name or "payload")
+        payload_c_type = self._resolve_extern_type(
+            payload_feature, payload_feature.name or "payload"
+        )
         return CCodeGen(
             attribute_names=frozenset(
                 self._attribute_names | {b.name for b in self._bindings}
@@ -678,7 +684,9 @@ class StatixBuilder:
         different CCodeGen with allow_context=False is active) render correctly.
         """
         func = expr.function
-        if not isinstance(func, (syside.CalculationDefinition, syside.CalculationUsage)):
+        if not isinstance(
+            func, (syside.CalculationDefinition, syside.CalculationUsage)
+        ):
             return None
         if func.result_expression is not None:
             return None
@@ -714,15 +722,21 @@ class StatixBuilder:
         existing "no value, just a type name" branch for scalars, or registers a
         type-only struct for a composite (attribute-def) type.
         """
-        defs_iterator = getattr(param, "attribute_definitions", None) or getattr(param, "definitions", None)
-        definition = next(
-            (
-                d
-                for d in defs_iterator.collect()
-                if getattr(d, "name", None)
-            ),
-            None,
-        ) if defs_iterator is not None else None
+        defs_iterator = getattr(
+            param, "attribute_definitions", None
+        ) or getattr(param, "definitions", None)
+        definition = (
+            next(
+                (
+                    d
+                    for d in defs_iterator.collect()
+                    if getattr(d, "name", None)
+                ),
+                None,
+            )
+            if defs_iterator is not None
+            else None
+        )
         if definition is None:
             raise UnsupportedConstructError(
                 f"calc parameter/result {name!r} has no resolvable type; statix "
@@ -733,7 +747,12 @@ class StatixBuilder:
         assert type_name is not None
         if type_name in ("Integer", "Real", "Boolean", "String"):
             return self._scalar_c_type(None, name, type_name)
-        if isinstance(definition, (syside.AttributeDefinition, syside.ItemDefinition)) and definition.owned_attributes.collect():
+        if (
+            isinstance(
+                definition, (syside.AttributeDefinition, syside.ItemDefinition)
+            )
+            and definition.owned_attributes.collect()
+        ):
             return self._register_struct_from_definition(definition)
         raise UnsupportedConstructError(
             f"calc parameter/result {name!r} has type {type_name!r}, which is "
@@ -743,7 +762,9 @@ class StatixBuilder:
             node=param,
         )
 
-    def _register_struct_from_definition(self, definition: syside.AttributeDefinition | syside.ItemDefinition) -> str:
+    def _register_struct_from_definition(
+        self, definition: syside.AttributeDefinition | syside.ItemDefinition
+    ) -> str:
         """Type-only counterpart to _register_struct.
 
         No bound value exists for

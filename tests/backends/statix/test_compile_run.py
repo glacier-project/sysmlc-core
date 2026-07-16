@@ -197,7 +197,10 @@ def test_tick_equals_and_space_forms_agree(
         text=True,
         check=True,
     )
-    assert space.stdout.strip().splitlines()[-1] == equals.stdout.strip().splitlines()[-1]
+    assert (
+        space.stdout.strip().splitlines()[-1]
+        == equals.stdout.strip().splitlines()[-1]
+    )
 
 
 def test_legacy_colon_syntax_is_rejected_with_migration_error(
@@ -248,7 +251,6 @@ def test_unknown_option_distinct_from_unknown_event(
     )
     assert event_result.returncode == 2
     assert "unknown event: Foo" in event_result.stderr
-
 
 
 _GUARD_HARNESS = """\

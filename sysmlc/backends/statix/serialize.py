@@ -418,7 +418,9 @@ def _initial_configuration(program: CProgram) -> set[str]:
         state = by_name[name]
         if state.region_count and state.region_first is not None:
             frontier.extend(
-                program.regions[state.region_first : state.region_first + state.region_count]
+                program.regions[
+                    state.region_first : state.region_first + state.region_count
+                ]
             )
         elif state.initial_child is not None:
             frontier.append(state.initial_child)
@@ -478,8 +480,10 @@ def _runner_view(program: CProgram) -> dict[str, object]:
         "help_transition_rows": [
             {
                 "source": t.source,
-                "event": "(completion)" if t.event == COMPLETION_EVENT
-                else "(timeout)" if t.event == TIMEOUT_EVENT
+                "event": "(completion)"
+                if t.event == COMPLETION_EVENT
+                else "(timeout)"
+                if t.event == TIMEOUT_EVENT
                 else t.event,
                 "guard": t.guard or "-",
                 "action": t.action or "-",
@@ -571,7 +575,8 @@ def _extern_header(project: CProject) -> str | None:
     ]
     for fn in seen.values():
         params = ", ".join(
-            f"{t} {n}" for t, n in zip(fn.param_types, fn.param_names, strict=True)
+            f"{t} {n}"
+            for t, n in zip(fn.param_types, fn.param_names, strict=True)
         )
         lines.append(f"/* {fn.name} */")
         lines.append(f"{fn.return_type} {fn.c_name}({params});")
