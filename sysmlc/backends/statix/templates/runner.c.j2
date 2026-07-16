@@ -41,51 +41,52 @@ static void {{ prefix }}_print_configuration(const {{ prefix }}_t *sm)
 }
 {% if has_timer %}
 
-static bool {{ prefix }}_parse_tick(const char *arg, sc_time_t *out_tick)
-{
-    unsigned long parsed;
-    char *end = NULL;
-    if ((arg == NULL) || (out_tick == NULL) || (strncmp(arg, "tick:", 5) != 0)) {
-        return false;
-    }
-    if ((arg[5] == '\0') || (arg[5] == '-')) {
-        /* Reject "tick:" with no digits, and a negative value outright --
-         * strtoul's own negative-wraparound handling would otherwise be the
-         * only thing standing between a typo'd test input and a huge tick. */
-        return false;
-    }
-    parsed = strtoul(arg + 5, &end, 10);
-    if ((end == NULL) || (*end != '\0')) {
-        return false;
-    }
-    if (parsed > (unsigned long)SC_TIME_MAX) {
-        /* Reject out-of-range explicitly rather than truncating a huge
-         * unsigned long down to sc_time_t, which would silently alias to
-         * some other, smaller tick value. */
-        return false;
-    }
-    *out_tick = (sc_time_t)parsed;
-    return true;
-}
+typedef enum {
+    {{ prefix|upper }}_OPT_NOT_MATCHED,
+    {{ prefix|upper }}_OPT_OK,
+    {{ prefix|upper }}_OPT_MISSING_VALUE,
+    {{ prefix|upper }}_OPT_INVALID_VALUE,
+} {{ prefix }}_opt_result_t;
 
-static bool {{ prefix }}_parse_advance(const char *arg, unsigned long *out_count)
+/// @brief Recognize `flag value` or `flag=value` at argv[*io_index], consuming
+/// a following argv slot for the space-separated form (so that value is never
+/// subsequently re-examined as an event name). `*out_raw` is the raw value
+/// text actually parsed (consistent between both forms, for error messages).
+static {{ prefix }}_opt_result_t {{ prefix }}_parse_numeric_flag(
+    const char *flag, int argc, char **argv, int *io_index,
+    unsigned long *out_value, const char **out_raw)
 {
-    unsigned long parsed;
+    const char *arg = argv[*io_index];
+    size_t flag_len = strlen(flag);
+    const char *value_str;
     char *end = NULL;
-    if ((arg == NULL) || (out_count == NULL) || (strncmp(arg, "advance:", 8) != 0)) {
-        return false;
+    if (strncmp(arg, flag, flag_len) != 0) {
+        return {{ prefix|upper }}_OPT_NOT_MATCHED;
     }
-    if ((arg[8] == '\0') || (arg[8] == '-')) {
-        /* Reject "advance:" with no digits, and a negative value outright,
-         * for the same reason _parse_tick rejects them. */
-        return false;
+    if (arg[flag_len] == '=') {
+        value_str = arg + flag_len + 1;
+    } else if (arg[flag_len] == '\0') {
+        if ((*io_index + 1) >= argc) {
+            return {{ prefix|upper }}_OPT_MISSING_VALUE;
+        }
+        ++(*io_index);
+        value_str = argv[*io_index];
+    } else {
+        return {{ prefix|upper }}_OPT_NOT_MATCHED;
     }
-    parsed = strtoul(arg + 8, &end, 10);
+    *out_raw = value_str;
+    if ((value_str[0] == '\0') || (value_str[0] == '-')) {
+        /* Empty ("--tick=") and negative values are both rejected here, same
+         * as legacy _parse_tick/_parse_advance's "tick:"/"tick:-1" handling --
+         * only the missing-argument case (nothing follows in space form)
+         * gets the distinct OPT_MISSING_VALUE result. */
+        return {{ prefix|upper }}_OPT_INVALID_VALUE;
+    }
+    *out_value = strtoul(value_str, &end, 10);
     if ((end == NULL) || (*end != '\0')) {
-        return false;
+        return {{ prefix|upper }}_OPT_INVALID_VALUE;
     }
-    *out_count = parsed;
-    return true;
+    return {{ prefix|upper }}_OPT_OK;
 }
 {% endif %}
 
