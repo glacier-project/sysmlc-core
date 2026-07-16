@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import argparse
-import ast
+import atexit
 import importlib.util
 import logging
 import shutil
 import sys
+import tempfile
 from importlib.metadata import version
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -23,6 +24,11 @@ from sysmlc.sysml.queries import (
     state_definitions,
     top_level_part_usages,
 )
+from sysmlc.sysml.textual_representation import (
+    extract_textual,
+    module_function_names,
+    write_module,
+)
 from sysmlc.values import configure_model, load_values, select_values
 
 if TYPE_CHECKING:
@@ -38,6 +44,9 @@ class CliError(SysmlcError):
     """A user-facing error, reported as a message without a traceback."""
 
 
+_PYTHON_BACKENDS = frozenset({"rosetta", "quake"})
+
+
 def _parse_external(python_path: Path) -> tuple[str, frozenset[str]]:
     """Parse a ``--python`` file into ``(module_stem, sync_function_names)``.
 
@@ -48,20 +57,15 @@ def _parse_external(python_path: Path) -> tuple[str, frozenset[str]]:
         CliError: If the file cannot be read or is not valid Python.
     """
     try:
-        source = python_path.read_text()
+        names = module_function_names(python_path)
     except OSError as error:
         raise CliError(
             f"cannot read --python file {python_path}: {error}"
         ) from error
-    try:
-        tree = ast.parse(source, filename=str(python_path))
     except SyntaxError as error:
         raise CliError(
             f"--python file {python_path} is not valid Python: {error}"
         ) from error
-    names = frozenset(
-        node.name for node in tree.body if isinstance(node, ast.FunctionDef)
-    )
     return python_path.stem, names
 
 
@@ -81,9 +85,65 @@ def _parse_python_arg(
     python_path: Path | None = getattr(args, "python", None)
     if python_path is None:
         return None, None
-    if backend.name not in {"rosetta", "quake"}:
+    if backend.name not in _PYTHON_BACKENDS:
         raise CliError(f"backend {backend.name!r} does not support --python")
     return python_path, _parse_external(python_path)
+
+
+def _materialize_reps(
+    model: syside.Model, backend: Backend, element_qn: str
+) -> Path | None:
+    """Write the model's Python rep bodies to a generated module file.
+
+    Returns:
+        The generated module's path, in a fresh temporary directory that
+        is removed at process exit; or None when the backend does not
+        consume backing Python modules or the model carries no Python
+        textual representations.
+
+    Raises:
+        UnsupportedConstructError: If the model's rep bodies are invalid;
+            see :func:`sysmlc.sysml.textual_representation.extract_textual`.
+    """
+    if backend.name not in _PYTHON_BACKENDS:
+        return None
+    extracted = extract_textual(model, element_qn)
+    if extracted is None:
+        return None
+    module_name, source_lines = extracted
+    out_dir = Path(tempfile.mkdtemp(prefix="sysmlc-reps-"))
+    atexit.register(shutil.rmtree, out_dir, ignore_errors=True)
+    return write_module(source_lines, out_dir, module_name)
+
+
+def _resolve_python(
+    args: argparse.Namespace,
+    backend: Backend,
+    model: syside.Model,
+    element_qn: str,
+) -> tuple[Path, tuple[str, frozenset[str]]] | tuple[None, None]:
+    """Resolve the backing Python module: ``--python`` flag or model reps.
+
+    An explicit ``--python`` file wins. Otherwise the model's Python
+    textual representations, if any, are written to a generated module
+    file. Either way the file goes through :func:`_parse_external`.
+
+    Returns:
+        The module's path paired with its ``_parse_external`` result, or
+        ``(None, None)`` when there is neither a flag nor a rep.
+
+    Raises:
+        CliError: If the backend does not support ``--python``, or the
+            explicit file cannot be read or is not valid Python.
+        UnsupportedConstructError: If the model's rep bodies are invalid.
+    """
+    python_path, external = _parse_python_arg(args, backend)
+    if python_path is not None and external is not None:
+        return python_path, external
+    generated = _materialize_reps(model, backend, element_qn)
+    if generated is None:
+        return None, None
+    return generated, _parse_external(generated)
 
 
 def _load_external_module(python_path: Path) -> None:
@@ -402,7 +462,7 @@ def _cmd_build(args: argparse.Namespace) -> int:
             overrides = select_values(tree, target_qn)
             model = configure_model(model, target_qn, overrides)
 
-    python_path, external = _parse_python_arg(args, backend)
+    python_path, external = _resolve_python(args, backend, model, element_qn)
 
     build_kwargs: dict[str, object] = (
         {"external": external} if external is not None else {}
@@ -431,7 +491,7 @@ def _build_part(
     if getattr(args, "values", None) is not None:
         raise CliError("--values is not supported with part systems yet")
 
-    python_path, external = _parse_python_arg(args, backend)
+    python_path, external = _resolve_python(args, backend, model, usage_qn)
 
     build_kwargs: dict[str, object] = (
         {"external": external} if external is not None else {}
@@ -459,9 +519,10 @@ def _write_artifact(
     written = backend.write(artifact, options)
 
     if python_path is not None:
-        # Place the --python module beside the .lf so its `files:` entry (a
-        # bare filename, resolved by lfc relative to the .lf) reaches src-gen.
-        # The generated companion types module is written by backend.write.
+        # Place the backing Python module (user-supplied or rep-generated)
+        # beside the .lf so its `files:` entry (a bare filename, resolved by
+        # lfc relative to the .lf) reaches src-gen. The generated companion
+        # types module is written by backend.write.
         for path in written:
             if path.suffix == ".lf":
                 shutil.copy(python_path, path.parent / python_path.name)
@@ -485,7 +546,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
     if hook is None:
         raise CliError(f"backend {backend.name!r} cannot run a {kind!r}")
 
-    python_path, external = _parse_python_arg(args, backend)
+    python_path, external = _resolve_python(args, backend, model, element_qn)
     if python_path is not None:
         _load_external_module(python_path)
 
