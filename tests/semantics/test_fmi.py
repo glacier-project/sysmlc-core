@@ -14,11 +14,11 @@ from sysmlc.semantics.fmi import (
     validate_fmu,
 )
 from sysmlc.sysml.loading import load_model
-from tests.backends.test_sm_examples import SM_EXAMPLES_DIR
 
 pytest.importorskip("fmpy")
 
-FIX = SM_EXAMPLES_DIR / "fmu01-pendulum"
+MODELS_DIR = Path(__file__).resolve().parents[2] / "models"
+FIX = MODELS_DIR / "showcase-frost" / "pendulum"
 
 
 def _fmu_node(model: syside.Model) -> FmuPartNode:

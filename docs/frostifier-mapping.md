@@ -29,8 +29,8 @@ the FMU's initialization mode (causality `parameter` or `input`).
 `exposedParameters` / `exposedVariables` name FMU variables published
 without a signal route: read-only probes and settable knobs.
 
-Examples: `models/sm-examples/fmu01-pendulum`,
-`models/sm-examples/fmu02-bouncing-ball`.
+Examples: `models/showcase-frost/pendulum`,
+`models/showcase-frost/bouncing-ball`.
 
 ### Run vs experiment configuration
 
