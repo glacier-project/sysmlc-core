@@ -229,7 +229,7 @@ def _build_parser(backends: dict[str, Backend]) -> argparse.ArgumentParser:
             extract.add_argument(
                 "fmu",
                 type=Path,
-                help="path to the .fmu archive (FMI 3.0 co-simulation)",
+                help="path to the .fmu archive (FMI 2.0/3.0 co-simulation)",
             )
             extract.add_argument(
                 "-o",
@@ -617,7 +617,12 @@ def _cmd_extract_fmu(args: argparse.Namespace) -> int:
 
     archive: Path = args.fmu
     output: Path = args.output or archive.with_suffix(".sysml")
-    reference = os.path.relpath(archive, output.parent)
+    try:
+        reference = os.path.relpath(archive, output.parent)
+    except ValueError:
+        # Windows, archive and output on different drives: no relative
+        # path exists, and extraction resolves absolute paths fine.
+        reference = str(archive.resolve())
     text = scaffold_sysml(archive, reference.replace(os.sep, "/"))
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(text)

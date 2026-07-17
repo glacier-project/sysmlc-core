@@ -34,21 +34,21 @@ package FmuBinding {
 
         /* The co-simulation communication interval, in seconds. Omitted,
          * it falls back to the archive's own DefaultExperiment stepSize. */
-        attribute stepSize : Real;
+        attribute stepSize : Real[0..1];
 
         /* The declared experiment length, in seconds: the generated
          * program's run bound (LF `timeout`) unless overridden on the
          * command line. Omitted, the program runs unbounded. */
-        attribute stopTime : Real;
+        attribute stopTime : Real[0..1];
 
         /* The relative tolerance passed to the FMU's initialization mode.
          * Omitted, the FMU picks its own. Must be positive. */
-        attribute tolerance : Real;
+        attribute tolerance : Real[0..1];
 
         /* The FMI start time, in seconds, seeding the FMU's clock at
          * initialization. Omitted, it defaults to 0. Must be finite and
          * non-negative. */
-        attribute startTime : Real;
+        attribute startTime : Real[0..1];
 
         /* FMU `parameter`/`input` variables published on the Frost
          * network as settable data-model nodes, without a signal. */

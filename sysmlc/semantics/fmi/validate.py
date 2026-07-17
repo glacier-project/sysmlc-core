@@ -74,10 +74,11 @@ def validate_fmu(node: FmuPartNode, path: Path | None = None) -> FmuPartNode:
         type-resolved exposed parameters/variables.
 
     Raises:
-        FmuError: If the archive is missing or unreadable, is not FMI 3.0
-            with co-simulation support, any bound variable, startup value,
-            or exposed name is absent or mismatched in causality or type,
-            or neither the declaration nor the archive gives a step size.
+        FmuError: If the archive is missing or unreadable, is not FMI
+            2.0/3.0 with co-simulation support, any bound variable,
+            startup value, or exposed name is absent or mismatched in
+            causality or type, or neither the declaration nor the
+            archive gives a step size.
             fmpy being uninstalled is reported the same way, with the
             install hint.
     """
