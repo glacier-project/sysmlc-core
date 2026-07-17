@@ -37,6 +37,7 @@ def _fmu_node(model: syside.Model):
             return fmu_part_node(usage, definition, applied)
     raise AssertionError("model declares no FMU part")
 
+
 # A synthetic FMI 3.0 model description matching the fmu01 declaration:
 # outputs theta/d_theta, input u, all Float64. Only the description is
 # needed for validation, so the archives hold no binaries.
