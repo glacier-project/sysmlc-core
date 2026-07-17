@@ -7,6 +7,7 @@ import syside
 
 from sysmlc.errors import FmuError
 from sysmlc.semantics.fmi import (
+    FmuPartNode,
     applied_fmu_metadata,
     fmu_import_definition,
     fmu_part_node,
@@ -20,7 +21,7 @@ pytest.importorskip("fmpy")
 FIX = SM_EXAMPLES_DIR / "fmu01-pendulum"
 
 
-def _fmu_node(model: syside.Model):
+def _fmu_node(model: syside.Model) -> FmuPartNode:
     """The model's one FMU part node, via the extraction API alone."""
     fmu_import = fmu_import_definition(model)
     assert fmu_import is not None
@@ -64,7 +65,7 @@ _MATCHING = """<?xml version="1.0" encoding="UTF-8"?>
 
 
 @pytest.fixture(scope="module")
-def fmu_node():
+def fmu_node() -> FmuPartNode:
     return _fmu_node(load_model(FIX))
 
 
@@ -75,11 +76,15 @@ def _archive(tmp_path: Path, description: str) -> Path:
     return path
 
 
-def test_matching_declaration_passes(fmu_node, tmp_path: Path) -> None:
+def test_matching_declaration_passes(
+    fmu_node: FmuPartNode, tmp_path: Path
+) -> None:
     validate_fmu(fmu_node, path=_archive(tmp_path, _MATCHING))
 
 
-def test_missing_archive_is_rejected(fmu_node, tmp_path: Path) -> None:
+def test_missing_archive_is_rejected(
+    fmu_node: FmuPartNode, tmp_path: Path
+) -> None:
     with pytest.raises(FmuError, match="does not exist"):
         validate_fmu(fmu_node, path=tmp_path / "absent.fmu")
 
@@ -117,17 +122,23 @@ _FMI2_MATCHING = """<?xml version="1.0" encoding="UTF-8"?>
 """
 
 
-def test_fmi2_matching_declaration_passes(fmu_node, tmp_path: Path) -> None:
+def test_fmi2_matching_declaration_passes(
+    fmu_node: FmuPartNode, tmp_path: Path
+) -> None:
     validated = validate_fmu(fmu_node, path=_archive(tmp_path, _FMI2_MATCHING))
     assert validated.fmi_version == "2"
 
 
-def test_fmi3_version_is_recorded(fmu_node, tmp_path: Path) -> None:
+def test_fmi3_version_is_recorded(
+    fmu_node: FmuPartNode, tmp_path: Path
+) -> None:
     validated = validate_fmu(fmu_node, path=_archive(tmp_path, _MATCHING))
     assert validated.fmi_version == "3"
 
 
-def test_out_signal_binds_a_readable_local(fmu_node, tmp_path: Path) -> None:
+def test_out_signal_binds_a_readable_local(
+    fmu_node: FmuPartNode, tmp_path: Path
+) -> None:
     # Exporters (Modelica tools, the Reference FMUs) publish states as
     # `local` instead of declared outputs; the getters read them all
     # the same, so an out-signal binding accepts them.
@@ -138,7 +149,9 @@ def test_out_signal_binds_a_readable_local(fmu_node, tmp_path: Path) -> None:
     validate_fmu(fmu_node, path=_archive(tmp_path, description))
 
 
-def test_out_signal_rejects_an_input_variable(fmu_node, tmp_path: Path) -> None:
+def test_out_signal_rejects_an_input_variable(
+    fmu_node: FmuPartNode, tmp_path: Path
+) -> None:
     description = _MATCHING.replace(
         'name="theta" valueReference="1" causality="output"',
         'name="theta" valueReference="1" causality="input"',
@@ -147,7 +160,9 @@ def test_out_signal_rejects_an_input_variable(fmu_node, tmp_path: Path) -> None:
         validate_fmu(fmu_node, path=_archive(tmp_path, description))
 
 
-def test_fmi2_model_exchange_only_is_rejected(fmu_node, tmp_path: Path) -> None:
+def test_fmi2_model_exchange_only_is_rejected(
+    fmu_node: FmuPartNode, tmp_path: Path
+) -> None:
     description = _FMI2_MATCHING.replace(
         '<CoSimulation modelIdentifier="pendulum"/>',
         '<ModelExchange modelIdentifier="pendulum"/>',
@@ -156,7 +171,9 @@ def test_fmi2_model_exchange_only_is_rejected(fmu_node, tmp_path: Path) -> None:
         validate_fmu(fmu_node, path=_archive(tmp_path, description))
 
 
-def test_model_exchange_only_is_rejected(fmu_node, tmp_path: Path) -> None:
+def test_model_exchange_only_is_rejected(
+    fmu_node: FmuPartNode, tmp_path: Path
+) -> None:
     description = _MATCHING.replace(
         '<CoSimulation modelIdentifier="pendulum"/>',
         '<ModelExchange modelIdentifier="pendulum"/>',
@@ -165,13 +182,17 @@ def test_model_exchange_only_is_rejected(fmu_node, tmp_path: Path) -> None:
         validate_fmu(fmu_node, path=_archive(tmp_path, description))
 
 
-def test_missing_variable_is_reported(fmu_node, tmp_path: Path) -> None:
+def test_missing_variable_is_reported(
+    fmu_node: FmuPartNode, tmp_path: Path
+) -> None:
     description = _MATCHING.replace('name="d_theta"', 'name="renamed"')
     with pytest.raises(FmuError, match=r"'d_theta'.*not in the FMU"):
         validate_fmu(fmu_node, path=_archive(tmp_path, description))
 
 
-def test_wrong_causality_is_reported(fmu_node, tmp_path: Path) -> None:
+def test_wrong_causality_is_reported(
+    fmu_node: FmuPartNode, tmp_path: Path
+) -> None:
     description = _MATCHING.replace(
         'name="u" valueReference="3" causality="input"',
         'name="u" valueReference="3" causality="output"',
@@ -182,13 +203,15 @@ def test_wrong_causality_is_reported(fmu_node, tmp_path: Path) -> None:
         validate_fmu(fmu_node, path=_archive(tmp_path, description))
 
 
-def test_wrong_type_is_reported(fmu_node, tmp_path: Path) -> None:
+def test_wrong_type_is_reported(fmu_node: FmuPartNode, tmp_path: Path) -> None:
     description = _MATCHING.replace('<Float64 name="u"', '<Int32 name="u"')
     with pytest.raises(FmuError, match="binds to 'Float64'"):
         validate_fmu(fmu_node, path=_archive(tmp_path, description))
 
 
-def test_all_problems_reported_together(fmu_node, tmp_path: Path) -> None:
+def test_all_problems_reported_together(
+    fmu_node: FmuPartNode, tmp_path: Path
+) -> None:
     description = _MATCHING.replace('name="theta"', 'name="renamed"').replace(
         'name="u" valueReference="3" causality="input"',
         'name="u" valueReference="3" causality="local"',
@@ -200,14 +223,18 @@ def test_all_problems_reported_together(fmu_node, tmp_path: Path) -> None:
     assert "'u'" in message
 
 
-def test_unreadable_archive_is_rejected(fmu_node, tmp_path: Path) -> None:
+def test_unreadable_archive_is_rejected(
+    fmu_node: FmuPartNode, tmp_path: Path
+) -> None:
     path = tmp_path / "corrupt.fmu"
     path.write_bytes(b"not a zip")
     with pytest.raises(FmuError, match="cannot read"):
         validate_fmu(fmu_node, path=path)
 
 
-def test_array_variable_is_rejected(fmu_node, tmp_path: Path) -> None:
+def test_array_variable_is_rejected(
+    fmu_node: FmuPartNode, tmp_path: Path
+) -> None:
     # A scalar SysML declaration on an FMI 3.0 array would silently read
     # one element; reject instead (arrays have no binding surface).
     description = _MATCHING.replace(
@@ -266,7 +293,9 @@ _TUNED = """<?xml version="1.0" encoding="UTF-8"?>
 """
 
 
-def _tuned_node(tmp_path: Path, metadata: str = "stepSize = 0.1;"):
+def _tuned_node(
+    tmp_path: Path, metadata: str = "stepSize = 0.1;"
+) -> FmuPartNode:
     from tests import _load_inline_model
 
     model = _load_inline_model(tmp_path, _TUNED_MODEL % {"metadata": metadata})
@@ -362,7 +391,9 @@ def test_calculated_output_startup_value_is_rejected(tmp_path: Path) -> None:
 
 
 def test_fixed_parameter_does_not_warn(
-    tmp_path: Path, caplog, monkeypatch
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Start values are applied inside initialization mode (the generated
     # startup re-runs it), so a `fixed` parameter is set where FMI
@@ -442,7 +473,7 @@ _TUNABLE = """<?xml version="1.0" encoding="UTF-8"?>
 """
 
 
-def _tunable_node(tmp_path: Path):
+def _tunable_node(tmp_path: Path) -> FmuPartNode:
     from tests import _load_inline_model
 
     model = _load_inline_model(tmp_path, _TUNABLE_MODEL)
@@ -525,7 +556,7 @@ _EXPOSED = """<?xml version="1.0" encoding="UTF-8"?>
 """
 
 
-def _exposed_node(tmp_path: Path, exposed: str):
+def _exposed_node(tmp_path: Path, exposed: str) -> FmuPartNode:
     from tests import _load_inline_model
 
     model = _load_inline_model(tmp_path, _EXPOSED_MODEL % {"exposed": exposed})

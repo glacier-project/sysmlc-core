@@ -1,3 +1,6 @@
+# mypy: ignore-errors
+# (uses the frost-integration backend API; skips at collection elsewhere)
+
 from __future__ import annotations
 
 import os
@@ -8,17 +11,26 @@ from pathlib import Path
 import pytest
 
 from sysmlc.backends.base import OutputOptions
-from sysmlc.backends.frostifier.backend import (
-    FrostifierBackend,
-    default_frost_source,
-)
-from sysmlc.backends.frostifier.parts import FROST_CHECKOUT_MARKER
+
+try:
+    from sysmlc.backends.frostifier.backend import (
+        FrostifierBackend,
+        default_frost_source,
+    )
+    from sysmlc.backends.frostifier.parts import FROST_CHECKOUT_MARKER
+except ImportError:
+    pytest.skip(
+        "frostifier program assembly not available on this branch",
+        allow_module_level=True,
+    )
+
 from sysmlc.sysml.loading import load_model
-from tests.backends.test_showcase import SHOWCASE_DIR
 
 pytestmark = pytest.mark.fmu
 
-SHOWCASE = SHOWCASE_DIR / "quality-cell"
+MODELS_DIR = Path(__file__).resolve().parents[3] / "models"
+SHOWCASE_FROST_DIR = MODELS_DIR / "showcase-frost"
+SHOWCASE = SHOWCASE_FROST_DIR / "quality-cell"
 
 
 def _frost_source() -> str:
@@ -124,7 +136,7 @@ def test_quality_cell_fmi2_cosimulation_reaches_passed(
     getBoolean verdict — against pythonfmu's ShapeCheckCell2.
     """
     output = _build_compile_run(
-        SHOWCASE_DIR / "quality-cell-fmi2",
+        SHOWCASE_FROST_DIR / "quality-cell-fmi2",
         "QualityCellFmi2::qualityStation2",
         "qualityStation2",
         tmp_path,
@@ -141,7 +153,7 @@ def test_quality_link_talks_over_the_frost_link(tmp_path: Path) -> None:
     same way; reaching ``passed`` proves both directions delivered.
     """
     output = _build_compile_run(
-        SHOWCASE_DIR / "quality-link",
+        SHOWCASE_FROST_DIR / "quality-link",
         "QualityLink::qualityLink",
         "qualityLink",
         tmp_path,
@@ -154,7 +166,7 @@ def test_quality_link_talks_over_the_frost_link(tmp_path: Path) -> None:
 
 def test_machine_only_pipeline_collects_and_stops(tmp_path: Path) -> None:
     """The frost-playground pipeline: 4 machines, no FMU, one link."""
-    playground = SHOWCASE_DIR.parent / "frost-playground"
+    playground = MODELS_DIR / "frost-playground"
     output = _build_compile_run(
         playground / "multi-hop-pipeline",
         "Pipeline::pipeline",

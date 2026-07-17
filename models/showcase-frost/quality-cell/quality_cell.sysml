@@ -1,8 +1,9 @@
 package QualityCell {
     doc /* A quality-control station: the Cell state machine is the
-         * interface between the plant simulation (an imported FMI 3.0
-         * FMU, ShapeCheckCell — a deterministic shape/pallet matcher
-         * derived from the ice-fmi QualityCell) and the outside world.
+         * interface between the plant simulation (the ice-fmi
+         * QualityCell FMU, FMI 3.0 — a shape/pallet matcher whose
+         * String verdict is "success"/"failed"/"none"/"error") and
+         * the outside world.
          *
          * The outside is not modeled here — the Cell's extPort is left
          * unconnected: the Cell reports its verdict through it and
@@ -23,7 +24,7 @@ package QualityCell {
         attribute pallet_position_2 : Integer;
         attribute pallet_position_3 : Integer;
     }
-    item def Verdict { attribute result : Boolean; }
+    item def Verdict { attribute result : String; }
 
     // Outside-facing signals (the outside itself is not modeled).
     item def CheckReport { attribute ok : Boolean; }
@@ -40,7 +41,7 @@ package QualityCell {
     // Verdict at every 100 ms communication point.
     part def CellSim {
         metadata FmuImport {
-            path = "ShapeCheckCell.fmu";
+            path = "QualityCell.fmu";
             stepSize = 0.1;
         }
         port simPort : SimPort;
@@ -66,12 +67,12 @@ package QualityCell {
             do send new ShapeCheck(1, 2, 3, 1, 2, 3) via simPort
             then waiting;
 
-        // The sim reports every step; ignore verdicts until one passes,
-        // then report the outcome to the outside.
+        // The sim reports every step ("none" until a check ran); wait
+        // for a passing verdict, then report the outcome to the outside.
         transition first waiting
             accept v : Verdict via simPort
-            if v.result
-            do send new CheckReport(v.result) via extPort
+            if v.result == "success"
+            do send new CheckReport(true) via extPort
             then passed;
 
         // The outside may abort a running check (never happens here).

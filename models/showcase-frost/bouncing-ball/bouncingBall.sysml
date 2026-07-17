@@ -38,7 +38,7 @@ package BouncingBallFmu {
         attribute g : Real = 9.81 { doc /* acceleration of gravity */ }
         attribute e : Real = 0.7 { doc /* dimensionless parameter */ }
         port fmuPort : BouncingBallPort;
-    }
+    }uv aa
 
     // FMU-only network: the ball's readings stay unrouted (no composed
     // peer) and are observable over the Frost protocol instead.
