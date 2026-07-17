@@ -44,9 +44,6 @@ nav:
   - Design dialogue: statix/design-dialogue.md
   - vs boost::sml: statix/comparison_boost_sml.md
 
-# Some docs link to repo source files outside docs/ (e.g.
-# ../models/**/*.sysml). Those are not documentation pages, so mkdocs cannot
-# resolve them as internal links; keep --strict from aborting on them.
 validation:
   links:
     not_found: ignore
