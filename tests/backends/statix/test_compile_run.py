@@ -135,34 +135,122 @@ def _build_and_compile(
 
 def test_tick_overflow_is_rejected(sm_models: dict, tmp_path: Path) -> None:
     # A tick value beyond SC_TIME_MAX must be rejected, not silently
-    # truncated: the parser rejects it, so the runner falls through to
-    # _event_from_name (which also doesn't recognize it) and exits 2.
+    # truncated.
     program, build = _build_and_compile(
         sm_models, tmp_path, "SM13::MachineAfterSeconds"
     )
     result = subprocess.run(
-        [str(build / f"{program.prefix}_runner"), "tick:99999999999"],
+        [str(build / f"{program.prefix}_runner"), "--tick", "99999999999"],
         capture_output=True,
         text=True,
     )
     assert result.returncode == 2
-    assert "unknown event: tick:99999999999" in result.stderr
+    assert "invalid tick value: 99999999999" in result.stderr
 
 
-def test_tick_empty_and_negative_are_rejected(
+def test_tick_missing_and_negative_values_are_rejected(
     sm_models: dict, tmp_path: Path
 ) -> None:
     program, build = _build_and_compile(
         sm_models, tmp_path, "SM13::MachineAfterSeconds"
     )
-    for bad in ("tick:", "tick:-1"):
-        result = subprocess.run(
-            [str(build / f"{program.prefix}_runner"), bad],
-            capture_output=True,
-            text=True,
-        )
-        assert result.returncode == 2, bad
-        assert f"unknown event: {bad}" in result.stderr, bad
+    missing = subprocess.run(
+        [str(build / f"{program.prefix}_runner"), "--tick"],
+        capture_output=True,
+        text=True,
+    )
+    assert missing.returncode == 2
+    assert "--tick requires a value" in missing.stderr
+
+    negative = subprocess.run(
+        [str(build / f"{program.prefix}_runner"), "--tick", "-1"],
+        capture_output=True,
+        text=True,
+    )
+    assert negative.returncode == 2
+    assert "invalid tick value: -1" in negative.stderr
+
+    negative_eq = subprocess.run(
+        [str(build / f"{program.prefix}_runner"), "--tick=-1"],
+        capture_output=True,
+        text=True,
+    )
+    assert negative_eq.returncode == 2
+    assert "invalid tick value: -1" in negative_eq.stderr
+
+
+def test_tick_equals_and_space_forms_agree(
+    sm_models: dict, tmp_path: Path
+) -> None:
+    program, build = _build_and_compile(
+        sm_models, tmp_path, "SM13::MachineAfterSeconds"
+    )
+    space = subprocess.run(
+        [str(build / f"{program.prefix}_runner"), "--tick", "5000"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    equals = subprocess.run(
+        [str(build / f"{program.prefix}_runner"), "--tick=5000"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert (
+        space.stdout.strip().splitlines()[-1]
+        == equals.stdout.strip().splitlines()[-1]
+    )
+
+
+def test_legacy_colon_syntax_is_rejected_with_migration_error(
+    sm_models: dict, tmp_path: Path
+) -> None:
+    program, build = _build_and_compile(
+        sm_models, tmp_path, "SM13::MachineAfterSeconds"
+    )
+    result = subprocess.run(
+        [str(build / f"{program.prefix}_runner"), "tick:5000"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 2
+    assert "'tick:5000' is no longer supported" in result.stderr
+    assert "--tick" in result.stderr
+
+
+def test_tick_option_rejected_on_untimed_machine(
+    sm_models: dict, tmp_path: Path
+) -> None:
+    program, build = _build_and_compile(sm_models, tmp_path, "SM01::Machine")
+    result = subprocess.run(
+        [str(build / f"{program.prefix}_runner"), "--tick", "5"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 2
+    assert "option '--tick' is not supported by this machine" in result.stderr
+
+
+def test_unknown_option_distinct_from_unknown_event(
+    sm_models: dict, tmp_path: Path
+) -> None:
+    program, build = _build_and_compile(sm_models, tmp_path, "SM01::Machine")
+    option_result = subprocess.run(
+        [str(build / f"{program.prefix}_runner"), "--foo"],
+        capture_output=True,
+        text=True,
+    )
+    assert option_result.returncode == 2
+    assert "unknown option: --foo" in option_result.stderr
+
+    event_result = subprocess.run(
+        [str(build / f"{program.prefix}_runner"), "Foo"],
+        capture_output=True,
+        text=True,
+    )
+    assert event_result.returncode == 2
+    assert "unknown event: Foo" in event_result.stderr
 
 
 _GUARD_HARNESS = """\

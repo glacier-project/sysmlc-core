@@ -252,9 +252,11 @@ chain. The first false active invariant makes the call return
 macro-step boundary, including on a no-transition dispatch). Constraints whose
 expression contains a function call are rejected (§9).
 
-## 6b. Library function calls
+## 6b. Library and external function calls
 
-Allowlisted `NumericalFunctions::abs/max/min` → `fabs`/`fmax`/`fmin` and `TrigFunctions::sin/cos/tan` → `sin`/`cos`/`tan`, all double-typed via `<math.h>` (linked with `-lm` when used). Real-only — a library result assigned to a non-Real attribute is rejected; external calc-defs and non-allowlist functions are rejected.
+Allowlisted `NumericalFunctions::abs/max/min` → `fabs`/`fmax`/`fmin` and `TrigFunctions::sin/cos/tan` → `sin`/`cos`/`tan`, all double-typed via `<math.h>` (linked with `-lm` when used). Real-only — a library result assigned to a non-Real attribute is rejected.
+
+Bodyless `calc def`s (pure signatures with `result_expression` as `None`) are supported as external function calls. For these, statix generates a C `extern` function declaration in a project-global `include/statix_extern.h` header, and emits a direct call site. If any program in the project uses external calculations, the generated `CMakeLists.txt` will require a user-provided `src/extern_impl.c` implementing them, failing at configure time with a clear error if it is missing. A `calc def` with a body (non-`None` `result_expression`) remains unsupported/rejected.
 
 ## 6c. Self-sends and payload marshalling
 
@@ -365,7 +367,7 @@ iteration 1:
 | machine-level (state def) entry/do/exit actions                                             | rejected (put on states)                                                                                 |
 | non-inline / referenced `do` activities                                                     | rejected                                                                                                 |
 | `String` / non-scalar, non-composite attributes                                             | rejected                                                                                                 |
-| external / non-allowlist function calls in expressions                                      | rejected (allowlisted library calls supported)                                                           |
+| non-allowlist function calls in expressions that are not bodyless external calculations     | rejected (allowlisted library calls and bodyless FFI externs supported, §6b)                             |
 
 ## 10. Forward notes (not settled)
 

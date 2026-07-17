@@ -29,9 +29,9 @@ def _require_package_or_calc_def(element: syside.Element) -> None:
         return
     raise UnsupportedConstructError(
         "a Python textual representation is attached to an element that "
-        "is neither a package nor a calc def; rosetta collects Python "
-        "bodies from packages (module scaffolding) and calc defs "
-        "(function bodies) only.",
+        "is neither a package nor a calc def; Python bodies are collected "
+        "from packages (module scaffolding) and calc defs (function "
+        "bodies) only.",
         node=element,
     )
 
@@ -66,7 +66,7 @@ def _require_backing_def(
 ) -> None:
     """Require a body of the calc def to define ``def <calc.name>``.
 
-    The generated preamble imports the calc def's name from the module;
+    Callers import the calc def's name from the generated module;
     without a matching def the import would only fail at run time.
     """
     defined: list[str] = []
@@ -84,9 +84,13 @@ def _require_backing_def(
     )
 
 
-def _rep_backed_calc_names(model: syside.Model) -> frozenset[str]:
-    """Names of the calc defs whose bodies the generated module provides."""
-    names: set[str] = set()
+def _require_rep_backed_calc_defs(model: syside.Model) -> None:
+    """Reject a rep-carrying calc def the generated module cannot back.
+
+    Each rep-carrying calc def must have exactly one Python body, and
+    that body must define a function named after the calc def; otherwise
+    the module cannot provide the function its callers import.
+    """
     for calc in iter_elements(model, syside.CalculationDefinition):
         bodies = _python_rep_bodies(calc)
         if not bodies:
@@ -101,9 +105,6 @@ def _rep_backed_calc_names(model: syside.Model) -> frozenset[str]:
         for body in bodies:
             _require_valid_python(body, calc)
         _require_backing_def(bodies, calc)
-        assert calc.name is not None
-        names.add(calc.name)
-    return frozenset(names)
 
 
 def _register_defs(
@@ -114,8 +115,7 @@ def _register_defs(
     """Register the body's top-level defs; reject a conflicting name.
 
     Idempotent for identical implementations; a different body under
-    the same name is a collision and fails loud, mirroring the
-    dataclass registration policy.
+    the same name is a collision and fails loud.
     """
     qualified_name = str(element.qualified_name)
     for statement in ast.parse(body).body:
@@ -202,8 +202,32 @@ def extract_textual(
     scope_qn: str,
     *,
     module_name: str | None = None,
-) -> tuple[str, frozenset[str], tuple[str, ...]] | None:
-    """Extract Python source from TextualRepresentation annotations."""
+) -> tuple[str, tuple[str, ...]] | None:
+    """Extract the model's Python rep bodies as module source.
+
+    Collects every Python ``TextualRepresentation`` body in the model
+    (package reps first within each element, in model order) into the
+    source lines of one flat Python module. The caller writes the module
+    to disk and derives the backing function names from the written file,
+    exactly as for a user-supplied backing module.
+
+    Args:
+        model: Loaded syside model to collect rep bodies from.
+        scope_qn: Qualified name of the element being built; its simple
+            name defaults the module stem to ``<name>_impl``.
+        module_name: Explicit module stem overriding the default.
+
+    Returns:
+        A ``(module_stem, source_lines)`` pair, or None when the model
+        carries no Python textual representations.
+
+    Raises:
+        UnsupportedConstructError: If a rep is attached to an element
+            that is neither a package nor a calc def, a body is not valid
+            Python or is empty, a calc def carries more than one Python
+            rep or none of its defs matches its name, or two bodies
+            define the same function differently.
+    """
     lines = _collect_code(model)
     if not lines:
         return None
@@ -215,7 +239,7 @@ def extract_textual(
             f"processing {scope_qn!r} but all are empty."
         )
     stem = module_name or f"{scope_qn.split('::')[-1]}_impl"
-    names = _rep_backed_calc_names(model)
+    _require_rep_backed_calc_defs(model)
     _require_unique_defs(model)
 
     header = [
@@ -225,7 +249,7 @@ def extract_textual(
     ]
     full_lines = tuple(header) + tuple(lines)
 
-    return stem, names, full_lines
+    return stem, full_lines
 
 
 def write_module(
@@ -238,3 +262,19 @@ def write_module(
     path = out_dir / f"{module_name}.py"
     path.write_text("\n".join(src_lines) + "\n")
     return path
+
+
+def module_function_names(module_path: Path) -> frozenset[str]:
+    """Names of the module's top-level synchronous function defs.
+
+    These are the names a backing module offers to calc-def call sites;
+    an ``async def`` cannot back a synchronous call, so it is excluded.
+
+    Raises:
+        OSError: If the file cannot be read.
+        SyntaxError: If the file is not valid Python.
+    """
+    tree = ast.parse(module_path.read_text(), filename=str(module_path))
+    return frozenset(
+        node.name for node in tree.body if isinstance(node, ast.FunctionDef)
+    )

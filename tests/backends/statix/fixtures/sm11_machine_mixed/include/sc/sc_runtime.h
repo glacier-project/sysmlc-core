@@ -226,7 +226,44 @@ bool sc_seconds_to_ticks(double seconds, sc_time_t *out_ticks);
 /// @param runtime Runtime instance to inspect.
 /// @param parallel_state The parallel container's state id.
 /// @return true if every direct region's currently active leaf is final.
+/// @brief Which observability event a trace call reports (design Sec.1).
+typedef enum sc_trace_kind_e {
+    SC_TRACE_ENTER,       ///< @brief A state's entry action is about to run.
+    SC_TRACE_EXIT,        ///< @brief A state's exit action is about to run.
+    SC_TRACE_TRANSITION,  ///< @brief A transition has been selected to fire.
+    SC_TRACE_GUARD,       ///< @brief A guard (transition or invariant) was evaluated.
+    SC_TRACE_TIMER_CHECK, ///< @brief A timeout-due predicate was evaluated.
+} sc_trace_kind_t;
+
+/// @brief Payload for one trace call. Fields are valid ONLY per `kind` --
+/// switch on `kind` first. `0` is a legitimate value in every field (state
+/// id 0, guard id 0, transition index 0, slot 0); it is never "absent".
+typedef struct sc_trace_data_s {
+    sc_state_id_t state;            ///< @brief ENTER/EXIT/GUARD/TIMER_CHECK.
+    sc_state_id_t source;           ///< @brief TRANSITION.
+    sc_state_id_t target;           ///< @brief TRANSITION.
+    int32_t transition_index;       ///< @brief TRANSITION.
+    sc_action_id_t action;          ///< @brief TRANSITION -- the action attached
+                                     ///< to the firing transition. NOT a guarantee
+                                     ///< it executed: this fires before the
+                                     ///< transition's exit actions and effect run,
+                                     ///< so a failing exit action can prevent it
+                                     ///< from ever actually being called.
+    sc_guard_id_t guard;            ///< @brief GUARD.
+    bool result;                    ///< @brief GUARD (pass/fail); TIMER_CHECK (due/not).
+    sc_state_id_t activation_index; ///< @brief ENTER/EXIT/TRANSITION/TIMER_CHECK;
+                                     ///< see sc_machine.h's per-site doc comments.
+} sc_trace_data_t;
+
+#define SC_TRACE_MASK_ENTER       (1u << 0)
+#define SC_TRACE_MASK_EXIT        (1u << 1)
+#define SC_TRACE_MASK_TRANSITION  (1u << 2)
+#define SC_TRACE_MASK_GUARD       (1u << 3)
+#define SC_TRACE_MASK_TIMER_CHECK (1u << 4)
+#define SC_TRACE_MASK_ALL         ((1u << 5) - 1u)
+
 bool sc_runtime_regions_all_final(const sc_runtime_t *runtime, sc_state_id_t parallel_state);
+
 
 #ifdef SC_RUNTIME_IMPLEMENTATION
 

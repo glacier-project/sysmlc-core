@@ -396,3 +396,30 @@ def test_state_rows_carry_slot_and_region_columns(sm_models: dict) -> None:
     # `dual`'s row must reference its own region_first/region_count, not the
     # sentinel.
     assert "(sc_state_id_t)0u, (sc_state_id_t)2u}" in config
+
+
+def test_example_command_prefers_reachable_transition(sm_models: dict) -> None:
+    program = build_statix(sm_models["sm02"], "SM02::Machine")
+    from sysmlc.backends.statix.serialize import _example_command
+
+    example = _example_command(program)
+    assert example["kind"] == "reachable"
+    assert example["event"] == "Tick"
+
+
+def test_example_command_falls_back_to_timed(sm_models: dict) -> None:
+    from sysmlc.backends.statix.serialize import _example_command
+
+    program = build_statix(sm_models["sm13"], "SM13::MachineAfterReentry")
+    example = _example_command(program)
+    # MachineAfterReentry's initial state ("idle") has both an externally
+    # triggered transition (Leave) and a timer -- "reachable" must win.
+    assert example["kind"] == "reachable"
+
+
+def test_example_command_none_when_no_events_or_timer(sm_models: dict) -> None:
+    from sysmlc.backends.statix.serialize import _example_command
+
+    program = build_statix(sm_models["sm08"], "SM08::MachineNested")
+    example = _example_command(program)
+    assert example["kind"] in ("none", "syntax_only")

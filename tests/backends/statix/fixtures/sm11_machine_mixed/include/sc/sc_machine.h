@@ -38,6 +38,23 @@
 #if defined(SC_MACHINE_HAS_TIMER) && !defined(SC_MACHINE_TIMEOUT_DUE)
 #error "sc/sc_machine.h: SC_MACHINE_HAS_TIMER requires SC_MACHINE_TIMEOUT_DUE"
 #endif
+#if defined(SC_MACHINE_HAS_TRACE) && !defined(SC_MACHINE_TRACE)
+#error "sc/sc_machine.h: SC_MACHINE_HAS_TRACE requires SC_MACHINE_TRACE"
+#endif
+
+/// SC__TRACE_ENABLED must be defined unconditionally (design Sec.1): every
+/// trace call site below writes `#if SC__TRACE_ENABLED(...)` regardless of
+/// whether SC_MACHINE_HAS_TRACE is defined anywhere, so a consumer that never
+/// enables tracing still needs this to expand to a valid constant `0`, not
+/// leave an undefined function-like macro used as a bare identifier in `#if`.
+#ifdef SC_MACHINE_HAS_TRACE
+#ifndef SC_MACHINE_TRACE_MASK
+#define SC_MACHINE_TRACE_MASK SC_TRACE_MASK_ALL
+#endif
+#define SC__TRACE_ENABLED(mask_) (((SC_MACHINE_TRACE_MASK) & (mask_)) != 0u)
+#else
+#define SC__TRACE_ENABLED(mask_) 0
+#endif
 
 #include "sc/sc_runtime.h"
 
@@ -105,9 +122,20 @@ static int32_t SC__FN(_find_transition_at)(const sc_machine_t *machine,
     for (i = 0u; i < limit; ++i) {
         const sc_transition_t *t = &machine->transitions[i];
         if ((t->source == state) && (t->event == event_id)) {
-            bool enabled = (t->guard == SC_GUARD_NONE)
-                               ? true
-                               : SC_MACHINE_GUARD(t->guard, &sm->runtime, event);
+            bool enabled;
+            if (t->guard == SC_GUARD_NONE) {
+                enabled = true;
+            } else {
+                enabled = SC_MACHINE_GUARD(t->guard, &sm->runtime, event);
+#if SC__TRACE_ENABLED(SC_TRACE_MASK_GUARD)
+                {
+                    const sc_trace_data_t trace_data = {
+                        .state = t->source, .guard = t->guard, .result = enabled,
+                    };
+                    SC_MACHINE_TRACE(SC_TRACE_GUARD, &sm->runtime, event, &trace_data);
+                }
+#endif
+            }
             if (enabled && (event_id == SC_EVENT_COMPLETION)) {
                 if (machine->states[state].region_count > 0u) {
                     enabled = sc_runtime_regions_all_final(&sm->runtime, state);
@@ -122,6 +150,7 @@ static int32_t SC__FN(_find_transition_at)(const sc_machine_t *machine,
     }
     return -1;
 }
+
 
 /// @brief Inner-first selection: try the active leaf, then each ancestor.
 static int32_t SC__FN(_find_transition)(const sc_machine_t *machine,
@@ -312,6 +341,14 @@ static sc_status_t SC__FN(_exit_up_to)(SC__T *sm, sc_state_id_t from,
         if ((s == stop) || (s == SC_STATE_INVALID)) {
             break;
         }
+#if SC__TRACE_ENABLED(SC_TRACE_MASK_EXIT)
+        {
+            const sc_trace_data_t trace_data = {
+                .state = s, .activation_index = machine->states[s].slot,
+            };
+            SC_MACHINE_TRACE(SC_TRACE_EXIT, &sm->runtime, event, &trace_data);
+        }
+#endif
         status = SC__FN(_run_state_action)(sm, machine->states[s].exit_action, event);
         if (status != SC_STATUS_OK) {
             return status;
@@ -323,6 +360,7 @@ static sc_status_t SC__FN(_exit_up_to)(SC__T *sm, sc_state_id_t from,
     }
     return SC_STATUS_OK;
 }
+
 
 /// @brief Run entry actions outer-first from (excluding) `stop` down to `target`.
 ///
@@ -356,6 +394,14 @@ static sc_status_t SC__FN(_enter_down_to)(SC__T *sm, sc_state_id_t stop,
     while (n > 0u) {
         sc_status_t status;
         n = (uint16_t)(n - 1u);
+#if SC__TRACE_ENABLED(SC_TRACE_MASK_ENTER)
+        {
+            const sc_trace_data_t trace_data = {
+                .state = path[n], .activation_index = machine->states[path[n]].slot,
+            };
+            SC_MACHINE_TRACE(SC_TRACE_ENTER, &sm->runtime, event, &trace_data);
+        }
+#endif
         status = SC__FN(_run_state_action)(sm, machine->states[path[n]].entry_action, event);
         if (status != SC_STATUS_OK) {
             return status;
@@ -363,6 +409,7 @@ static sc_status_t SC__FN(_enter_down_to)(SC__T *sm, sc_state_id_t stop,
     }
     return SC_STATUS_OK;
 }
+
 
 /// @brief Descend an ordinary (non-parallel) chain into initial children
 /// until a leaf or a parallel container is reached; write it to *out_leaf.
@@ -385,6 +432,14 @@ static sc_status_t SC__FN(_descend_chain)(SC__T *sm, sc_state_id_t start,
             break;
         }
         cur = child;
+#if SC__TRACE_ENABLED(SC_TRACE_MASK_ENTER)
+        {
+            const sc_trace_data_t trace_data = {
+                .state = cur, .activation_index = machine->states[cur].slot,
+            };
+            SC_MACHINE_TRACE(SC_TRACE_ENTER, &sm->runtime, event, &trace_data);
+        }
+#endif
         status = SC__FN(_run_state_action)(sm, machine->states[cur].entry_action, event);
         if (status != SC_STATUS_OK) {
             return status;
@@ -393,6 +448,7 @@ static sc_status_t SC__FN(_descend_chain)(SC__T *sm, sc_state_id_t start,
     *out_leaf = cur;
     return SC_STATUS_OK;
 }
+
 
 /// @brief Descend into `start`, forking into every region if it (or the
 /// chain below it) lands on a parallel container. Writes the trunk-level
@@ -416,6 +472,14 @@ static sc_status_t SC__FN(_descend)(SC__T *sm, sc_state_id_t start,
         sc_state_id_t root = machine->regions[(size_t)(machine->states[cur].region_first + r)];
         sc_state_id_t region_leaf;
         sc_state_id_t slot;
+#if SC__TRACE_ENABLED(SC_TRACE_MASK_ENTER)
+        {
+            const sc_trace_data_t trace_data = {
+                .state = root, .activation_index = machine->states[root].slot,
+            };
+            SC_MACHINE_TRACE(SC_TRACE_ENTER, &sm->runtime, event, &trace_data);
+        }
+#endif
         status = SC__FN(_run_state_action)(sm, machine->states[root].entry_action, event);
         if (status != SC_STATUS_OK) {
             return status;
@@ -429,6 +493,7 @@ static sc_status_t SC__FN(_descend)(SC__T *sm, sc_state_id_t start,
         sm->runtime.active[slot].entered_at = sm->runtime.now;
         sm->runtime.active[slot].timeout_delivered = false;
     }
+
     return SC_STATUS_OK;
 }
 
@@ -437,17 +502,27 @@ static sc_status_t SC__FN(_take_transition_region)(SC__T *sm, sc_state_id_t slot
                                                    const sc_transition_t *t,
                                                    const sc_event_t *event)
 {
-    const sc_machine_t *machine;
+    const sc_machine_t *machine = sm->runtime.machine;
     sc_state_id_t scope;
     sc_state_id_t leaf;
     sc_status_t status;
+#if SC__TRACE_ENABLED(SC_TRACE_MASK_TRANSITION)
+    {
+        const sc_trace_data_t trace_data = {
+            .source = t->source, .target = t->target,
+            .transition_index = (int32_t)(t - machine->transitions),
+            .action = t->action, .activation_index = slot,
+        };
+        SC_MACHINE_TRACE(SC_TRACE_TRANSITION, &sm->runtime, event, &trace_data);
+    }
+#endif
     if (t->target == SC_STATE_INVALID) {
         if (t->action != SC_ACTION_NONE) {
             return SC_MACHINE_ACTION(t->action, &sm->runtime, event);
         }
         return SC_STATUS_OK;
     }
-    machine = sm->runtime.machine;
+
     scope = (t->source == t->target)
                 ? machine->states[t->source].parent
                 : SC__FN(_lca)(machine, t->source, t->target);
@@ -495,12 +570,23 @@ static sc_status_t SC__FN(_take_transition_group)(SC__T *sm, const sc_transition
     sc_state_id_t leaf;
     sc_status_t status;
     sc_state_id_t i;
+#if SC__TRACE_ENABLED(SC_TRACE_MASK_TRANSITION)
+    {
+        const sc_trace_data_t trace_data = {
+            .source = t->source, .target = t->target,
+            .transition_index = (int32_t)(t - machine->transitions),
+            .action = t->action, .activation_index = 0u,
+        };
+        SC_MACHINE_TRACE(SC_TRACE_TRANSITION, &sm->runtime, event, &trace_data);
+    }
+#endif
     if (t->target == SC_STATE_INVALID) {
         if (t->action != SC_ACTION_NONE) {
             return SC_MACHINE_ACTION(t->action, &sm->runtime, event);
         }
         return SC_STATUS_OK;
     }
+
     scope = (t->source == t->target)
                 ? machine->states[t->source].parent
                 : SC__FN(_lca)(machine, t->source, t->target);
@@ -655,9 +741,21 @@ static sc_status_t SC__FN(_check_invariants)(SC__T *sm)
                 }
             }
         }
-        if (active && !SC_MACHINE_GUARD(inv->guard, &sm->runtime, &completion)) {
-            return SC_STATUS_CONSTRAINT_VIOLATED;
+        if (active) {
+            bool ok = SC_MACHINE_GUARD(inv->guard, &sm->runtime, &completion);
+#if SC__TRACE_ENABLED(SC_TRACE_MASK_GUARD)
+            {
+                const sc_trace_data_t trace_data = {
+                    .state = inv->scope, .guard = inv->guard, .result = ok,
+                };
+                SC_MACHINE_TRACE(SC_TRACE_GUARD, &sm->runtime, &completion, &trace_data);
+            }
+#endif
+            if (!ok) {
+                return SC_STATUS_CONSTRAINT_VIOLATED;
+            }
         }
+
     }
     return SC_STATUS_OK;
 }
@@ -684,12 +782,22 @@ sc_status_t SC__FN(_init)(SC__T *sm, SC__CTX *ctx)
     sm->runtime.queue = &sm->queue;
 #endif
     (void)sc_event_init(&completion, SC_EVENT_COMPLETION);
+#if SC__TRACE_ENABLED(SC_TRACE_MASK_ENTER)
+    {
+        const sc_trace_data_t trace_data = {
+            .state = SC_MACHINE_DEF.initial_state,
+            .activation_index = SC_MACHINE_DEF.states[SC_MACHINE_DEF.initial_state].slot,
+        };
+        SC_MACHINE_TRACE(SC_TRACE_ENTER, &sm->runtime, &completion, &trace_data);
+    }
+#endif
     status = SC__FN(_run_state_action)(
         sm, SC_MACHINE_DEF.states[SC_MACHINE_DEF.initial_state].entry_action,
         &completion);
     if (status != SC_STATUS_OK) {
         return status;
     }
+
     {
         sc_state_id_t leaf;
         status = SC__FN(_descend)(sm, SC_MACHINE_DEF.initial_state, &completion, &leaf);
@@ -811,15 +919,26 @@ sc_status_t SC__FN(_tick)(SC__T *sm, sc_time_t now)
     (void)sc_event_init(&timeout, SC_EVENT_TIMEOUT);
     for (i = 0u; i < (sc_state_id_t)SC_MACHINE_ACTIVE_CAPACITY; ++i) {
         sc_activation_t *a = &sm->runtime.active[i];
+        bool due_now;
         if ((a->leaf == SC_STATE_INVALID) || a->timeout_delivered) {
             continue;
         }
-        if (SC_MACHINE_TIMEOUT_DUE(a->leaf, &sm->runtime, i)) {
+        due_now = SC_MACHINE_TIMEOUT_DUE(a->leaf, &sm->runtime, i);
+#if SC__TRACE_ENABLED(SC_TRACE_MASK_TIMER_CHECK)
+        {
+            const sc_trace_data_t trace_data = {
+                .state = a->leaf, .result = due_now, .activation_index = i,
+            };
+            SC_MACHINE_TRACE(SC_TRACE_TIMER_CHECK, &sm->runtime, &timeout, &trace_data);
+        }
+#endif
+        if (due_now) {
             a->timeout_delivered = true;
             due[due_count] = i;
             ++due_count;
         }
     }
+
     for (i = 0u; i < (sc_state_id_t)due_count; ++i) {
         sc_state_id_t slot = due[i];
         int32_t idx = SC__FN(_find_transition_at)(machine, sm->runtime.active[slot].leaf,
@@ -961,5 +1080,11 @@ sc_state_id_t SC__FN(_active_state)(const SC__T *sm, sc_state_id_t index)
 #endif
 #ifdef SC_MACHINE_HAS_WHEN
 #undef SC_MACHINE_HAS_WHEN
+#endif
+#undef SC__TRACE_ENABLED
+#ifdef SC_MACHINE_HAS_TRACE
+#undef SC_MACHINE_HAS_TRACE
+#undef SC_MACHINE_TRACE
+#undef SC_MACHINE_TRACE_MASK
 #endif
 #undef SC_MACHINE_ACTIVE_CAPACITY
