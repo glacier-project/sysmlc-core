@@ -427,7 +427,7 @@ def test_build_with_python_copies_module_and_imports(tmp_path: Path) -> None:
     assert (out / "ext.py").exists()  # copied next to the .lf
 
 
-def test_quake_build_with_python_imports_without_copying(
+def test_quake_build_with_python_imports_with_copying(
     tmp_path: Path,
 ) -> None:
     model = SM_EXAMPLES_DIR / "sm15-external"
@@ -465,7 +465,7 @@ def test_quake_build_with_python_imports_without_copying(
         "from ext import step",
     ]
     assert "x = step(x, 0.1)" in yaml
-    assert not (out / "ext.py").exists()
+    assert (out / "ext.py").exists()
 
 
 def test_build_reps_generates_module_beside_lf(tmp_path: Path) -> None:
@@ -577,7 +577,7 @@ def test_quake_build_with_reps_imports_generated_module(
     yaml = (out / "Ramp.yaml").read_text()
     assert "from Ramp_impl import step" in yaml
     assert "x = step(x, 0.1)" in yaml
-    assert not (out / "Ramp_impl.py").exists()
+    assert (out / "Ramp_impl.py").exists()
 
 
 def test_build_part_system_emits_main_reactor(tmp_path: Path) -> None:
