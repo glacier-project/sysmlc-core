@@ -1,6 +1,3 @@
-# mypy: ignore-errors
-# (uses the frost-integration backend API; skips at collection elsewhere)
-
 from __future__ import annotations
 
 import os
@@ -12,8 +9,10 @@ import pytest
 
 from sysmlc.backends.base import OutputOptions
 
+# The ignores below gate the frost-integration backend API, absent on
+# some branches; `unused-ignore` keeps them inert once it lands.
 try:
-    from sysmlc.backends.frostifier.backend import (
+    from sysmlc.backends.frostifier.backend import (  # type: ignore[attr-defined,unused-ignore]
         FrostifierBackend,
         default_frost_source,
     )
@@ -35,7 +34,7 @@ SHOWCASE = SHOWCASE_FROST_DIR / "quality-cell"
 
 def _frost_source() -> str:
     """A clonable Frost source, or skip (URLs pass unprobed)."""
-    frost = default_frost_source()
+    frost: str | None = default_frost_source()
     if frost is not None and (
         "://" in frost or (Path(frost) / FROST_CHECKOUT_MARKER).is_file()
     ):
@@ -66,7 +65,7 @@ def _build_compile_run(
     frost = _frost_source()
 
     backend = FrostifierBackend()
-    artifact = backend.build_part(
+    artifact = backend.build_part(  # type: ignore[attr-defined,unused-ignore]
         load_model(model_dir),
         usage_qn,
         frost=frost,

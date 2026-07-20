@@ -34,9 +34,11 @@ Examples: `models/showcase-frost/pendulum`,
 
 ### Run vs experiment configuration
 
-`stepSize` is the co-simulation communication interval; `stopTime` bounds
-the run. Both fall back to the archive's `DefaultExperiment` when omitted —
-`validate_fmu` returns the resolved declaration.
+`stepSize` is the co-simulation communication interval; when omitted,
+`validate_fmu` resolves it from the archive's `DefaultExperiment` (and
+errors if neither declares one). `stopTime` bounds the run; omitting it
+leaves the run unbounded (`extract-fmu` pre-fills it from the
+`DefaultExperiment` at scaffold time).
 
 ## 2. Validation
 
