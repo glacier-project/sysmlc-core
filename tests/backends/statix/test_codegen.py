@@ -177,11 +177,17 @@ def _payload_facts(model: syside.Model, qn: str) -> list:
     ]
 
 
-def _payload_gen(trigger: SignalTrigger) -> CCodeGen:
+def _payload_gen(
+    trigger: SignalTrigger,
+    payload_c_type: str | None = "sample_t",
+    struct_field_types: dict | None = None,
+) -> CCodeGen:
     return CCodeGen(
         attribute_names=frozenset({"current", "captured"}),
         real_attributes=frozenset({"current", "captured"}),
         payload_feature=trigger.payload_feature,
+        payload_c_type=payload_c_type,
+        struct_field_types=struct_field_types or {"sample_t": {"value": "double"}},
     )
 
 
@@ -226,14 +232,38 @@ def test_three_segment_payload_chain_rejected(sm_models: dict) -> None:
         gen.render_expression(t.guard)
 
 
-def test_whole_payload_reference_rejected(sm_models: dict) -> None:
+def test_whole_payload_capture_no_longer_raises(sm_models: dict) -> None:
+    # Was test_whole_payload_reference_rejected: whole-payload struct
+    # capture used to be entirely unsupported (a real, if different,
+    # limitation); now the false-positive guard must not fire for it. The
+    # rendered text at this checkpoint is still the OLD buggy per-field
+    # sc_event_payload_f64 re-read (Task 8 fixes that) -- this test only
+    # proves the assignment doesn't raise, not that its rendering is correct
+    # yet.
     (t,) = _payload_facts(
         sm_models["sm11"], "SM11::MachineReadablePayloadWhole"
     )
     gen = _payload_gen(t.trigger)
     (assign,) = actions.inline_actions(t.effect)
+    gen.render_action(assign)  # must not raise
+
+
+def test_scalar_payload_to_non_real_target_stays_rejected(sm_models: dict) -> None:
+    # The guard's real, correct purpose must survive the false-positive fix
+    # below: a genuine scalar payload read assigned to a non-Real attribute
+    # is still an error.
+    (t,) = _payload_facts(
+        sm_models["sm11"], "SM11::MachineReadablePayloadEffect"
+    )
+    gen = CCodeGen(
+        attribute_names=frozenset({"current", "captured"}),
+        real_attributes=frozenset({"current"}),  # captured deliberately NOT Real
+        payload_feature=t.trigger.payload_feature,
+    )
+    (assign,) = actions.inline_actions(t.effect)
     with pytest.raises(UnsupportedConstructError):
         gen.render_action(assign)
+
 
 
 def test_payload_read_without_binding_still_rejected(sm_models: dict) -> None:

@@ -138,7 +138,7 @@ class CCodeGen:
         self._struct_field_types = struct_field_types or {}
         self._generated_enum_types = generated_enum_types
         self.payload_reads: set[tuple[str, ...]] = set()
-        self._used_payload = False
+        self._used_scalar_payload = False
         self.needs_math = False
         self._used_math = False
 
@@ -176,9 +176,9 @@ class CCodeGen:
                 "assignment has no value expression", node=assign
             )
         self._used_math = False
-        self._used_payload = False
+        self._used_scalar_payload = False
         rhs = self._emit(value)
-        if (self._used_math or self._used_payload) and (
+        if (self._used_math or self._used_scalar_payload) and (
             base is not None or target.name not in self._real_attributes
         ):
             raise CCodeGenError(
@@ -237,7 +237,6 @@ class CCodeGen:
                 fields = self._struct_field_types[self._payload_c_type]
                 for fname in fields:
                     self.payload_reads.add((fname,))
-                self._used_payload = True
                 parts = [
                     f".{fname} = sc_event_payload_f64(event)"
                     for fname in fields
@@ -321,7 +320,7 @@ class CCodeGen:
                     node=expr,
                 )
             self.payload_reads.add(tuple(names))
-            self._used_payload = True
+            self._used_scalar_payload = True
             return "sc_event_payload_f64(event)"
         base = self._emit(op0, 0)
         target = expr.target_feature
