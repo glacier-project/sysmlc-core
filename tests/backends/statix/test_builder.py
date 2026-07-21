@@ -906,3 +906,23 @@ def test_inconsistent_shapes_rejected_through_the_real_pipeline(
             "SM11::MachineReadablePayloadInconsistentShapes",
         )
 
+
+def test_whole_payload_materializes_omitted_attribute_defaults(
+    sm_models: dict,
+) -> None:
+    # send new Measurement(current) binds only `value`; `sample` is
+    # omitted (KerML permits fewer constructor args than attributes) and
+    # must be materialized from Sample's own default (0.75).
+    program = build_statix(
+        sm_models["sm11"], "SM11::MachineReadablePayloadWhole"
+    )
+    effect = next(a for a in program.actions if "idle" in a.name)
+    send = next(s for s in effect.statements if isinstance(s, CSend))
+    assert send.value_expr is None
+    joined = "\n".join(send.payload_lines)
+    assert "sc__value" in joined
+    assert ".value = ctx->current" in joined
+    assert "0.75" in joined
+    assert "sc_runtime_enqueue_payload" in joined
+
+

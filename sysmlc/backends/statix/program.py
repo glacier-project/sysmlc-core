@@ -93,10 +93,20 @@ class CSend:
     payload value (``sc_runtime_enqueue_f64``), or ``None`` for an id-only
     send (``sc_runtime_enqueue``) -- sends of events whose payload is never
     read stay id-only, their constructor arguments dropped unrendered.
+
+    ``payload_lines`` is set instead of ``value_expr`` for a whole-payload
+    send: the complete inner block content (a local struct value, the
+    flattened double array, and the enqueue_payload call with its own status
+    check) -- rendered by the builder since this shape (declaring two locals
+    before a differently-signatured enqueue call) fundamentally differs from
+    the single-expression scalar case. Exactly one of
+    ``value_expr``/``payload_lines`` is set for a marshalled send, or
+    neither for an id-only send.
     """
 
     event: str
     value_expr: str | None = None
+    payload_lines: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -217,6 +227,7 @@ class CProgram:
     regions: tuple[str, ...] = ()
     active_capacity: int = 1
     extern_functions: tuple[CExternFunction, ...] = ()
+    payload_struct_types: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

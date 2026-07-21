@@ -281,6 +281,10 @@ def _source_view(program: CProgram) -> dict[str, object]:
     def stmt_lines(statement: str | CSend) -> list[str]:
         if isinstance(statement, CSend):
             token = _event_token(program, statement.event)
+            if statement.payload_lines:
+                lines = [line.replace("__EVENT_TOKEN__", token) for line in statement.payload_lines]
+                return ["{", *(f"    {line}" for line in lines), "}"]
+            token = _event_token(program, statement.event)
             if statement.value_expr is None:
                 call = [
                     "    sc_status_t send_status = sc_runtime_enqueue(",

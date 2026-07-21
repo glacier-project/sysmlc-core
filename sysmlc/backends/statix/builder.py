@@ -6,6 +6,7 @@ from typing import Final, NamedTuple
 import syside
 
 from sysmlc.backends.statix.codegen import CCodeGen
+from sysmlc.backends.statix.payload import _flatten_leaf_paths
 from sysmlc.backends.statix.program import (
     COMPLETION_EVENT,
     INTERNAL_TARGET,
@@ -28,6 +29,7 @@ from sysmlc.backends.statix.program import (
 from sysmlc.codegen.python import payload_signature
 from sysmlc.errors import UnsupportedConstructError
 from sysmlc.semantics.statemachine import actions
+from sysmlc.semantics.statemachine import attributes as attributes_mod
 from sysmlc.semantics.statemachine.driver import StateMachineDriver
 from sysmlc.semantics.statemachine.facts import (
     AfterTrigger,
@@ -244,6 +246,7 @@ class StatixBuilder:
         self._qualified_name = qualified_name
         self._prefix = _c_prefix(qualified_name)
         self._externs: dict[str, CExternFunction] = {}
+        self._whole_payload_struct_types: set[str] = set()
         self._compiler: syside.Compiler | None = None
         self._stdlib: syside.Stdlib | None = None
         # Guard/action codegen is re-created in result() once the attribute
@@ -497,6 +500,7 @@ class StatixBuilder:
             regions=tuple(self._regions_flat),
             active_capacity=self._active_capacity,
             extern_functions=tuple(self._externs.values()),
+            payload_struct_types=tuple(sorted(self._whole_payload_struct_types)),
         )
 
     def _payload_gen(self, payload_feature: syside.Feature) -> CCodeGen:
@@ -1252,14 +1256,17 @@ class StatixBuilder:
             raise UnsupportedConstructError(
                 f"unsupported send payload: {exc}"
             ) from exc
-        value_expr = (
-            self._marshal_expr(event_name, pairs)
-            if event_name in self._payload_reads
-            else None  # unread event: drop raw args without rendering them
-        )
+        value_expr: str | None = None
+        payload_lines: tuple[str, ...] = ()
+        if event_name in self._payload_reads:
+            shape = self._payload_reads[event_name]
+            if shape == ():
+                payload_lines = self._marshal_whole_payload(send, event_name, pairs)
+            else:
+                value_expr = self._marshal_expr(event_name, pairs)
         self._events.setdefault(event_name, None)
         self._has_send = True
-        result = CSend(event=event_name, value_expr=value_expr)
+        result = CSend(event=event_name, value_expr=value_expr, payload_lines=payload_lines)
         self._sends.append(result)
         return result
 
@@ -1279,10 +1286,6 @@ class StatixBuilder:
         rendered.
         """
         path = self._payload_reads[event_name]
-        if not path:
-            raise UnsupportedConstructError(
-                f"whole payload marshalling for event {event_name!r} is unsupported until lowered."
-            )
         match = next((p for p in pairs if p[0] == path[0]), None)
         if match is None:
             raise UnsupportedConstructError(
@@ -1331,6 +1334,94 @@ class StatixBuilder:
                 "Real (double) field."
             )
         return f"ctx->{ref.name}.{path[1]}"
+
+    def _marshal_whole_payload(
+        self,
+        send: syside.SendActionUsage,
+        event_name: str,
+        pairs: list[tuple[str, syside.Expression]],
+    ) -> tuple[str, ...]:
+        """Render a whole-payload send.
+
+        Materialize every top-level payload attribute (bound expression, or
+        its own generated default when KerML's fewer-args-than-attributes
+        rule leaves it unbound), assemble one nested compound literal, then
+        read the flattened leaf array off THAT local -- guaranteeing each
+        supplied expression evaluates exactly once regardless of how many
+        leaves it contributes to.
+        """
+        payload = send.payload_argument
+        assert isinstance(payload, syside.ConstructorExpression)
+        event_type = payload.instantiated_type
+        assert isinstance(event_type, syside.Definition)
+        attributes = event_type.owned_attributes.collect()
+        bound = dict(pairs)
+        payload_c_type = self._register_whole_payload_type(event_type, event_name)
+        self._whole_payload_struct_types.add(payload_c_type)
+        field_text = self._render_struct_fields(attributes, bound)
+        leaf_paths = _flatten_leaf_paths(payload_c_type, self._structs)
+        if not leaf_paths:
+            raise UnsupportedConstructError(
+                f"event {event_name!r} uses an empty composite payload; "
+                "whole payloads require at least one Real leaf."
+            )
+        leaf_reads = ", ".join(
+            "sc__value." + ".".join(path) for path in leaf_paths
+        )
+        return (
+            f"const {payload_c_type} sc__value = {field_text};",
+            f"const double sc__payload[] = {{ {leaf_reads} }};",
+            "sc_status_t send_status = sc_runtime_enqueue_payload(",
+            "    runtime, (sc_event_id_t)__EVENT_TOKEN__,",
+            "    sc__payload, sizeof(sc__payload));",
+            "if (send_status != SC_STATUS_OK) {",
+            "    return send_status;",
+            "}",
+        )
+
+    def _register_whole_payload_type(
+        self, event_type: syside.Definition, event_name: str
+    ) -> str:
+        assert event_type.name is not None
+        c_type = f"{self._prefix}_{_c_identifier(event_type.name)}_t"
+        if c_type not in self._structs:
+            fields: list[CField] = []
+            for attr in event_type.owned_attributes.collect():
+                assert attr.name is not None
+                field_type = self._resolve_extern_type(attr, attr.name)
+                fields.append(CField(attr.name, field_type, ""))
+            self._structs[c_type] = CStruct(name=c_type, fields=tuple(fields))
+        return c_type
+
+    def _render_struct_fields(
+        self,
+        attributes: list[syside.AttributeUsage],
+        bound: dict[str, syside.Expression],
+    ) -> str:
+        """Render one nested compound literal.
+
+        Bound attrs use the caller's expression (through self._gen, the
+        machine's own context codegen); every OMITTED attribute (KerML
+        permits fewer args than attributes) is materialized from its own
+        declared default via the exact same bind_value/_scalar_init/_struct_init
+        machinery already used for a machine's own context attributes.
+        """
+        assert self._compiler is not None and self._stdlib is not None
+        parts: list[str] = []
+        for attr in attributes:
+            assert attr.name is not None
+            if attr.name in bound:
+                rendered = self._gen.render_expression(bound[attr.name])
+            else:
+                value = attributes_mod.bind_value(attr, self._compiler, self._stdlib)
+                if isinstance(value, CompositeValue):
+                    self._register_struct(value)
+                    rendered = self._struct_init(value)
+                else:
+                    c_type = self._scalar_c_type(value, attr.name)
+                    rendered = self._scalar_init(value, c_type)
+            parts.append(f".{attr.name} = {rendered}")
+        return "{" + ", ".join(parts) + "}"
 
     def _action_for(
         self,
