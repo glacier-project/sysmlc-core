@@ -244,12 +244,32 @@ class StatixBuilder:
         self._qualified_name = qualified_name
         self._prefix = _c_prefix(qualified_name)
         self._externs: dict[str, CExternFunction] = {}
+        self._compiler: syside.Compiler | None = None
+        self._stdlib: syside.Stdlib | None = None
         # Guard/action codegen is re-created in result() once the attribute
         # names are known; the init codegen never sees a context pointer.
         self._gen = CCodeGen(
             enum_resolver=self._resolve_enum_literal,
             extern_resolver=self._resolve_extern_call,
         )
+
+    def set_compiler_context(
+        self, compiler: syside.Compiler, stdlib: syside.Stdlib
+    ) -> None:
+        """Give this builder access to the driver's own compiler/stdlib.
+
+        Needed only for default-value materialization of a payload type's
+        omitted constructor arguments (KerML 8.3.4.8.7 permits fewer
+        arguments than attributes) -- reuses attributes.bind_value, the
+        exact function driver.py's own _bind_attributes already uses for a
+        machine's context attributes. `StatixBuilder` otherwise has no
+        compiler/stdlib access (it is constructed from a bare qualified
+        name); this is a lightweight, optional setter rather than a
+        constructor change, so existing tests that construct a
+        `StatixBuilder` directly (bypassing the driver) are unaffected.
+        """
+        self._compiler = compiler
+        self._stdlib = stdlib
         self._init_gen = CCodeGen(
             allow_context=False,
             enum_resolver=self._resolve_enum_literal,

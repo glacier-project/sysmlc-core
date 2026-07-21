@@ -55,6 +55,9 @@ class StateMachineDriver:
             The artifact returned by ``builder.result()``.
         """
         state_def = resolve(self._model, syside.StateDefinition, state_def_qn)
+        set_compiler_context = getattr(builder, "set_compiler_context", None)
+        if set_compiler_context is not None:
+            set_compiler_context(self._compiler, self._stdlib)
         self._bind_attributes(state_def, builder)
         self._bind_constraints(state_def, builder)
         assert state_def.name is not None
