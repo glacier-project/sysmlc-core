@@ -588,7 +588,7 @@ def _extern_header(project: CProject) -> str | None:
         "",
         "#endif /* STATIX_EXTERN_H */",
     ]
-    return "\n".join(lines)
+    return "\n".join(lines) + "\n"
 
 
 def emit_project_files(project: CProject) -> dict[str, str]:
