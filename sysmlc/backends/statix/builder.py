@@ -429,6 +429,7 @@ class StatixBuilder:
             extern_resolver=self._resolve_extern_call,
             attribute_c_types=self._attribute_c_types,
             struct_field_types=struct_field_types,
+            structs_by_name=self._structs,
             generated_enum_types=self._generated_enum_type_names(),
         )
         self._payload_reads = self._detect_payload_reads()
@@ -518,6 +519,7 @@ class StatixBuilder:
             extern_resolver=self._resolve_extern_call,
             attribute_c_types=self._attribute_c_types,
             struct_field_types=self._struct_field_types(),
+            structs_by_name=self._structs,
             generated_enum_types=self._generated_enum_type_names(),
         )
 
@@ -576,6 +578,10 @@ class StatixBuilder:
                 shapes_by_event.setdefault(trigger.signal_name, set()).update(
                     probe.payload_reads
                 )
+            # A whole payload only ever RECEIVED (never sent) by this
+            # machine must still contribute to SC_EVENT_PAYLOAD_SIZE sizing
+            # -- Task 7's send-side registration alone would miss it.
+            self._whole_payload_struct_types.update(probe.whole_payload_types)
         return _validate_payload_shapes(shapes_by_event)
 
     def _facts_by_name(self) -> dict[str, StateFact]:
@@ -701,6 +707,18 @@ class StatixBuilder:
         if isinstance(value, CompositeValue):
             c_type = self._register_struct(value)
             return CField(binding.name, c_type, self._struct_init(value))
+        if (
+            value is None
+            and isinstance(
+                binding.type_definition,
+                (syside.AttributeDefinition, syside.ItemDefinition),
+            )
+            and binding.type_definition.owned_attributes.collect()
+        ):
+            c_type = self._register_struct_from_definition(
+                binding.type_definition
+            )
+            return CField(binding.name, c_type, self._scalar_init(value, c_type))
         c_type = self._scalar_c_type(value, binding.name, binding.type_name)
         return CField(binding.name, c_type, self._scalar_init(value, c_type))
 
@@ -731,6 +749,9 @@ class StatixBuilder:
                 return "bool"
             if type_name == "String":
                 return "const char*"
+            c_type = f"{self._prefix}_{_c_identifier(type_name)}_t"
+            if c_type in self._structs:
+                return c_type
         raise UnsupportedConstructError(
             f"attribute {name!r} has no scalar literal default; statix "
             "iteration 1 infers a C type from a Boolean/Integer/Real literal "
@@ -747,6 +768,8 @@ class StatixBuilder:
                 return "false"
             if c_type == "const char*":
                 return '""'
+            if c_type in self._structs:
+                return "{0}"
         if isinstance(value, float):
             return repr(value) if c_type == "double" else str(int(value))
         assert not isinstance(value, CompositeValue) and value is not None

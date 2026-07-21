@@ -60,3 +60,28 @@ def _flatten_leaf_paths(
                 "leaf of a whole-payload type to be Real."
             )
     return paths
+
+
+def _reconstruct_nested_literal(
+    struct_type: str,
+    structs_by_name: dict[str, CStruct],
+    paths: list[tuple[str, ...]],
+) -> str:
+    """Build a nested compound literal from flat sc__payload[i] reads.
+
+    Done in the exact order _flatten_leaf_paths produced them -- the inverse
+    of the send side's flattening, walking the same struct tree.
+    """
+    index = {path: i for i, path in enumerate(paths)}
+
+    def render(name: str, prefix: tuple[str, ...]) -> str:
+        parts = []
+        for f in structs_by_name[name].fields:
+            path = (*prefix, f.name)
+            if f.c_type == "double":
+                parts.append(f".{f.name} = sc__payload[{index[path]}]")
+            else:
+                parts.append(f".{f.name} = {render(f.c_type, path)}")
+        return "{" + ", ".join(parts) + "}"
+
+    return render(struct_type, ())

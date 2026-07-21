@@ -926,3 +926,18 @@ def test_whole_payload_materializes_omitted_attribute_defaults(
     assert "sc_runtime_enqueue_payload" in joined
 
 
+def test_whole_payload_read_reconstructs_nested_literal(sm_models: dict) -> None:
+    program = build_statix(
+        sm_models["sm11"], "SM11::MachineReadablePayloadWhole"
+    )
+    effect = next(a for a in program.actions if "armed" in a.name)
+    (stmt,) = effect.statements
+    assert "sc_event_payload_read" in stmt
+    assert "payload_status" in stmt
+    assert "return payload_status" in stmt
+    assert "sc__payload[0]" in stmt
+    assert "sc__payload[1]" in stmt
+    assert "sample" in stmt and "sc__payload[1]" in stmt
+
+
+

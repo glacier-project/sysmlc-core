@@ -4,7 +4,11 @@ from pathlib import Path
 import pytest
 import syside
 
-from sysmlc.backends.statix.codegen import _C_MATH_FUNCTIONS, CCodeGen
+from sysmlc.backends.statix.codegen import (
+    _C_MATH_FUNCTIONS,
+    CCodeGen,
+    CCodeGenError,
+)
 from sysmlc.codegen.python import LIBRARY_FUNCTIONS
 from sysmlc.errors import UnsupportedConstructError
 from sysmlc.semantics.statemachine import actions
@@ -351,3 +355,29 @@ def test_relational_between_two_enum_valued_composite_fields_is_rejected() -> (
     )
     with pytest.raises(UnsupportedConstructError):
         _guards(model, "ENUMREJECT::MachineRelationalCompositeFields", gen)
+
+
+def test_whole_payload_assignment_type_mismatch_rejected(sm_models: dict) -> None:
+    # captured declared as a plain Real (not the Measurement struct type)
+    # must be rejected with a clear statix-level diagnostic, not silently
+    # emit an incompatible C compound-literal assignment.
+    (t,) = _payload_facts(
+        sm_models["sm11"], "SM11::MachineReadablePayloadWhole"
+    )
+    gen = CCodeGen(
+        attribute_names=frozenset({"current", "captured"}),
+        real_attributes=frozenset({"current", "captured"}),
+        payload_feature=t.trigger.payload_feature,
+        payload_c_type="sm11_machine_readable_payload_whole_measurement_t",
+        struct_field_types={
+            "sm11_machine_readable_payload_whole_measurement_t": {
+                "value": "double",
+                "sample": "sm11_machine_readable_payload_whole_sample_t",
+            },
+        },
+        attribute_c_types={"current": "double", "captured": "double"},  # WRONG on purpose
+    )
+    (assign,) = actions.inline_actions(t.effect)
+    with pytest.raises(CCodeGenError, match="cannot assign the whole payload"):
+        gen.render_action(assign)
+

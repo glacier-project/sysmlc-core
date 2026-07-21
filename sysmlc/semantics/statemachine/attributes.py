@@ -46,7 +46,7 @@ def nested_attributes(
     """
     nested: list[syside.AttributeUsage] = []
     for definition in attr.attribute_definitions.collect():
-        if isinstance(definition, syside.AttributeDefinition):
+        if isinstance(definition, syside.Definition):
             nested.extend(definition.owned_attributes.collect())
     if not nested:
         return nested
@@ -155,7 +155,7 @@ def bind_value(
         (
             d
             for d in attr.attribute_definitions.collect()
-            if isinstance(d, syside.AttributeDefinition)
+            if isinstance(d, syside.Definition)
             and d.owned_attributes.collect()
         ),
         None,
