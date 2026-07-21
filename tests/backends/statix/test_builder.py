@@ -470,9 +470,7 @@ def test_unread_payload_sends_stay_id_only(sm_models: dict) -> None:
         assert effect.statements == (CSend(event=event, value_expr=None),)
 
 
-def test_whole_payload_read_stays_rejected(sm_models: dict) -> None:
-    with pytest.raises(UnsupportedConstructError):
-        build_statix(sm_models["sm11"], "SM11::MachineReadablePayloadWhole")
+
 
 
 def test_two_segment_chain_machine_builds(sm_models: dict) -> None:

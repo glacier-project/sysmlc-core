@@ -185,13 +185,18 @@ def _payload_gen(
     trigger: SignalTrigger,
     payload_c_type: str | None = "sample_t",
     struct_field_types: dict | None = None,
+    attribute_c_types: dict | None = None,
+    structs_by_name: dict | None = None,
 ) -> CCodeGen:
+    c_type = payload_c_type or "sample_t"
     return CCodeGen(
         attribute_names=frozenset({"current", "captured"}),
         real_attributes=frozenset({"current", "captured"}),
         payload_feature=trigger.payload_feature,
         payload_c_type=payload_c_type,
-        struct_field_types=struct_field_types or {"sample_t": {"value": "double"}},
+        attribute_c_types=attribute_c_types or {"current": "double", "captured": c_type},
+        struct_field_types=struct_field_types or {c_type: {"value": "double"}},
+        structs_by_name=structs_by_name,
     )
 
 
@@ -237,19 +242,37 @@ def test_three_segment_payload_chain_rejected(sm_models: dict) -> None:
 
 
 def test_whole_payload_capture_no_longer_raises(sm_models: dict) -> None:
-    # Was test_whole_payload_reference_rejected: whole-payload struct
-    # capture used to be entirely unsupported (a real, if different,
-    # limitation); now the false-positive guard must not fire for it. The
-    # rendered text at this checkpoint is still the OLD buggy per-field
-    # sc_event_payload_f64 re-read (Task 8 fixes that) -- this test only
-    # proves the assignment doesn't raise, not that its rendering is correct
-    # yet.
+    from sysmlc.backends.statix.program import CField, CStruct
+
     (t,) = _payload_facts(
         sm_models["sm11"], "SM11::MachineReadablePayloadWhole"
     )
-    gen = _payload_gen(t.trigger)
+    c_type = "sm11_machine_readable_payload_whole_measurement_t"
+    sample_type = "sm11_machine_readable_payload_whole_sample_t"
+    structs = {
+        c_type: CStruct(
+            name=c_type,
+            fields=(
+                CField("value", "double", ""),
+                CField("sample", sample_type, ""),
+            ),
+        ),
+        sample_type: CStruct(
+            name=sample_type, fields=(CField("value", "double", ""),)
+        ),
+    }
+    gen = _payload_gen(
+        t.trigger,
+        payload_c_type=c_type,
+        struct_field_types={
+            c_type: {"value": "double", "sample": sample_type},
+            sample_type: {"value": "double"},
+        },
+        structs_by_name=structs,
+    )
     (assign,) = actions.inline_actions(t.effect)
-    gen.render_action(assign)  # must not raise
+    rendered = gen.render_action(assign)
+    assert "sc_event_payload_read" in rendered
 
 
 def test_scalar_payload_to_non_real_target_stays_rejected(sm_models: dict) -> None:

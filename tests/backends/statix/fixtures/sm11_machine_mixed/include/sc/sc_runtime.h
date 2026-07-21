@@ -188,18 +188,27 @@ sc_status_t sc_runtime_get_state(const sc_runtime_t *runtime, sc_state_id_t *out
 ///         (NULL runtime, or a machine with no internal-event queue).
 sc_status_t sc_runtime_enqueue(sc_runtime_t *runtime, sc_event_id_t event_id);
 
+/// @brief Post an internal event carrying an arbitrary bounded byte payload.
+///
+/// Generic counterpart of sc_runtime_enqueue_f64: copies `len` bytes into
+/// the event's inline buffer via sc_event_set_payload and pushes the event.
+/// `len` must not exceed SC_EVENT_PAYLOAD_SIZE.
+/// @param runtime Runtime instance to post into.
+/// @param event_id Event identifier to enqueue.
+/// @param data Payload bytes to marshal, or NULL iff len is 0.
+/// @param len Number of payload bytes to marshal.
+/// @return SC_STATUS_OK, SC_STATUS_QUEUE_FULL, or SC_STATUS_INVALID_ARGUMENT.
+sc_status_t sc_runtime_enqueue_payload(sc_runtime_t *runtime, sc_event_id_t event_id,
+                                        const void *data, size_t len);
+
 /// @brief Post an internal event carrying one Real (double) payload value.
 ///
-/// The scalar Real payload slot: the double's object bytes are copied into
-/// the event's inline payload buffer (bounded loop, no allocation) and read
-/// back by sc_event_payload_f64 on the accepting side. Same contract as
-/// sc_runtime_enqueue otherwise.
+/// Thin wrapper over sc_runtime_enqueue_payload, preserving this function's
+/// original signature/behavior exactly for every existing caller.
 /// @param runtime Runtime instance to post into.
 /// @param event_id Event identifier to enqueue.
 /// @param value Payload value to marshal.
-/// @return SC_STATUS_OK, SC_STATUS_QUEUE_FULL, or SC_STATUS_INVALID_ARGUMENT
-///         (NULL runtime, a machine with no internal-event queue, or a
-///         double too large for the payload buffer).
+/// @return SC_STATUS_OK, SC_STATUS_QUEUE_FULL, or SC_STATUS_INVALID_ARGUMENT.
 sc_status_t sc_runtime_enqueue_f64(sc_runtime_t *runtime, sc_event_id_t event_id, double value);
 
 /// @brief Convert SI seconds to ticks, rejecting negative or unrepresentable values.
@@ -363,27 +372,28 @@ sc_status_t sc_runtime_enqueue(sc_runtime_t *runtime, sc_event_id_t event_id)
     return sc_event_queue_push(runtime->queue, &event);
 }
 
-sc_status_t sc_runtime_enqueue_f64(sc_runtime_t *runtime, sc_event_id_t event_id, double value)
+sc_status_t sc_runtime_enqueue_payload(sc_runtime_t *runtime, sc_event_id_t event_id,
+                                        const void *data, size_t len)
 {
     sc_event_t event;
-    const uint8_t *bytes = (const uint8_t *)&value;
-    uint8_t i;
     sc_status_t status;
     if ((runtime == NULL) || (runtime->queue == NULL)) {
-        return SC_STATUS_INVALID_ARGUMENT;
-    }
-    if (sizeof(double) > (size_t)SC_EVENT_PAYLOAD_SIZE) {
         return SC_STATUS_INVALID_ARGUMENT;
     }
     status = sc_event_init(&event, event_id);
     if (status != SC_STATUS_OK) {
         return status;
     }
-    for (i = 0u; i < (uint8_t)sizeof(double); ++i) {
-        event.payload[i] = bytes[i];
+    status = sc_event_set_payload(&event, (const uint8_t *)data, len);
+    if (status != SC_STATUS_OK) {
+        return status;
     }
-    event.payload_len = (uint8_t)sizeof(double);
     return sc_event_queue_push(runtime->queue, &event);
+}
+
+sc_status_t sc_runtime_enqueue_f64(sc_runtime_t *runtime, sc_event_id_t event_id, double value)
+{
+    return sc_runtime_enqueue_payload(runtime, event_id, &value, sizeof(value));
 }
 
 bool sc_seconds_to_ticks(double seconds, sc_time_t *out_ticks)

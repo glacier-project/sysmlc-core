@@ -407,3 +407,32 @@ def test_generated_self_loop_rearms_a_fresh_deadline(
         [str(exe)], capture_output=True, text=True, cwd=tmp_path
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_whole_payload_roundtrips_end_to_end(
+    sm_models: dict, tmp_path: Path
+) -> None:
+    program = build_statix(
+        sm_models["sm11"], "SM11::MachineReadablePayloadWhole"
+    )
+    StatixBackend().write(program, OutputOptions(output_dir=tmp_path))
+    build = tmp_path / "build"
+    subprocess.run(
+        ["cmake", "-S", str(tmp_path), "-B", str(build)],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["cmake", "--build", str(build)], check=True, capture_output=True
+    )
+    result = subprocess.run(
+        [str(build / f"{program.prefix}_runner")],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    last_line = result.stdout.strip().splitlines()[-1]
+    assert "state=fired" in last_line
+    assert "ctx.captured.value=0.9" in last_line
+    assert "ctx.captured.sample.value=0.75" in last_line
+
