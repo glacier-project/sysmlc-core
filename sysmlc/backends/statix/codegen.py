@@ -234,9 +234,8 @@ class CCodeGen:
                 self._payload_c_type is not None
                 and self._payload_c_type in self._struct_field_types
             ):
+                self.payload_reads.add(())
                 fields = self._struct_field_types[self._payload_c_type]
-                for fname in fields:
-                    self.payload_reads.add((fname,))
                 parts = [
                     f".{fname} = sc_event_payload_f64(event)"
                     for fname in fields

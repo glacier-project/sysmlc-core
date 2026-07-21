@@ -808,3 +808,101 @@ def test_relational_attribute_to_attribute_generated_enum_is_rejected() -> None:
     model = load_model(_ENUMREJECT)
     with pytest.raises(UnsupportedConstructError, match="relational"):
         build_statix(model, "ENUMREJECT::MachineRelationalAttributes")
+
+
+def test_single_shape_per_event_is_not_rejected() -> None:
+    from sysmlc.backends.statix.builder import _validate_payload_shapes
+
+    result = _validate_payload_shapes(
+        {"Measurement": {("value",)}, "Reading": {()}}
+    )
+    assert result == {"Measurement": ("value",), "Reading": ()}
+
+
+def test_whole_vs_subfeature_shape_conflict_rejected() -> None:
+    from sysmlc.backends.statix.builder import _validate_payload_shapes
+
+    with pytest.raises(UnsupportedConstructError, match="Measurement"):
+        _validate_payload_shapes({"Measurement": {(), ("value",)}})
+
+
+def test_two_different_subfeature_paths_rejected() -> None:
+    from sysmlc.backends.statix.builder import _validate_payload_shapes
+
+    with pytest.raises(
+        UnsupportedConstructError, match=r"\.sample\.value.*\.value|\.value.*\.sample\.value"
+    ):
+        _validate_payload_shapes(
+            {"Measurement": {("value",), ("sample", "value")}}
+        )
+
+
+def test_shape_diagnostic_is_deterministically_ordered() -> None:
+    from sysmlc.backends.statix.builder import _validate_payload_shapes
+
+    with pytest.raises(UnsupportedConstructError) as exc_info:
+        _validate_payload_shapes(
+            {"Measurement": {("value",), ("sample", "value")}}
+        )
+    # Sorted by canonical display text: ".sample.value" < ".value"
+    # lexicographically, so it must appear first regardless of Python set
+    # iteration order (which is not insertion-ordered for tuples of strings).
+    message = str(exc_info.value)
+    assert message.index(".sample.value") < message.index("'.value'")
+
+
+def test_same_event_read_the_same_way_twice_is_not_rejected(
+    sm_models: dict,
+) -> None:
+    # End-to-end sanity check that the new validation path doesn't disturb
+    # an ordinary, already-passing single-shape model.
+    program = build_statix(
+        sm_models["sm11"], "SM11::MachineReadablePayloadEffect"
+    )
+    assert program is not None
+
+
+def test_empty_shape_set_is_skipped_not_crashed() -> None:
+    from sysmlc.backends.statix.builder import _validate_payload_shapes
+
+    # An event with an empty shape set (defensive case -- the real caller,
+    # _detect_payload_reads, is fixed in Step 3 to never insert one) must be
+    # skipped, not crash trying to unpack a 1-tuple from zero elements.
+    result = _validate_payload_shapes({"Unread": set()})
+    assert result == {}
+
+
+def test_named_but_unreferenced_payload_is_dropped_not_marshalled(
+    sm_models: dict,
+) -> None:
+    # A transition accepts a NAMED payload (`reading : Measurement`) but its
+    # guard/effect never reference `reading` at all -- this must build
+    # cleanly and the event must simply be treated as unread (an id-only
+    # send elsewhere in the same machine, exactly as an entirely payload-
+    # less event would be), not crash _detect_payload_reads/
+    # _validate_payload_shapes on an empty shape set. See Step 0 below for
+    # the model addition this exercises.
+    program = build_statix(
+        sm_models["sm11"], "SM11::MachineReadablePayloadUnused"
+    )
+    assert "Measurement" not in program.events or all(
+        s.value_expr is None and not getattr(s, "payload_lines", ())
+        for a in program.actions
+        for s in a.statements
+        if isinstance(s, CSend) and s.event == "Measurement"
+    )
+
+
+def test_inconsistent_shapes_rejected_through_the_real_pipeline(
+    sm_models: dict,
+) -> None:
+    # Unlike the pure _validate_payload_shapes tests above, this exercises
+    # _detect_payload_reads itself end to end -- proving it actually
+    # collects shapes from every transition (not just one), through the
+    # real driver/SignalTrigger/payload_feature machinery.
+    with pytest.raises(UnsupportedConstructError, match="Measurement"):
+        build_statix(
+            sm_models["sm11"],
+            "SM11::MachineReadablePayloadInconsistentShapes",
+        )
+

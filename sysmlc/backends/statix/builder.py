@@ -183,6 +183,45 @@ class _EnumProjection(NamedTuple):
     constants: dict[str, str]
 
 
+def _shape_display(shape: tuple[str, ...]) -> str:
+    """Canonical display text for a payload read shape (() is whole payload)."""
+    return "whole payload" if not shape else "." + ".".join(shape)
+
+
+def _validate_payload_shapes(
+    shapes_by_event: dict[str, set[tuple[str, ...]]],
+) -> dict[str, tuple[str, ...]]:
+    """Collapse each event's observed shape set to its one consistent shape.
+
+    Replaces the old `setdefault`-keep-first behavior, which silently picked
+    whichever shape happened to be discovered first: the underlying wire
+    encoding differs by shape (a flattened N-double array for `()` vs. a
+    single scalar slot for a path), so two different shapes for one event
+    are never simultaneously satisfiable. Shapes are sorted by their
+    canonical display text before formatting the diagnostic, so the message
+    is deterministic regardless of Python set iteration order.
+
+    An event with an empty shape set is skipped defensively (should not
+    occur given the caller's own filtering, but a `(reads[event_name],) =
+    shapes` unpack on an empty set would otherwise crash rather than
+    degrade gracefully).
+    """
+    reads: dict[str, tuple[str, ...]] = {}
+    for event_name, shapes in shapes_by_event.items():
+        if not shapes:
+            continue
+        if len(shapes) > 1:
+            ordered = sorted(shapes, key=_shape_display)
+            names = " and ".join(f"'{_shape_display(s)}'" for s in ordered)
+            raise UnsupportedConstructError(
+                f"event {event_name!r} is read inconsistently ({names} "
+                "in different transitions); statix requires one "
+                "consistent payload encoding per event."
+            )
+        (reads[event_name],) = shapes
+    return reads
+
+
 class StatixBuilder:
     """Assemble a C statechart (:class:`CProgram`) from neutral facts.
 
@@ -468,16 +507,26 @@ class StatixBuilder:
         return frozenset(f"{e.base}_t" for e in self._enums.values())
 
     def _detect_payload_reads(self) -> dict[str, tuple[str, ...]]:
-        """Map event name -> read payload path, before lowering sends.
+        """Map event name -> its one consistent read shape, before lowering sends.
 
         Renders each payload-bound transition's guard and assignment RHSs
         with a throwaway scoped codegen whose only job is to flag (and
         shape-check) payload reads; the text is discarded. Runs before any
         action lowering so `_csend_for` can decide marshalled vs id-only
-        without ever rendering an unread constructor argument. A path is one
-        segment (`.value`) or two (one composite hop, `.sample.value`).
+        without ever rendering an unread constructor argument. A shape is
+        `()` (whole payload), one segment (`("value",)`), or two segments
+        (one composite hop, `("sample", "value")`).
+
+        Every distinct shape observed for the SAME event across every
+        transition is collected; if more than one distinct shape survives,
+        the event is read inconsistently and the build fails -- the old
+        `setdefault`-keep-first behavior silently picked whichever shape
+        happened to be discovered first, which is wrong: the underlying
+        wire encoding differs by shape (a flattened N-double array for `()`
+        vs. a single scalar slot for a path), so two different shapes for
+        one event are never simultaneously satisfiable.
         """
-        reads: dict[str, tuple[str, ...]] = {}
+        shapes_by_event: dict[str, set[tuple[str, ...]]] = {}
         for t in self._transition_facts:
             trigger = t.trigger
             if (
@@ -491,9 +540,19 @@ class StatixBuilder:
             for a in actions.inline_actions(t.effect):
                 if isinstance(a, syside.AssignmentActionUsage):
                     probe.render_action(a)
-            for path in sorted(probe.payload_reads):
-                reads.setdefault(trigger.signal_name, path)
-        return reads
+            if probe.payload_reads:
+                # Skip entirely when this transition's payload feature is
+                # named but never actually referenced in its guard/effect
+                # (e.g. `accept reading : Measurement via commPort then
+                # fired;` with no guard and no assignment touching
+                # `reading`) -- matching the OLD setdefault-inside-the-loop
+                # behavior exactly: such an event must never appear in the
+                # result at all, since _validate_payload_shapes unpacks
+                # exactly one shape per event and an empty set has none.
+                shapes_by_event.setdefault(trigger.signal_name, set()).update(
+                    probe.payload_reads
+                )
+        return _validate_payload_shapes(shapes_by_event)
 
     def _facts_by_name(self) -> dict[str, StateFact]:
         assert self._root is not None
@@ -1200,6 +1259,10 @@ class StatixBuilder:
         rendered.
         """
         path = self._payload_reads[event_name]
+        if not path:
+            raise UnsupportedConstructError(
+                f"whole payload marshalling for event {event_name!r} is unsupported until lowered."
+            )
         match = next((p for p in pairs if p[0] == path[0]), None)
         if match is None:
             raise UnsupportedConstructError(
