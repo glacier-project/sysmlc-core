@@ -207,4 +207,31 @@ package SM10 {
         state finished;
         transition first l1 then finished;
     }
+
+    // A parallel state where only one region has a `then done`: the other
+    // (`b`) never reaches a scoped final at all. Once any region uses the
+    // done/join pattern, every region is required, `b`'s missing done
+    // means the join can never legitimately fire, not that it is silently
+    // exempt from it.
+    state def MachinePartialJoin {
+        entry;
+            then working;
+        state working parallel {
+            state a {
+                entry;
+                    then a1;
+                state a1;
+                transition first a1 accept EventA then done;
+            }
+            state b {
+                entry;
+                    then b1;
+                state b1;
+                state b2;
+                transition first b1 accept EventB then b2;
+            }
+        }
+        state finished;
+        transition first working then finished;
+    }
 }

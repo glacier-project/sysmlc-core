@@ -276,3 +276,31 @@ def test_deep_completion_chain_waits_for_full_descent(
     interpreter.queue("EventA")
     interpreter.execute()
     assert interpreter.configuration == ["MachineDeepJoin", "finished"]
+
+
+def test_join_never_fires_when_one_region_has_no_done(
+    model: syside.Model,
+) -> None:
+    """A region with no ``done`` of its own permanently blocks the join.
+
+    ``working`` has two regions: ``a`` reaches its own scoped ``done``,
+    ``b`` never does. Once any region uses the done/join pattern, every
+    region is required: completing ``a`` alone must not release the join,
+    and ``b`` progressing on its own (with no ``done`` to reach) can never
+    release it either. The transition stays permanently unreachable rather
+    than silently firing on the subset of regions that happen to have a
+    ``done``.
+    """
+    sc = build_statechart(model, "SM10::MachinePartialJoin")
+    interpreter = Interpreter(sc)
+    interpreter.execute()
+
+    interpreter.queue("EventA")
+    interpreter.execute()
+    assert "working::a::done" in interpreter.configuration
+    assert "finished" not in interpreter.configuration
+
+    interpreter.queue("EventB")
+    interpreter.execute()
+    assert "working::b::b2" in interpreter.configuration
+    assert "finished" not in interpreter.configuration

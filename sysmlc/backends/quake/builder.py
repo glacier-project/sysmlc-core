@@ -86,13 +86,12 @@ class SismicBuilder:
     - the ``do`` -> run-once ``on_entry`` fusion;
     - the ``then done`` -> ``FinalState`` synthesis;
     - the ``_c_*`` completion-flag encoding of an eventless transition
-      leaving a composite or ``parallel`` state whose own ``done`` is a
-      ``then done`` target: a flag per completing scope (the composite
-      itself, or each region of a parallel state), false on entry, set
-      true by that scope's own final state, and conjoined into the
-      transition's guard so it fires only once every completing scope has
-      reached its ``done`` rather than the instant the state is entered; a
-      scope that no ``then done`` targets gets no flag and stays ungated;
+      leaving a composite or ``parallel`` state: a flag per completing
+      scope (the composite itself, or each region of a parallel state),
+      conjoined into the transition's guard so it fires only once every
+      scope has reached its own ``done``; a region with no ``then done``
+      of its own is conjoined as a literal ``False`` once any sibling
+      scope is gated, so the join can never fire on a subset;
     - the one-shot delayed-event encoding of ``accept after`` and
       ``accept at``: a
       per-activation counter bumped ``on entry``, a ``send('_tick_...',
@@ -362,23 +361,16 @@ class SismicBuilder:
         """Plan the completion-flag machinery for eventless-out composites.
 
         An eventless transition sourced at a composite or ``parallel``
-        state may only fire once that state has reached its own ``done``,
-        not the instant the state is entered: a plain composite completes
-        when its own scoped final is reached, and a parallel state completes
-        only once every region has independently reached its own scoped
-        final. Sismic has no built-in notion of either, so each completing
-        scope gets a flag, false while the scope is running, set true by
-        that scope's own final state, and reset on every (re-)entry of the
-        sourcing state so a restart (e.g. after a group interrupt) re-arms
-        it. The completing scopes are the parallel state's regions, or the
-        composite itself in the single-region case.
+        state may only fire once that state reaches its own ``done``, not
+        the instant it is entered. Sismic has no built-in notion of this,
+        so each completing scope (a parallel state's regions, or the
+        composite itself) gets a flag: false on entry, true once its own
+        final state is reached, conjoined into the transition's guard.
 
-        A scope is gated only when some ``then done`` actually targets it:
-        a scope that never reaches a ``done`` would otherwise be gated on a
-        flag that can never become true, permanently disabling the
-        transition. A sourcing state with no gated scope keeps its guard
-        and its ``on_entry`` untouched, firing on sismic's inner-first
-        ordering exactly as an ordinary eventless transition does.
+        A source with no completing scope targeted by a ``then done``
+        stays entirely ungated. Once any scope is gated, every scope is
+        required: a region with no ``then done`` of its own is conjoined
+        as a literal ``False``, so the join can never fire on a subset.
         """
         eventless_sources: set[str] = set()
         completion_scopes: set[str] = set()
@@ -402,18 +394,20 @@ class SismicBuilder:
                 scopes = [state.name]
             else:
                 continue
+            if not any(scope in completion_scopes for scope in scopes):
+                continue
             flags: list[str] = []
             for scope in scopes:
                 if scope not in completion_scopes:
+                    # This scope never reaches a done of its own, so the
+                    # join it participates in can never legitimately fire.
+                    flags.append("False")
                     continue
                 flag = f"_c_{self._ident(scope)}"
                 self._declare_armed(state.name, flag, "False", "False")
                 self._completion_flag_by_scope[scope] = flag
                 flags.append(flag)
-            if flags:
-                self._completion_flags_by_source[state.name] = " and ".join(
-                    flags
-                )
+            self._completion_flags_by_source[state.name] = " and ".join(flags)
 
     def _render_value(self, value: AttributeValue) -> str | None:
         if value is None:
