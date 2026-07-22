@@ -532,11 +532,11 @@ def test_after_literal_minutes_normalizes_to_seconds(sm_models: dict) -> None:
 
 
 def test_at_attribute_driven_renders_ctx_field(sm_models: dict) -> None:
-    # MachineAt's `deadline` is a TimeInstantValue attribute, not a literal.
+    # MachineAt's `deadlineTime` is a TimeInstantValue attribute, not a literal.
     program = build_statix(sm_models["sm13"], "SM13::MachineAt")
     row = program.timeouts[0]
     assert row.is_at is True
-    assert row.attr_expr == "ctx->deadline"
+    assert row.attr_expr == "ctx->deadlineTime"
     assert row.literal_ticks is None
     assert program.timeouts_use_ctx is True
 

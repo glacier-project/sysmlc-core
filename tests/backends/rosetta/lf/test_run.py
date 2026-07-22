@@ -1032,6 +1032,67 @@ def test_part_external_with_python_runs(tmp_path: Path) -> None:
     assert rc == 0, f"expected exit 0; stderr:\n{logs}"
 
 
+def test_sm13_absolute_at_fires(tmp_path: Path) -> None:
+    # `accept at 8 [s]` from the initial state fires at absolute t=8s.
+    states = run_machine(
+        tmp_path,
+        SM_EXAMPLES_DIR / "sm13-time-trigger",
+        "SM13::MachineAt",
+        timeout="12 sec",
+    )
+    assert states == ["idle", "running", "done"]
+
+
+def test_sm13_at_reentry_after_instant_does_not_fire(tmp_path: Path) -> None:
+    # deadlineTime is 5s. Leave idle at 1s, come Back at 7s (after 5s has
+    # passed): the absolute instant is in the past, so the `at` never fires.
+    drivers = (
+        "  timer leave_at(1 sec)\n"
+        "  timer back_at(7 sec)\n"
+        "  reaction(leave_at) -> m.Leave {= m.Leave.set(True) =}\n"
+        "  reaction(back_at) -> m.Back {= m.Back.set(True) =}"
+    )
+    states = run_machine(
+        tmp_path,
+        SM_EXAMPLES_DIR / "sm13-time-trigger",
+        "SM13::MachineAtReentry",
+        timeout="12 sec",
+        drivers=drivers,
+    )
+    assert "running" not in states
+    assert states == ["idle", "away", "idle"]
+
+
+def test_when_counter_fires_when_condition_reached(tmp_path: Path) -> None:
+    # `n` starts 0, +1 on each idle entry; the 1-sec self-loop re-enters idle
+    # until `n >= 3`, at which point the change trigger wins and completes.
+    states = run_machine(
+        tmp_path,
+        FIXTURES_DIR / "when-counter",
+        "WhenCounter::Machine",
+        timeout="12 sec",
+    )
+    assert states[0] == "idle"
+    assert "running" in states
+    assert states[-1] == "done"
+
+
+def test_when_assign_loop_terminates(tmp_path: Path) -> None:
+    # A `when`-transition whose effect assigns a watched attribute must NOT
+    # loop forever at frozen logical time (the gated change-notify fix). The
+    # after-self-loop bumps `n` until `n >= 2`, then the change trigger fires,
+    # assigns `n`, and completes -- quickly, not via the 120s subprocess kill.
+    states = run_machine(
+        tmp_path,
+        FIXTURES_DIR / "when-assign-loop",
+        "WhenAssignLoop::Machine",
+        timeout="10 sec",
+    )
+    assert states[0] == "idle"
+    assert "running" in states
+    assert states[-1] == "done"
+
+
 def test_part01_silent_without_debug(tmp_path: Path) -> None:
     # Without the run enabling DEBUG, the generated program emits no
     # observation lines (spec 5.5: silent unless the run turns DEBUG on).

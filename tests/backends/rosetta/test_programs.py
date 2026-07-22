@@ -254,6 +254,47 @@ def test_sm13_chained_duration_renders_chain() -> None:
     assert any("self.holder.delay" in line for line in entry.body)
 
 
+def test_sm13_at_arms_scheduled_action_from_entry() -> None:
+    program = _build("sm13-time-trigger", "SM13::MachineAt")
+    idle = _mode(program, "idle")
+    assert any(a.name == "at_idle_act" for a in idle.actions)
+    entry = idle.reactions[0]
+    assert "at_idle_act" in entry.effects
+    assert any("lf.time.logical_elapsed()" in line for line in entry.body)
+    assert any("at_idle_act.schedule(" in line for line in entry.body)
+    # a dedicated reaction fires the transition off the scheduled action
+    (fire,) = [r for r in idle.reactions if r.triggers == ("at_idle_act",)]
+    assert "reset(running)" in fire.effects
+
+
+def test_sm13_at_reentry_guards_negative_delta() -> None:
+    # Re-entry after the instant passed must not fire: the schedule is gated
+    # on a non-negative delta.
+    program = _build("sm13-time-trigger", "SM13::MachineAtReentry")
+    idle = _mode(program, "idle")
+    entry = idle.reactions[0]
+    assert any(">= 0" in line for line in entry.body)
+
+
+def test_at_literal_instant_renders_nanosecond_constant() -> None:
+    # `accept at deadlineTime + 2 [s]` is not a bare attribute reference, so
+    # the instant is folded to a Python float at build time (`deadlineTime`'s
+    # default of 4 [s] plus the 2 [s] offset); this exercises the
+    # literal-float branch of the `at` renderer
+    # (`instant_ns = str(round(instant * 1e9))`), as opposed to
+    # `accept at deadlineTime` (SM13::MachineAt), which renders the
+    # attribute-reference expression form instead.
+    model = load_model(FIXTURES_DIR / "at-literal")
+    program = build_program(model, "AtLiteral::Machine")
+    idle = _mode(program, "idle")
+    entry = idle.reactions[0]
+    assert any(
+        "_at_delta = 6000000000 - lf.time.logical_elapsed()" in line
+        for line in entry.body
+    )
+    assert not any("int((" in line for line in entry.body)
+
+
 # -- after + if: supported by rosetta although quake must reject it --
 
 
@@ -465,3 +506,77 @@ def test_dispatch_fired_sets_flag_per_branch() -> None:
     # Without `fired`, no flag write appears.
     body2, _ = b._dispatch(group, [], "", gen)
     assert not any("idle_fired" in line for line in body2)
+
+
+# -- sm16: accept when change triggers --
+
+
+def test_sm16_bare_when_arms_and_checks_on_change() -> None:
+    program = _build("sm16-change-trigger", "SM16::MachineWhenBare")
+    reactor = program.reactor
+    assert any(a.name == "_change_act" for a in reactor.actions)
+    idle = _mode(program, "idle")
+    assert any(v.name == "idle_w_armed" for v in reactor.state_vars)
+    entry = idle.reactions[0]
+    assert "_change_act.schedule(0)" in entry.body
+    assert "_change_act" in entry.effects
+    (chk,) = [r for r in idle.reactions if r.triggers == ("_change_act",)]
+    assert "if not self.idle_w_armed:" in chk.body
+    assert any("if (self.hot):" in line for line in chk.body)
+    assert any("self.idle_w_armed = True" in line for line in chk.body)
+    assert "reset(running)" in chk.effects
+
+
+def test_sm16_guarded_when_consumes_before_guard() -> None:
+    # consume-on-false-guard: armed is set when the CONDITION holds, before
+    # the guard is evaluated, so a false guard still consumes the occurrence.
+    program = _build("sm16-change-trigger", "SM16::MachineWhenGuard")
+    idle = _mode(program, "idle")
+    (chk,) = [r for r in idle.reactions if r.triggers == ("_change_act",)]
+    body = "\n".join(chk.body)
+    armed_idx = body.index("self.idle_w_armed = True")
+    guard_idx = body.index("if self.enabled:")
+    assert armed_idx < guard_idx
+
+
+def test_sm16_composed_condition_watched_whole() -> None:
+    # MachineWhenComposed's `accept when hot and enabled` is a single
+    # composed boolean condition, not two independent triggers: the change
+    # check must watch the conjunction as one expression rather than
+    # emitting a separate guard per operand.
+    program = _build("sm16-change-trigger", "SM16::MachineWhenComposed")
+    idle = _mode(program, "idle")
+    (chk,) = [r for r in idle.reactions if r.triggers == ("_change_act",)]
+    # the composed condition is watched as a whole
+    assert any("if (self.hot and self.enabled):" in line for line in chk.body)
+
+
+def test_change_notify_is_gated_by_the_assigning_branch() -> None:
+    # A `when`-transition whose effect assigns a watched attribute must schedule
+    # _change_act right after the assignment (inside the guard), NOT once at the
+    # reaction's top level -- a top-level notify would re-fire this
+    # _change_act-triggered check reaction forever.
+    program = build_program(
+        load_model(FIXTURES_DIR / "when-assign"), "WhenAssign::Machine"
+    )
+    idle = _mode(program, "idle")
+    (chk,) = [r for r in idle.reactions if r.triggers == ("_change_act",)]
+    assert "_change_act" in chk.effects
+    assign_i = next(
+        i for i, line in enumerate(chk.body) if "self.count = " in line
+    )
+    assign_line = chk.body[assign_i]
+    indent = assign_line[: len(assign_line) - len(assign_line.lstrip())]
+    # the notify immediately follows the assignment, at the same (guarded) indent
+    assert chk.body[assign_i + 1] == f"{indent}_change_act.schedule(0)"
+    # and every notify in the check reaction is indented (none unconditional)
+    assert all(
+        line.startswith(" ")
+        for line in chk.body
+        if line.strip() == "_change_act.schedule(0)"
+    )
+
+
+def test_no_change_action_without_when() -> None:
+    program = _build("sm01-helloworld", "SM01::Machine")
+    assert not any(a.name == "_change_act" for a in program.reactor.actions)

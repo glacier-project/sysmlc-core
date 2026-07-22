@@ -40,12 +40,14 @@ from sysmlc.semantics.statemachine.facts import (
     StateFact,
     StateKind,
     TransitionFact,
+    WhenTrigger,
 )
 from sysmlc.sysml.queries import feature_value
 
 OUTPUT_PORT = "current_state"
 COMPLETED_PORT = "completed"
 DONE_MODE = "done"
+CHANGE_ACT = "_change_act"
 _PY_INDENT = "    "
 
 
@@ -129,6 +131,7 @@ class RosettaBuilder:
         self._codegen = LfPythonCodeGen(frozenset(), needs=self._needs)
         self._attributes: list[AttributeBinding] = []
         self._attribute_names: frozenset[str] = frozenset()
+        self._has_when: bool = False
         self._root: StateFact | None = None
         self._facts: dict[str, StateFact] = {}
         self._transitions: list[TransitionFact] = []
@@ -211,6 +214,9 @@ class RosettaBuilder:
         self._attribute_names = frozenset(
             binding.name for binding in self._attributes
         )
+        self._has_when = any(
+            isinstance(t.trigger, WhenTrigger) for t in self._transitions
+        )
         for fact in self._facts.values():
             self._children.setdefault(_scope_of(fact.name), []).append(fact)
         self._classify_transitions()
@@ -228,7 +234,11 @@ class RosettaBuilder:
             raise UnsupportedConstructError(
                 "the state definition declares no substates."
             )
-        self._reactors.append(self._with_constraint_checks(machine))
+        self._reactors.append(
+            self._with_constraint_checks(
+                self._with_change_notifications(machine)
+            )
+        )
         self_defaulted = self._needs.types_module is None
         if self_defaulted:
             self._needs.types_module = f"{self._name}_types"
@@ -272,6 +282,48 @@ class RosettaBuilder:
 
         reactions = tuple(patched(r) for r in machine.reactions)
         reactions += (Reaction(("startup",), (), tuple(checks)),)
+        modes = tuple(
+            replace(mode, reactions=tuple(patched(r) for r in mode.reactions))
+            for mode in machine.modes
+        )
+        return replace(machine, reactions=reactions, modes=modes)
+
+    def _with_change_notifications(self, machine: Reactor) -> Reactor:
+        """Schedule the change-notify action after each attribute assignment.
+
+        ``accept when`` observations are re-checked one microstep after any
+        root-scope attribute changes: a ``_change_act.schedule(0)`` is inserted
+        immediately after every line that assigns a bound attribute, at that
+        line's own indentation, so an assignment nested under a guard notifies
+        only when it actually runs (a top-level notify would re-fire a
+        ``_change_act``-triggered check reaction every activation and loop
+        forever at frozen logical time). ``_change_act`` is declared an effect
+        of any reaction that gains a notify. Emitted only when the machine has
+        >=1 ``when`` trigger.
+        """
+        if not self._has_when:
+            return machine
+        markers = tuple(f"self.{name} = " for name in self._attribute_names)
+        notify = f"{CHANGE_ACT}.schedule(0)"
+
+        def patched(reaction: Reaction) -> Reaction:
+            new_body: list[str] = []
+            changed = False
+            for line in reaction.body:
+                new_body.append(line)
+                if any(marker in line for marker in markers):
+                    indent = line[: len(line) - len(line.lstrip())]
+                    new_body.append(f"{indent}{notify}")
+                    changed = True
+            if not changed:
+                return reaction
+            return replace(
+                reaction,
+                effects=tuple(dict.fromkeys((*reaction.effects, CHANGE_ACT))),
+                body=tuple(new_body),
+            )
+
+        reactions = tuple(patched(r) for r in machine.reactions)
         modes = tuple(
             replace(mode, reactions=tuple(patched(r) for r in mode.reactions))
             for mode in machine.modes
@@ -610,13 +662,16 @@ class RosettaBuilder:
             for sig in sent
             if sig not in self._port_sigs or sig in self._self_sigs
         ]
+        action_list = [LogicalAction(f"{sig}_act") for sig in sent_self]
+        if is_root and self._has_when:
+            action_list.append(LogicalAction(CHANGE_ACT))
         return Reactor(
             name=name,
             parameters=tuple(parameters),
             inputs=tuple(inputs),
             outputs=outputs,
             state_vars=tuple(state_vars) + tuple(extra_state),
-            actions=tuple(LogicalAction(f"{sig}_act") for sig in sent_self),
+            actions=tuple(action_list),
             reactions=tuple(reactions),
             modes=tuple(modes),
         )
@@ -734,7 +789,7 @@ class RosettaBuilder:
                 continue
             if isinstance(trigger, SignalTrigger):
                 signals.setdefault(t.source, set()).add(trigger.signal_name)
-            elif isinstance(trigger, AfterTrigger):
+            elif isinstance(trigger, (AfterTrigger, AtTrigger, WhenTrigger)):
                 afters[t.source] = afters.get(t.source, 0) + 1
         out: set[str] = set()
         for source in set(signals) | set(afters):
@@ -762,6 +817,7 @@ class RosettaBuilder:
             *(f"{sig}_act" for sig in sent),
             *(f"c_{_simple(kid.name)}" for kid in kids),
             *(f"{name}_fired" for name in self._multi_trigger_states(scope)),
+            *((CHANGE_ACT,) if self._has_when else ()),
         }
         for fact in kids:
             if _simple(fact.name) in reserved:
@@ -803,6 +859,8 @@ class RosettaBuilder:
         eventless: list[TransitionFact] = []
         signal_groups: dict[str, list[TransitionFact]] = {}
         afters: list[TransitionFact] = []
+        ats: list[TransitionFact] = []
+        whens: list[TransitionFact] = []
         for transition in outgoing:
             trigger = transition.trigger
             if trigger is None:
@@ -813,13 +871,10 @@ class RosettaBuilder:
                 )
             elif isinstance(trigger, AfterTrigger):
                 afters.append(transition)
+            elif isinstance(trigger, AtTrigger):
+                ats.append(transition)
             else:
-                kind = "at" if isinstance(trigger, AtTrigger) else "when"
-                raise UnsupportedConstructError(
-                    f"an `accept {kind}` trigger is "
-                    "unsupported by rosetta; only signal and relative "
-                    "`accept after` triggers are supported."
-                )
+                whens.append(transition)
 
         # Observation exit log: prepended to BOTH exit-statement threads (the
         # default one below and the payload-aware ``group_exit`` for signal
@@ -841,7 +896,7 @@ class RosettaBuilder:
             actions.require_inline_one_shot(fact.do_action)
             entry_body += self._statements(fact.do_action, gen)
 
-        multi = len(signal_groups) + len(afters) >= 2
+        multi = len(signal_groups) + len(afters) + len(ats) + len(whens) >= 2
         fired_flag = f"{simple}_fired" if multi else None
         if fired_flag is not None:
             # Child-scope reactors are instantiated inside a parent `reset`
@@ -888,6 +943,86 @@ class RosettaBuilder:
                     pos[id(transition)],
                     self._reaction(
                         (trigger_name,),
+                        targets,
+                        tuple(body),
+                        sent,
+                        self._scope_ports(scope),
+                    ),
+                )
+            )
+
+        for index, transition in enumerate(ats):
+            assert isinstance(transition.trigger, AtTrigger)
+            instant = transition.trigger.instant
+            action_name = (
+                f"at_{simple}_act"
+                if len(ats) == 1
+                else f"at_{simple}_{index}_act"
+            )
+            mode_actions.append(LogicalAction(action_name))
+            if isinstance(instant, float):
+                instant_ns = str(round(instant * 1e9))
+            else:
+                instant_ns = f"int(({gen.render_expression(instant)}) * 1e9)"
+            entry_body.append(
+                f"_at_delta = {instant_ns} - lf.time.logical_elapsed()"
+            )
+            entry_body.append("if _at_delta >= 0:")
+            entry_body.append(f"{_PY_INDENT}{action_name}.schedule(_at_delta)")
+            entry_effects.append(action_name)
+            body, targets = self._dispatch(
+                [transition], exit_stmts, scope, gen, fired=fired_flag
+            )
+            if fired_flag is not None:
+                body = [
+                    f"if not self.{fired_flag}:",
+                    *(f"{_PY_INDENT}{line}" for line in body),
+                ]
+            ordered.append(
+                (
+                    pos[id(transition)],
+                    self._reaction(
+                        (action_name,),
+                        targets,
+                        tuple(body),
+                        sent,
+                        self._scope_ports(scope),
+                    ),
+                )
+            )
+
+        if whens:
+            entry_body.append(f"{CHANGE_ACT}.schedule(0)")
+            entry_effects.append(CHANGE_ACT)
+        for index, transition in enumerate(whens):
+            assert isinstance(transition.trigger, WhenTrigger)
+            armed = (
+                f"{simple}_w_armed"
+                if len(whens) == 1
+                else f"{simple}_w{index}_armed"
+            )
+            extra_state.append(StateVar(armed, "False", reset=scope != ""))
+            entry_body.append(f"self.{armed} = False")
+            cond = gen.render_expression(transition.trigger.condition)
+            inner, targets = self._dispatch(
+                [transition], exit_stmts, scope, gen, fired=fired_flag
+            )
+            body = [
+                f"if not self.{armed}:",
+                f"{_PY_INDENT}if ({cond}):",
+                f"{_PY_INDENT}{_PY_INDENT}self.{armed} = True",
+                *(f"{_PY_INDENT}{_PY_INDENT}{line}" for line in inner),
+            ]
+            if fired_flag is not None:
+                body = [
+                    f"if not self.{fired_flag}:",
+                    *(f"{_PY_INDENT}{line}" for line in body),
+                ]
+            ordered.append(
+                (
+                    pos[id(transition)],
+                    self._reaction(
+                        (CHANGE_ACT,),
                         targets,
                         tuple(body),
                         sent,

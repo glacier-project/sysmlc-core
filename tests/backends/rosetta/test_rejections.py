@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
-
 import pytest
 
 from sysmlc.backends.rosetta.builder import RosettaBuilder, build_program
@@ -9,19 +7,13 @@ from sysmlc.errors import UnsupportedConstructError
 from sysmlc.semantics.statemachine.facts import (
     AttributeBinding,
     AttributeDirection,
-    AtTrigger,
     StateFact,
     StateKind,
     TransitionFact,
-    Trigger,
-    WhenTrigger,
 )
 from sysmlc.sysml.loading import load_model
 from tests.backends.rosetta.conftest import FIXTURES_DIR
 from tests.backends.test_sm_examples import SM_EXAMPLES_DIR
-
-if TYPE_CHECKING:
-    import syside
 
 
 def _leaf(name: str, parent: str = "Machine") -> StateFact:
@@ -110,31 +102,6 @@ def test_payload_referencing_guard_builds_and_binds() -> None:
     reading_reaction = idle.reactions[1]
     assert reading_reaction.body[0] == "r = Reading.value"
     assert reading_reaction.body[1] == "if r.value > 0:"
-
-
-@pytest.mark.parametrize(
-    "trigger",
-    [
-        AtTrigger(instant=0.0),
-        WhenTrigger(condition=cast("syside.Expression", object())),
-    ],
-)
-def test_at_and_when_triggers_are_rejected(trigger: Trigger) -> None:
-    builder = RosettaBuilder("Machine")
-    builder.add_state(_root())
-    builder.add_state(_leaf("idle"))
-    builder.add_state(_leaf("running"))
-    builder.add_transition(
-        TransitionFact(
-            source="idle",
-            target="running",
-            trigger=trigger,
-            guard=None,
-            effect=None,
-        )
-    )
-    with pytest.raises(UnsupportedConstructError, match="accept"):
-        builder.result()
 
 
 def test_scoped_attribute_is_rejected() -> None:

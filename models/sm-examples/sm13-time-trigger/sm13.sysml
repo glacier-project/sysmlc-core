@@ -64,12 +64,12 @@ package SM13 {
 
     // Absolute time trigger via a TimeInstantValue attribute.
     state def MachineAt {
-        attribute deadline : TimeInstantValue default 8 [s];
+        attribute deadlineTime : TimeInstantValue default 8 [s];
         entry;
             then idle;
         state idle;
         state running;
-        transition first idle accept at deadline then running;
+        transition first idle accept at deadlineTime then running;
         transition first running then done;
     }
 
@@ -102,13 +102,13 @@ package SM13 {
 
     // Re-entering after the absolute instant has passed does not fire.
     state def MachineAtReentry {
-        attribute deadline : TimeInstantValue default 5 [s];
+        attribute deadlineTime : TimeInstantValue default 5 [s];
         entry;
             then idle;
         state idle;
         state away;
         state running;
-        transition first idle accept at deadline then running;
+        transition first idle accept at deadlineTime then running;
         transition first idle accept Leave then away;
         transition first away accept Back then idle;
     }

@@ -23,7 +23,7 @@ package TIMERREJECT {
     // literal like `8 [s]`; confirmed empirically against syside, which
     // reports "An at expression must be a TimeInstantValue" for that shape.
     // sm13's own MachineAt/MachineAtReentry always reference a
-    // TimeInstantValue *attribute* instead, e.g. `accept at deadline`.)
+    // TimeInstantValue *attribute* instead, e.g. `accept at deadlineTime`.)
     state def MachineTimerTwice {
         entry;
             then idle;
