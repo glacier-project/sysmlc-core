@@ -260,25 +260,24 @@ Bodyless `calc def`s (pure signatures with `result_expression` as `None`) are su
 
 ## 6c. Self-sends and payload marshalling
 
-When a machine *reads* an event's payload, every `send` of that event must
-marshal it: the constructor's single Real argument is copied into the event's
-inline byte buffer (`sc_runtime_enqueue_f64`) and read back as
-`sc_event_payload_f64(event)` in the accepting transition's guard/effect — a
-scalar Real payload slot over the existing event buffer, same machine on both
-ends. Sends of events whose payload is never read stay id-only with their
-constructor arguments dropped, exactly as before. A read event with no
-marshalling send, a send with the wrong argument shape, or a non-Real
-argument is rejected loudly. `_post` and the host runner remain id-only:
-payload-bearing events exist only as internal self-sends.
+Statix supports three forms of internal payload marshalling for self-sends (`send new Event(...) to ownPort`):
 
-The readable path may also be **one composite hop deep**
-(`reading.sample.value`, where `sample` is itself a composite machine
-attribute): the marshalling `send` must pass that same composite attribute
-as a bare argument (`send new Measurement(current, sample) to commPort`),
-and the nested field it resolves to must be Real — checked mechanically
-against the generated struct's own field types, not inferred. A chain three
-or more segments deep (`reading.a.b.c`), or resolving to a non-Real field, is
-rejected.
+1. **Scalar Real payload**: A single Real payload argument (`send new Reading(val)`) marshals via `sc_runtime_enqueue_f64` into the event's inline payload buffer and is read back as `sc_event_payload_f64(event)`.
+1. **Sub-feature access**: A single scalar field or nested leaf field of a composite payload argument (`reading.value` or `reading.sample.value`) resolves mechanically against the struct registry and marshals the target double.
+1. **Whole-payload assignment**: An entire composite payload object (`reading : Measurement`) assigned directly to a machine attribute (`assign captured := reading`) or sent as a composite payload object (`send new Measurement(...)`).
+
+### Whole-Payload Marshalling & Leaf Flattening
+
+Whole-payload marshalling handles composite events with nested struct hierarchies by flattening all leaf fields depth-first (in declaration order) into a linear array of standard `double` values (`sc__payload[]`).
+
+- **Leaf-Flattening Requirement**: Every leaf field of a whole-payload composite struct type must resolve to `Real` (`double`). The check is strictly scoped to actual whole-payload struct types; non-payload structs used elsewhere in context attributes are unaffected.
+- **Send-Side Lowering & Default Materialization**: A send action (`send new Event(...)`) evaluates its arguments into a temporary local C struct. Any top-level payload attribute omitted by KerML's fewer-args-than-attributes rule is automatically materialized from its own declared SysML default. The flattened leaf array is then read off that temporary struct and passed to `sc_runtime_enqueue_payload`.
+- **Receive-Side Lowering & Reconstruction**: On the accepting transition, `assign target := reading` decodes the event payload via `sc_event_payload_read` into a local `sc__payload[]` array, then reconstructs the full nested C compound literal (`({ .value = sc__payload[0], .sample = { .value = sc__payload[1] } })`) and assigns it to `ctx->target`.
+- **Per-Event Read-Shape Consistency**: Every transition accepting a given signal event MUST use the exact same payload read shape (e.g., all whole-payload, or all reading `.value`). Mixing read shapes for the same event across different transitions is rejected at build time.
+- **`SC_EVENT_PAYLOAD_SIZE` Sizing**: Statix automatically computes the required payload size across all whole-payload struct types in the project:
+  $$\\text{SC_EVENT_PAYLOAD_SIZE} = 8 \\times \\max\_{P \\in \\text{Payloads}} (\\text{leaf_count}(P)) \\text{ bytes}$$
+  The generated `CMakeLists.txt` automatically emits `-DSC_EVENT_PAYLOAD_SIZE=<N>u` when $N > 8$. Consumers hand-integrating the generated C source without CMake MUST ensure `-DSC_EVENT_PAYLOAD_SIZE=<N>u` is provided to the build if $N > 8$.
+- **In-Process Scope**: Payload marshalling is an in-process, same-build runtime mechanism, not a portable network wire format. Byte order and struct alignment match the host compilation target.
 
 ## 7. Attributes and the context struct
 

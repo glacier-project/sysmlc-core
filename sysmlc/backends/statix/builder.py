@@ -6,6 +6,7 @@ from typing import Final, NamedTuple
 import syside
 
 from sysmlc.backends.statix.codegen import CCodeGen
+from sysmlc.backends.statix.payload import _flatten_leaf_paths
 from sysmlc.backends.statix.program import (
     COMPLETION_EVENT,
     INTERNAL_TARGET,
@@ -28,6 +29,7 @@ from sysmlc.backends.statix.program import (
 from sysmlc.codegen.python import payload_signature
 from sysmlc.errors import UnsupportedConstructError
 from sysmlc.semantics.statemachine import actions
+from sysmlc.semantics.statemachine import attributes as attributes_mod
 from sysmlc.semantics.statemachine.driver import StateMachineDriver
 from sysmlc.semantics.statemachine.facts import (
     AfterTrigger,
@@ -183,6 +185,45 @@ class _EnumProjection(NamedTuple):
     constants: dict[str, str]
 
 
+def _shape_display(shape: tuple[str, ...]) -> str:
+    """Canonical display text for a payload read shape (() is whole payload)."""
+    return "whole payload" if not shape else "." + ".".join(shape)
+
+
+def _validate_payload_shapes(
+    shapes_by_event: dict[str, set[tuple[str, ...]]],
+) -> dict[str, tuple[str, ...]]:
+    """Collapse each event's observed shape set to its one consistent shape.
+
+    Replaces the old `setdefault`-keep-first behavior, which silently picked
+    whichever shape happened to be discovered first: the underlying wire
+    encoding differs by shape (a flattened N-double array for `()` vs. a
+    single scalar slot for a path), so two different shapes for one event
+    are never simultaneously satisfiable. Shapes are sorted by their
+    canonical display text before formatting the diagnostic, so the message
+    is deterministic regardless of Python set iteration order.
+
+    An event with an empty shape set is skipped defensively (should not
+    occur given the caller's own filtering, but a `(reads[event_name],) =
+    shapes` unpack on an empty set would otherwise crash rather than
+    degrade gracefully).
+    """
+    reads: dict[str, tuple[str, ...]] = {}
+    for event_name, shapes in shapes_by_event.items():
+        if not shapes:
+            continue
+        if len(shapes) > 1:
+            ordered = sorted(shapes, key=_shape_display)
+            names = " and ".join(f"'{_shape_display(s)}'" for s in ordered)
+            raise UnsupportedConstructError(
+                f"event {event_name!r} is read inconsistently ({names} "
+                "in different transitions); statix requires one "
+                "consistent payload encoding per event."
+            )
+        (reads[event_name],) = shapes
+    return reads
+
+
 class StatixBuilder:
     """Assemble a C statechart (:class:`CProgram`) from neutral facts.
 
@@ -205,6 +246,9 @@ class StatixBuilder:
         self._qualified_name = qualified_name
         self._prefix = _c_prefix(qualified_name)
         self._externs: dict[str, CExternFunction] = {}
+        self._whole_payload_struct_types: set[str] = set()
+        self._compiler: syside.Compiler | None = None
+        self._stdlib: syside.Stdlib | None = None
         # Guard/action codegen is re-created in result() once the attribute
         # names are known; the init codegen never sees a context pointer.
         self._gen = CCodeGen(
@@ -251,8 +295,26 @@ class StatixBuilder:
         self._has_when = False
         self._slots: dict[str, int] = {}
         self._region_roots: dict[str, list[str]] = {}
-        self._active_capacity: int = 1
         self._regions_flat: list[str] = []
+        self._active_capacity = 1
+
+    def set_compiler_context(
+        self, compiler: syside.Compiler, stdlib: syside.Stdlib
+    ) -> None:
+        """Give this builder access to the driver's own compiler/stdlib.
+
+        Needed only for default-value materialization of a payload type's
+        omitted constructor arguments (KerML 8.3.4.8.7 permits fewer
+        arguments than attributes) -- reuses attributes.bind_value, the
+        exact function driver.py's own _bind_attributes already uses for a
+        machine's context attributes. `StatixBuilder` otherwise has no
+        compiler/stdlib access (it is constructed from a bare qualified
+        name); this is a lightweight, optional setter rather than a
+        constructor change, so existing tests that construct a
+        `StatixBuilder` directly (bypassing the driver) are unaffected.
+        """
+        self._compiler = compiler
+        self._stdlib = stdlib
 
     # -- TargetBuilder protocol --
 
@@ -367,6 +429,7 @@ class StatixBuilder:
             extern_resolver=self._resolve_extern_call,
             attribute_c_types=self._attribute_c_types,
             struct_field_types=struct_field_types,
+            structs_by_name=self._structs,
             generated_enum_types=self._generated_enum_type_names(),
         )
         self._payload_reads = self._detect_payload_reads()
@@ -438,6 +501,9 @@ class StatixBuilder:
             regions=tuple(self._regions_flat),
             active_capacity=self._active_capacity,
             extern_functions=tuple(self._externs.values()),
+            payload_struct_types=tuple(
+                sorted(self._whole_payload_struct_types)
+            ),
         )
 
     def _payload_gen(self, payload_feature: syside.Feature) -> CCodeGen:
@@ -455,6 +521,7 @@ class StatixBuilder:
             extern_resolver=self._resolve_extern_call,
             attribute_c_types=self._attribute_c_types,
             struct_field_types=self._struct_field_types(),
+            structs_by_name=self._structs,
             generated_enum_types=self._generated_enum_type_names(),
         )
 
@@ -468,16 +535,26 @@ class StatixBuilder:
         return frozenset(f"{e.base}_t" for e in self._enums.values())
 
     def _detect_payload_reads(self) -> dict[str, tuple[str, ...]]:
-        """Map event name -> read payload path, before lowering sends.
+        """Map event name -> its one consistent read shape, before lowering sends.
 
         Renders each payload-bound transition's guard and assignment RHSs
         with a throwaway scoped codegen whose only job is to flag (and
         shape-check) payload reads; the text is discarded. Runs before any
         action lowering so `_csend_for` can decide marshalled vs id-only
-        without ever rendering an unread constructor argument. A path is one
-        segment (`.value`) or two (one composite hop, `.sample.value`).
+        without ever rendering an unread constructor argument. A shape is
+        `()` (whole payload), one segment (`("value",)`), or two segments
+        (one composite hop, `("sample", "value")`).
+
+        Every distinct shape observed for the SAME event across every
+        transition is collected; if more than one distinct shape survives,
+        the event is read inconsistently and the build fails -- the old
+        `setdefault`-keep-first behavior silently picked whichever shape
+        happened to be discovered first, which is wrong: the underlying
+        wire encoding differs by shape (a flattened N-double array for `()`
+        vs. a single scalar slot for a path), so two different shapes for
+        one event are never simultaneously satisfiable.
         """
-        reads: dict[str, tuple[str, ...]] = {}
+        shapes_by_event: dict[str, set[tuple[str, ...]]] = {}
         for t in self._transition_facts:
             trigger = t.trigger
             if (
@@ -491,9 +568,23 @@ class StatixBuilder:
             for a in actions.inline_actions(t.effect):
                 if isinstance(a, syside.AssignmentActionUsage):
                     probe.render_action(a)
-            for path in sorted(probe.payload_reads):
-                reads.setdefault(trigger.signal_name, path)
-        return reads
+            if probe.payload_reads:
+                # Skip entirely when this transition's payload feature is
+                # named but never actually referenced in its guard/effect
+                # (e.g. `accept reading : Measurement via commPort then
+                # fired;` with no guard and no assignment touching
+                # `reading`) -- matching the OLD setdefault-inside-the-loop
+                # behavior exactly: such an event must never appear in the
+                # result at all, since _validate_payload_shapes unpacks
+                # exactly one shape per event and an empty set has none.
+                shapes_by_event.setdefault(trigger.signal_name, set()).update(
+                    probe.payload_reads
+                )
+            # A whole payload only ever RECEIVED (never sent) by this
+            # machine must still contribute to SC_EVENT_PAYLOAD_SIZE sizing
+            # -- Task 7's send-side registration alone would miss it.
+            self._whole_payload_struct_types.update(probe.whole_payload_types)
+        return _validate_payload_shapes(shapes_by_event)
 
     def _facts_by_name(self) -> dict[str, StateFact]:
         assert self._root is not None
@@ -618,6 +709,20 @@ class StatixBuilder:
         if isinstance(value, CompositeValue):
             c_type = self._register_struct(value)
             return CField(binding.name, c_type, self._struct_init(value))
+        if (
+            value is None
+            and isinstance(
+                binding.type_definition,
+                (syside.AttributeDefinition, syside.ItemDefinition),
+            )
+            and binding.type_definition.owned_attributes.collect()
+        ):
+            c_type = self._register_struct_from_definition(
+                binding.type_definition
+            )
+            return CField(
+                binding.name, c_type, self._scalar_init(value, c_type)
+            )
         c_type = self._scalar_c_type(value, binding.name, binding.type_name)
         return CField(binding.name, c_type, self._scalar_init(value, c_type))
 
@@ -648,6 +753,9 @@ class StatixBuilder:
                 return "bool"
             if type_name == "String":
                 return "const char*"
+            c_type = f"{self._prefix}_{_c_identifier(type_name)}_t"
+            if c_type in self._structs:
+                return c_type
         raise UnsupportedConstructError(
             f"attribute {name!r} has no scalar literal default; statix "
             "iteration 1 infers a C type from a Boolean/Integer/Real literal "
@@ -664,6 +772,8 @@ class StatixBuilder:
                 return "false"
             if c_type == "const char*":
                 return '""'
+            if c_type in self._structs:
+                return "{0}"
         if isinstance(value, float):
             return repr(value) if c_type == "double" else str(int(value))
         assert not isinstance(value, CompositeValue) and value is not None
@@ -1173,14 +1283,21 @@ class StatixBuilder:
             raise UnsupportedConstructError(
                 f"unsupported send payload: {exc}"
             ) from exc
-        value_expr = (
-            self._marshal_expr(event_name, pairs)
-            if event_name in self._payload_reads
-            else None  # unread event: drop raw args without rendering them
-        )
+        value_expr: str | None = None
+        payload_lines: tuple[str, ...] = ()
+        if event_name in self._payload_reads:
+            shape = self._payload_reads[event_name]
+            if shape == ():
+                payload_lines = self._marshal_whole_payload(
+                    send, event_name, pairs
+                )
+            else:
+                value_expr = self._marshal_expr(event_name, pairs)
         self._events.setdefault(event_name, None)
         self._has_send = True
-        result = CSend(event=event_name, value_expr=value_expr)
+        result = CSend(
+            event=event_name, value_expr=value_expr, payload_lines=payload_lines
+        )
         self._sends.append(result)
         return result
 
@@ -1248,6 +1365,98 @@ class StatixBuilder:
                 "Real (double) field."
             )
         return f"ctx->{ref.name}.{path[1]}"
+
+    def _marshal_whole_payload(
+        self,
+        send: syside.SendActionUsage,
+        event_name: str,
+        pairs: list[tuple[str, syside.Expression]],
+    ) -> tuple[str, ...]:
+        """Render a whole-payload send.
+
+        Materialize every top-level payload attribute (bound expression, or
+        its own generated default when KerML's fewer-args-than-attributes
+        rule leaves it unbound), assemble one nested compound literal, then
+        read the flattened leaf array off THAT local -- guaranteeing each
+        supplied expression evaluates exactly once regardless of how many
+        leaves it contributes to.
+        """
+        payload = send.payload_argument
+        assert isinstance(payload, syside.ConstructorExpression)
+        event_type = payload.instantiated_type
+        assert isinstance(event_type, syside.Definition)
+        attributes = event_type.owned_attributes.collect()
+        bound = dict(pairs)
+        payload_c_type = self._register_whole_payload_type(
+            event_type, event_name
+        )
+        self._whole_payload_struct_types.add(payload_c_type)
+        field_text = self._render_struct_fields(attributes, bound)
+        leaf_paths = _flatten_leaf_paths(payload_c_type, self._structs)
+        if not leaf_paths:
+            raise UnsupportedConstructError(
+                f"event {event_name!r} uses an empty composite payload; "
+                "whole payloads require at least one Real leaf."
+            )
+        leaf_reads = ", ".join(
+            "sc__value." + ".".join(path) for path in leaf_paths
+        )
+        return (
+            f"const {payload_c_type} sc__value = {field_text};",
+            f"const double sc__payload[] = {{ {leaf_reads} }};",
+            "sc_status_t send_status = sc_runtime_enqueue_payload(",
+            "    runtime, (sc_event_id_t)__EVENT_TOKEN__,",
+            "    sc__payload, sizeof(sc__payload));",
+            "if (send_status != SC_STATUS_OK) {",
+            "    return send_status;",
+            "}",
+        )
+
+    def _register_whole_payload_type(
+        self, event_type: syside.Definition, event_name: str
+    ) -> str:
+        assert event_type.name is not None
+        c_type = f"{self._prefix}_{_c_identifier(event_type.name)}_t"
+        if c_type not in self._structs:
+            fields: list[CField] = []
+            for attr in event_type.owned_attributes.collect():
+                assert attr.name is not None
+                field_type = self._resolve_extern_type(attr, attr.name)
+                fields.append(CField(attr.name, field_type, ""))
+            self._structs[c_type] = CStruct(name=c_type, fields=tuple(fields))
+        return c_type
+
+    def _render_struct_fields(
+        self,
+        attributes: list[syside.AttributeUsage],
+        bound: dict[str, syside.Expression],
+    ) -> str:
+        """Render one nested compound literal.
+
+        Bound attrs use the caller's expression (through self._gen, the
+        machine's own context codegen); every OMITTED attribute (KerML
+        permits fewer args than attributes) is materialized from its own
+        declared default via the exact same bind_value/_scalar_init/_struct_init
+        machinery already used for a machine's own context attributes.
+        """
+        assert self._compiler is not None and self._stdlib is not None
+        parts: list[str] = []
+        for attr in attributes:
+            assert attr.name is not None
+            if attr.name in bound:
+                rendered = self._gen.render_expression(bound[attr.name])
+            else:
+                value = attributes_mod.bind_value(
+                    attr, self._compiler, self._stdlib
+                )
+                if isinstance(value, CompositeValue):
+                    self._register_struct(value)
+                    rendered = self._struct_init(value)
+                else:
+                    c_type = self._scalar_c_type(value, attr.name)
+                    rendered = self._scalar_init(value, c_type)
+            parts.append(f".{attr.name} = {rendered}")
+        return "{" + ", ".join(parts) + "}"
 
     def _action_for(
         self,

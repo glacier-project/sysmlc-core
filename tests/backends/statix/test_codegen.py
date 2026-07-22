@@ -4,7 +4,11 @@ from pathlib import Path
 import pytest
 import syside
 
-from sysmlc.backends.statix.codegen import _C_MATH_FUNCTIONS, CCodeGen
+from sysmlc.backends.statix.codegen import (
+    _C_MATH_FUNCTIONS,
+    CCodeGen,
+    CCodeGenError,
+)
 from sysmlc.codegen.python import LIBRARY_FUNCTIONS
 from sysmlc.errors import UnsupportedConstructError
 from sysmlc.semantics.statemachine import actions
@@ -177,11 +181,23 @@ def _payload_facts(model: syside.Model, qn: str) -> list:
     ]
 
 
-def _payload_gen(trigger: SignalTrigger) -> CCodeGen:
+def _payload_gen(
+    trigger: SignalTrigger,
+    payload_c_type: str | None = "sample_t",
+    struct_field_types: dict | None = None,
+    attribute_c_types: dict | None = None,
+    structs_by_name: dict | None = None,
+) -> CCodeGen:
+    c_type = payload_c_type or "sample_t"
     return CCodeGen(
         attribute_names=frozenset({"current", "captured"}),
         real_attributes=frozenset({"current", "captured"}),
         payload_feature=trigger.payload_feature,
+        payload_c_type=payload_c_type,
+        attribute_c_types=attribute_c_types
+        or {"current": "double", "captured": c_type},
+        struct_field_types=struct_field_types or {c_type: {"value": "double"}},
+        structs_by_name=structs_by_name,
     )
 
 
@@ -226,11 +242,56 @@ def test_three_segment_payload_chain_rejected(sm_models: dict) -> None:
         gen.render_expression(t.guard)
 
 
-def test_whole_payload_reference_rejected(sm_models: dict) -> None:
+def test_whole_payload_capture_no_longer_raises(sm_models: dict) -> None:
+    from sysmlc.backends.statix.program import CField, CStruct
+
     (t,) = _payload_facts(
         sm_models["sm11"], "SM11::MachineReadablePayloadWhole"
     )
-    gen = _payload_gen(t.trigger)
+    c_type = "sm11_machine_readable_payload_whole_measurement_t"
+    sample_type = "sm11_machine_readable_payload_whole_sample_t"
+    structs = {
+        c_type: CStruct(
+            name=c_type,
+            fields=(
+                CField("value", "double", ""),
+                CField("sample", sample_type, ""),
+            ),
+        ),
+        sample_type: CStruct(
+            name=sample_type, fields=(CField("value", "double", ""),)
+        ),
+    }
+    gen = _payload_gen(
+        t.trigger,
+        payload_c_type=c_type,
+        struct_field_types={
+            c_type: {"value": "double", "sample": sample_type},
+            sample_type: {"value": "double"},
+        },
+        structs_by_name=structs,
+    )
+    (assign,) = actions.inline_actions(t.effect)
+    rendered = gen.render_action(assign)
+    assert "sc_event_payload_read" in rendered
+
+
+def test_scalar_payload_to_non_real_target_stays_rejected(
+    sm_models: dict,
+) -> None:
+    # The guard's real, correct purpose must survive the false-positive fix
+    # below: a genuine scalar payload read assigned to a non-Real attribute
+    # is still an error.
+    (t,) = _payload_facts(
+        sm_models["sm11"], "SM11::MachineReadablePayloadEffect"
+    )
+    gen = CCodeGen(
+        attribute_names=frozenset({"current", "captured"}),
+        real_attributes=frozenset(
+            {"current"}
+        ),  # captured deliberately NOT Real
+        payload_feature=t.trigger.payload_feature,
+    )
     (assign,) = actions.inline_actions(t.effect)
     with pytest.raises(UnsupportedConstructError):
         gen.render_action(assign)
@@ -321,3 +382,33 @@ def test_relational_between_two_enum_valued_composite_fields_is_rejected() -> (
     )
     with pytest.raises(UnsupportedConstructError):
         _guards(model, "ENUMREJECT::MachineRelationalCompositeFields", gen)
+
+
+def test_whole_payload_assignment_type_mismatch_rejected(
+    sm_models: dict,
+) -> None:
+    # captured declared as a plain Real (not the Measurement struct type)
+    # must be rejected with a clear statix-level diagnostic, not silently
+    # emit an incompatible C compound-literal assignment.
+    (t,) = _payload_facts(
+        sm_models["sm11"], "SM11::MachineReadablePayloadWhole"
+    )
+    gen = CCodeGen(
+        attribute_names=frozenset({"current", "captured"}),
+        real_attributes=frozenset({"current", "captured"}),
+        payload_feature=t.trigger.payload_feature,
+        payload_c_type="sm11_machine_readable_payload_whole_measurement_t",
+        struct_field_types={
+            "sm11_machine_readable_payload_whole_measurement_t": {
+                "value": "double",
+                "sample": "sm11_machine_readable_payload_whole_sample_t",
+            },
+        },
+        attribute_c_types={
+            "current": "double",
+            "captured": "double",
+        },  # WRONG on purpose
+    )
+    (assign,) = actions.inline_actions(t.effect)
+    with pytest.raises(CCodeGenError, match="cannot assign the whole payload"):
+        gen.render_action(assign)

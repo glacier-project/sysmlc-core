@@ -423,3 +423,96 @@ def test_example_command_none_when_no_events_or_timer(sm_models: dict) -> None:
     program = build_statix(sm_models["sm08"], "SM08::MachineNested")
     example = _example_command(program)
     assert example["kind"] in ("none", "syntax_only")
+
+
+def test_no_whole_payload_types_emits_no_size_override(sm_models: dict) -> None:
+    from sysmlc.backends.statix.program import CProject
+    from sysmlc.backends.statix.serialize import emit_cmakelists
+
+    program = build_statix(sm_models["sm01"], "SM01::Machine")
+    text = emit_cmakelists(CProject(programs=(program,)))
+    assert "SC_EVENT_PAYLOAD_SIZE" not in text
+
+
+def test_whole_payload_type_emits_computed_size(sm_models: dict) -> None:
+    from sysmlc.backends.statix.program import CProject
+    from sysmlc.backends.statix.serialize import emit_cmakelists
+
+    program = build_statix(
+        sm_models["sm11"], "SM11::MachineReadablePayloadWhole"
+    )
+    text = emit_cmakelists(CProject(programs=(program,)))
+    assert "SC_EVENT_PAYLOAD_SIZE=16u" in text
+
+
+def test_multiple_programs_max_size_wins_not_sum(sm_models: dict) -> None:
+    # Two programs in one project, each with its own distinct whole-payload
+    # struct type of a different size -- the emitted size must be the
+    # MAXIMUM across the whole project, not the sum of both (the buffer is
+    # one shared sc_event_t.payload array reused across every queued event,
+    # not one slot per program).
+    from dataclasses import replace
+
+    from sysmlc.backends.statix.program import CField, CProject, CStruct
+    from sysmlc.backends.statix.serialize import emit_cmakelists
+
+    small_program = build_statix(
+        sm_models["sm11"], "SM11::MachineReadablePayloadWhole"
+    )  # 2 leaves -> 16 bytes
+    # Synthesize a second program reusing small_program's own shape but with
+    # an additional 4-leaf struct registered as its own whole-payload type
+    # -- 4 leaves total -> 32 bytes, the max.
+    big_struct = CStruct(
+        name="synthetic_big_t",
+        fields=(
+            CField("a", "double", ""),
+            CField("b", "double", ""),
+            CField("c", "double", ""),
+            CField("d", "double", ""),
+        ),
+    )
+    big_program = replace(
+        small_program,
+        prefix="synthetic_big",
+        context=replace(
+            small_program.context,
+            structs=(*small_program.context.structs, big_struct),
+        ),
+        payload_struct_types=("synthetic_big_t",),
+    )
+    text = emit_cmakelists(CProject(programs=(small_program, big_program)))
+    assert "SC_EVENT_PAYLOAD_SIZE=32u" in text
+    assert "SC_EVENT_PAYLOAD_SIZE=16u" not in text
+    assert "SC_EVENT_PAYLOAD_SIZE=48u" not in text  # not the sum of 16 + 32
+
+
+def test_unrelated_non_double_struct_does_not_affect_sizing(
+    sm_models: dict,
+) -> None:
+    # A struct containing a Boolean field, registered in context.structs but
+    # NOT listed in payload_struct_types (an ordinary attribute struct, not
+    # a whole-payload type), must never be passed to _flatten_leaf_paths --
+    # proving the all-double validation is scoped to actual payload types,
+    # not every registered struct in the project.
+    from dataclasses import replace
+
+    from sysmlc.backends.statix.program import CField, CProject, CStruct
+    from sysmlc.backends.statix.serialize import emit_cmakelists
+
+    program = build_statix(
+        sm_models["sm11"], "SM11::MachineReadablePayloadWhole"
+    )
+    bool_struct = CStruct(
+        name="synthetic_flags_t",
+        fields=(CField("enabled", "bool", ""),),
+    )
+    augmented = replace(
+        program,
+        context=replace(
+            program.context, structs=(*program.context.structs, bool_struct)
+        ),
+        # payload_struct_types deliberately unchanged -- bool_struct is NOT
+        # a whole-payload type, just an incidental extra registered struct.
+    )
+    text = emit_cmakelists(CProject(programs=(augmented,)))
+    assert "SC_EVENT_PAYLOAD_SIZE=16u" in text  # unaffected by bool_struct

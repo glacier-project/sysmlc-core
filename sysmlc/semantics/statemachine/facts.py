@@ -124,6 +124,7 @@ class AttributeBinding:
     value: AttributeValue
     direction: AttributeDirection = AttributeDirection.NONE
     type_name: str | None = None
+    type_definition: syside.Definition | None = None
 
 
 @dataclass(frozen=True)

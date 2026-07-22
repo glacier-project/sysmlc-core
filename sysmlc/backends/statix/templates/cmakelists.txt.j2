@@ -23,4 +23,7 @@ add_library(statix_statecharts STATIC
 {% if math_lib %}
 target_link_libraries(statix_statecharts{{ math_lib }})
 {% endif %}
+{% if payload_size %}
+target_compile_definitions(statix_statecharts PUBLIC SC_EVENT_PAYLOAD_SIZE={{ payload_size }}u)
+{% endif %}
 {{ runners_tail -}}

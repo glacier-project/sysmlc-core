@@ -147,6 +147,49 @@ package SM11 {
             then fired;
     }
 
+    // A named accept payload that is never referenced anywhere in the
+    // guard or effect -- must build cleanly, treated as unread.
+    state def MachineReadablePayloadUnused {
+        attribute current : Real := 0.9;
+        port commPort;
+        entry;
+            then idle;
+        state idle;
+        state armed;
+        state fired;
+        transition first idle
+            do send new Measurement(current) to commPort
+            then armed;
+        transition first armed
+            accept reading : Measurement via commPort
+            then fired;
+    }
+
+    // Two different transitions read the SAME event via two DIFFERENT
+    // subfeature paths -- must be rejected as inconsistent, exercised
+    // through the real driver/builder pipeline (_detect_payload_reads),
+    // not only the pure _validate_payload_shapes unit tests above.
+    state def MachineReadablePayloadInconsistentShapes {
+        attribute current : Real := 0.9;
+        attribute captured : Real := 0.0;
+        port commPort;
+        entry;
+            then a;
+        state a;
+        state b;
+        state c;
+        transition first a do send new Measurement(current) to commPort then b;
+        transition first b
+            accept reading : Measurement via commPort
+            do assign captured := reading.value
+            then c;
+        transition first c
+            accept reading : Measurement via commPort
+            if reading.sample.value > 0.5
+            then a;
+    }
+
+
     // A mixed effect body: an assignment and a send, in declaration order.
     state def MachineMixed {
         attribute count : Integer := 0;

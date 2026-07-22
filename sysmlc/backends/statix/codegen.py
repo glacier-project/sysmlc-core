@@ -5,10 +5,16 @@ from typing import TYPE_CHECKING, Final
 
 import syside
 
+from sysmlc.backends.statix.payload import (
+    _flatten_leaf_paths,
+    _reconstruct_nested_literal,
+)
 from sysmlc.errors import UnsupportedConstructError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from sysmlc.backends.statix.program import CStruct
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +130,7 @@ class CCodeGen:
         payload_c_type: str | None = None,
         attribute_c_types: dict[str, str] | None = None,
         struct_field_types: dict[str, dict[str, str]] | None = None,
+        structs_by_name: dict[str, CStruct] | None = None,
         generated_enum_types: frozenset[str] = frozenset(),
     ) -> None:
         self._ctx = context_var
@@ -136,9 +143,11 @@ class CCodeGen:
         self._extern_resolver = extern_resolver
         self._attribute_c_types = attribute_c_types or {}
         self._struct_field_types = struct_field_types or {}
+        self._structs_by_name = structs_by_name or {}
         self._generated_enum_types = generated_enum_types
         self.payload_reads: set[tuple[str, ...]] = set()
-        self._used_payload = False
+        self.whole_payload_types: set[str] = set()
+        self._used_scalar_payload = False
         self.needs_math = False
         self._used_math = False
 
@@ -176,9 +185,36 @@ class CCodeGen:
                 "assignment has no value expression", node=assign
             )
         self._used_math = False
-        self._used_payload = False
+        self._used_scalar_payload = False
+        if (
+            self._payload_feature is not None
+            and isinstance(value, syside.FeatureReferenceExpression)
+            and value.referent == self._payload_feature
+            and self._payload_c_type is not None
+            and self._payload_c_type in self._struct_field_types
+        ):
+            target_c_type = (
+                self._attribute_c_types.get(target.name)
+                if base is None
+                else self._struct_field_types.get(
+                    self._attribute_c_types.get(base, ""), {}
+                ).get(target.name)
+            )
+            if target_c_type != self._payload_c_type:
+                raise CCodeGenError(
+                    f"cannot assign the whole payload (type "
+                    f"{self._payload_c_type!r}) to {lhs!r}, which has type "
+                    f"{target_c_type!r}; statix requires an exact matching "
+                    "generated struct type for a whole-payload assignment.",
+                    node=assign,
+                )
+            self.payload_reads.add(())
+            self.whole_payload_types.add(self._payload_c_type)
+            return self._render_whole_payload_assignment(
+                lhs, self._payload_c_type
+            )
         rhs = self._emit(value)
-        if (self._used_math or self._used_payload) and (
+        if (self._used_math or self._used_scalar_payload) and (
             base is not None or target.name not in self._real_attributes
         ):
             raise CCodeGenError(
@@ -188,6 +224,38 @@ class CCodeGen:
                 node=assign,
             )
         return f"{lhs} = {rhs};"
+
+    def _render_whole_payload_assignment(
+        self, lhs: str, struct_type: str
+    ) -> str:
+        """Decode a whole-payload event straight into `lhs`.
+
+        Decodes as a multi-statement block (a local flat array, a checked read,
+        then the reconstructed nested assignment) -- never a single expression,
+        per the C99 constraint above.
+        """
+        paths = _flatten_leaf_paths(struct_type, self._structs_by_name)
+        if not paths:
+            raise CCodeGenError(
+                f"whole-payload type {struct_type!r} has no Real leaves; "
+                "statix requires at least one.",
+                node=None,
+            )
+        nested = _reconstruct_nested_literal(
+            struct_type, self._structs_by_name, paths
+        )
+        lines = [
+            "{",
+            f"    double sc__payload[{len(paths)}];",
+            "    sc_status_t payload_status = sc_event_payload_read(",
+            "        event, sc__payload, sizeof(sc__payload));",
+            "    if (payload_status != SC_STATUS_OK) {",
+            "        return payload_status;",
+            "    }",
+            f"    {lhs} = ({struct_type}){nested};",
+            "}",
+        ]
+        return "\n".join(lines)
 
     def _emit(self, expr: syside.Expression, parent_precedence: int = 0) -> str:
         if isinstance(expr, syside.LiteralBoolean):
@@ -234,10 +302,8 @@ class CCodeGen:
                 self._payload_c_type is not None
                 and self._payload_c_type in self._struct_field_types
             ):
+                self.payload_reads.add(())
                 fields = self._struct_field_types[self._payload_c_type]
-                for fname in fields:
-                    self.payload_reads.add((fname,))
-                self._used_payload = True
                 parts = [
                     f".{fname} = sc_event_payload_f64(event)"
                     for fname in fields
@@ -321,7 +387,7 @@ class CCodeGen:
                     node=expr,
                 )
             self.payload_reads.add(tuple(names))
-            self._used_payload = True
+            self._used_scalar_payload = True
             return "sc_event_payload_f64(event)"
         base = self._emit(op0, 0)
         target = expr.target_feature

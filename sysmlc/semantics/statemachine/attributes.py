@@ -24,7 +24,21 @@ _DIRECTIONS: Final[dict[syside.FeatureDirectionKind, AttributeDirection]] = {
 }
 
 
-def direction_of(attr: syside.AttributeUsage) -> AttributeDirection:
+def _definitions_of(
+    attr: syside.AttributeUsage | syside.ItemUsage,
+) -> Iterator[syside.Classifier]:
+    """Yield ``attr``'s type definitions regardless of usage kind.
+
+    ``AttributeUsage`` exposes ``attribute_definitions``; ``ItemUsage`` has no
+    such accessor and falls back to the generic ``definitions``.
+    """
+    defs_iter = getattr(attr, "attribute_definitions", None) or attr.definitions
+    yield from defs_iter.collect()
+
+
+def direction_of(
+    attr: syside.AttributeUsage | syside.ItemUsage,
+) -> AttributeDirection:
     """Classify the attribute's declared direction (NONE if undirected)."""
     if attr.direction is None:
         return AttributeDirection.NONE
@@ -32,21 +46,21 @@ def direction_of(attr: syside.AttributeUsage) -> AttributeDirection:
 
 
 def nested_attributes(
-    attr: syside.AttributeUsage,
+    attr: syside.AttributeUsage | syside.ItemUsage,
 ) -> list[syside.AttributeUsage]:
     """Return the attributes of ``attr``'s structured definition.
 
     An attribute is structured when its type resolves to an
-    ``AttributeDefinition`` that owns attributes; it is scalar when its type
-    resolves to a primitive ``DataType``.
+    ``AttributeDefinition`` or ``ItemDefinition`` that owns attributes; it is
+    scalar when its type resolves to a primitive ``DataType``.
 
     A usage-local attribute of the same name (a ``:>>`` redefinition giving
     THIS usage its own value) replaces the definition's field, so per-usage
     redefinitions win over the type's defaults.
     """
     nested: list[syside.AttributeUsage] = []
-    for definition in attr.attribute_definitions.collect():
-        if isinstance(definition, syside.AttributeDefinition):
+    for definition in _definitions_of(attr):
+        if isinstance(definition, syside.Definition):
             nested.extend(definition.owned_attributes.collect())
     if not nested:
         return nested
@@ -63,14 +77,14 @@ def nested_attributes(
     ]
 
 
-def is_scalar_quantity(attr: syside.AttributeUsage) -> bool:
+def is_scalar_quantity(attr: syside.AttributeUsage | syside.ItemUsage) -> bool:
     """Whether ``attr``'s type is a scalar quantity value.
 
     A scalar quantity value (like ``DurationValue``) is a subtype of
     ``Quantities::ScalarQuantityValue``: it carries a unit and reduces to one
     number once that unit is normalized to SI base units.
     """
-    for definition in attr.attribute_definitions.collect():
+    for definition in _definitions_of(attr):
         if isinstance(
             definition, syside.AttributeDefinition
         ) and definition.specializes(("Quantities", "ScalarQuantityValue")):
@@ -80,15 +94,25 @@ def is_scalar_quantity(attr: syside.AttributeUsage) -> bool:
 
 def scope_attributes(
     container: syside.StateDefinition | syside.StateUsage,
-) -> list[syside.AttributeUsage]:
-    """Return the attributes directly declared in a state container.
+) -> list[syside.AttributeUsage | syside.ItemUsage]:
+    """Return the attributes and items directly declared in a state container.
 
-    A ``StateDefinition`` exposes them as ``owned_attributes``; a ``StateUsage``
-    exposes them as ``nested_attributes``.
+    A ``StateDefinition`` exposes them as ``owned_attributes``/``owned_items``;
+    a ``StateUsage`` exposes them as ``nested_attributes``/``nested_items``.
+    Items are included alongside attributes because a context declaration
+    whose type is an ``ItemDefinition`` (e.g. a whole-payload capture buffer)
+    must use ``item``, not ``attribute`` -- SysML reserves ``attribute`` for
+    values, not occurrences.
     """
     if isinstance(container, syside.StateDefinition):
-        return container.owned_attributes.collect()
-    return container.nested_attributes.collect()
+        return [
+            *container.owned_attributes.collect(),
+            *container.owned_items.collect(),
+        ]
+    return [
+        *container.nested_attributes.collect(),
+        *container.nested_items.collect(),
+    ]
 
 
 def iter_scope_attributes(
@@ -96,7 +120,7 @@ def iter_scope_attributes(
 ) -> Iterator[
     tuple[
         syside.StateDefinition | syside.StateUsage,
-        syside.AttributeUsage,
+        syside.AttributeUsage | syside.ItemUsage,
     ]
 ]:
     """Yield every ``(scope, attribute)`` pair under ``container``.
@@ -111,7 +135,7 @@ def iter_scope_attributes(
 
 
 def bind_value(
-    attr: syside.AttributeUsage,
+    attr: syside.AttributeUsage | syside.ItemUsage,
     compiler: syside.Compiler,
     stdlib: syside.Stdlib,
 ) -> AttributeValue:
@@ -121,11 +145,18 @@ def bind_value(
     - a **scalar quantity** (``DurationValue`` and the like) -> its value in SI
       base units as a ``float`` (or None when it has no value);
     - a **composite** attribute -> a ``CompositeValue`` built recursively.
+    - an **item** (an occurrence, not a value) -> always ``None``; items carry
+      no KerML default-value semantics, unlike attributes, so a bare
+      ``item captured : Measurement;`` is a write-only placeholder rather
+      than something to default-materialize. The caller (``_field``) turns a
+      ``None`` composite-typed binding into a zero-initialized struct field.
 
     Raises:
         UnsupportedConstructError: If a scalar-quantity value does not evaluate
             to a number, or a composite field has no value to bind.
     """
+    if isinstance(attr, syside.ItemUsage):
+        return feature_value(attr)
     nested = nested_attributes(attr)
     if not nested:
         return feature_value(attr)
@@ -155,8 +186,7 @@ def bind_value(
         (
             d
             for d in attr.attribute_definitions.collect()
-            if isinstance(d, syside.AttributeDefinition)
-            and d.owned_attributes.collect()
+            if isinstance(d, syside.Definition) and d.owned_attributes.collect()
         ),
         None,
     )
