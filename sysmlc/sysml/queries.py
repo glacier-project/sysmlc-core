@@ -172,7 +172,9 @@ def exhibited_state_defs(
     return pairs
 
 
-def feature_value(attr: syside.AttributeUsage) -> syside.Expression | None:
+def feature_value(
+    attr: syside.AttributeUsage | syside.ItemUsage,
+) -> syside.Expression | None:
     """Return the attribute's own value expression, if any.
 
     Reads the owned ``FeatureValue`` relationship first: syside's
