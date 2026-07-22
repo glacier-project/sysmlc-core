@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import logging
+import sys
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from types import ModuleType
 
+import syside
 from sismic.model import (
     BasicState,
     CompoundState,
@@ -18,6 +20,7 @@ from sysmlc.backends.quake.codegen import (
     QuakeRenderNeeds,
     SismicCodeGen,
     math_import_lines,
+    py_type,
 )
 from sysmlc.codegen.python import join_statements
 from sysmlc.errors import UnsupportedConstructError
@@ -38,9 +41,7 @@ from sysmlc.semantics.statemachine.facts import (
     Trigger,
     WhenTrigger,
 )
-
-if TYPE_CHECKING:
-    import syside
+from sysmlc.sysml.queries import feature_value
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +121,7 @@ class SismicBuilder:
         name: str,
         *,
         external: tuple[str, frozenset[str]] | None = None,
+        needs: QuakeRenderNeeds | None = None,
         part_system_mode: bool = False,
     ) -> None:
         """Initialize the builder.
@@ -128,6 +130,7 @@ class SismicBuilder:
             name: The sismic statechart name (the state definition's name).
             external: Optional ``(module_stem, function_names)`` pair for
                 external calc-def backing.
+            needs: A shared preamble registry, or ``None`` for a fresh one.
             part_system_mode: True when the machine is built inside a part
                 system, where ``send ... via <port>`` renders as a call to
                 the injected router; false for a standalone statechart,
@@ -135,7 +138,7 @@ class SismicBuilder:
         """
         self._name = name
         self._part_system_mode = part_system_mode
-        self._needs = QuakeRenderNeeds()
+        self._needs = needs if needs is not None else QuakeRenderNeeds()
         if external is not None:
             self._needs.register_external(module=external[0], names=external[1])
         self._codegen = SismicCodeGen(
@@ -193,6 +196,7 @@ class SismicBuilder:
 
     def result(self) -> Statechart:
         """Build, validate, and return the assembled sismic statechart."""
+        self._collect_sends()
         self._plan_triggers()
         self._plan_completions()
         if self._needs.external_module is not None:
@@ -214,6 +218,28 @@ class SismicBuilder:
             )
         return statechart
 
+    def _collect_sends(self) -> None:
+        """Register a dataclass for every signal payload type sends.
+
+        Mirrors rosetta's ``RosettaBuilder._collect_sends``: scans every
+        buffered action slot (state entry/do/exit, transition effects) for
+        ``send new <Type>(...)`` actions and registers the constructed type,
+        independent of codegen and before the preamble is assembled.
+        """
+        slots: list[syside.ActionUsage | None] = []
+        for state in self._state_facts:
+            slots += [state.entry_action, state.do_action, state.exit_action]
+        slots += [transition.effect for transition in self._transition_facts]
+        for slot in slots:
+            for action in actions.inline_actions(slot):
+                if not isinstance(action, syside.SendActionUsage):
+                    continue
+                payload = action.payload_argument
+                if isinstance(payload, syside.ConstructorExpression):
+                    item_type = payload.instantiated_type
+                    if isinstance(item_type, syside.Definition):
+                        self._register_dataclass(item_type)
+
     def _assemble(self, statechart: Statechart) -> Statechart:
         """Emit every buffered fact into ``statechart`` and validate it."""
         done_finals: set[str] = set()
@@ -233,7 +259,7 @@ class SismicBuilder:
     def _preamble_import_lines(self) -> list[str]:
         """Return import lines before seeded context variables."""
         lines = math_import_lines()
-        lines.append("from types import SimpleNamespace")
+        lines.extend(self._needs.types_import_lines())
         lines.extend(self._needs.external_import_lines())
         return lines
 
@@ -409,15 +435,48 @@ class SismicBuilder:
                 flags.append(flag)
             self._completion_flags_by_source[state.name] = " and ".join(flags)
 
+    def _register_dataclass(self, definition: syside.Definition) -> None:
+        """Render ``definition`` as a dataclass and register it on the preamble.
+
+        Handles item defs and composite attr defs.  Fields are typed via
+        :func:`py_type` and default to the model's declared default, else
+        ``None`` (every field defaulted, so the dataclass needs no
+        field-ordering care).
+        """
+        assert definition.name is not None
+        lines: list[str] = ["@dataclass", f"class {definition.name}:"]
+        attrs = definition.owned_attributes.collect()
+        if not attrs:
+            lines.append("    pass")
+        # NOTE: a field whose type is itself a composite is annotated with
+        # that type's name via py_type(), but is NOT recursively registered
+        # here. No current model nests composites; revisit if one does.
+        for attr in attrs:
+            assert attr.name is not None
+            default_expr = feature_value(attr)
+            if default_expr is None:
+                default = "None"
+            else:
+                try:
+                    default = self._codegen.render_expression(default_expr)
+                except (ValueError, UnsupportedConstructError):
+                    # Quantity / complex expressions can't render as plain
+                    # Python literals; fall back to None (design note: only
+                    # scalar literal defaults are rendered in the companion).
+                    default = "None"
+            lines.append(f"    {attr.name}: {py_type(attr)} = {default}")
+        self._needs.register_dataclass(definition.name, tuple(lines))
+
     def _render_value(self, value: AttributeValue) -> str | None:
         if value is None:
             return None
         if isinstance(value, CompositeValue):
+            self._register_dataclass(value.definition)
             fields = ", ".join(
                 f"{name}={self._render_value(field)}"
                 for name, field in value.fields
             )
-            return f"SimpleNamespace({fields})"
+            return f"{value.type_name}({fields})"
         if isinstance(value, float):
             return repr(value)
         return self._codegen.render_expression(value)
@@ -644,12 +703,55 @@ class SismicBuilder:
         return final_name
 
 
+def attach_types_module(
+    statechart: Statechart, needs: QuakeRenderNeeds
+) -> None:
+    """Expose the companion types module on a built statechart."""
+    lines = needs.companion_module_lines()
+    statechart.types_module_name = needs.types_module if lines else None
+    statechart.types_module_lines = tuple(lines)
+    if lines and needs.types_module is not None:
+        _register_module(needs.types_module, lines)
+
+
+_module_sources: dict[str, str] = {}
+
+
+def _register_module(name: str, lines: list[str]) -> None:
+    """Materialize a companion module into ``sys.modules`` for import.
+
+    Idempotent for identical source (rebuilding the same model in one
+    process is a no-op); a different source under an already-used name is
+    refused, since two builds sharing a module name would otherwise
+    silently clobber each other's classes mid-run.
+    """
+    source = "\n".join(lines)
+    existing = sys.modules.get(name)
+    if existing is not None:
+        if _module_sources.get(name) == source:
+            return
+        raise UnsupportedConstructError(
+            f"types module {name!r} is already registered with different "
+            "content; two builds picked the same module name for "
+            "different types."
+        )
+    module = ModuleType(name)
+    sys.modules[name] = module
+    try:
+        exec(compile(source, f"<{name}>", "exec"), module.__dict__)
+    except BaseException:
+        del sys.modules[name]
+        raise
+    _module_sources[name] = source
+
+
 def build_statechart(
     model: syside.Model,
     state_def_qn: str,
     *,
     external: tuple[str, frozenset[str]] | None = None,
     part_system_mode: bool = False,
+    needs: QuakeRenderNeeds | None = None,
 ) -> Statechart:
     """Build a sismic Statechart from a SysML state definition.
 
@@ -664,14 +766,22 @@ def build_statechart(
             system, where ``send ... via <port>`` renders as a call to
             the injected router; false for a standalone statechart,
             where such a send is dropped.
+        needs: A shared preamble registry, or ``None`` for a fresh one.
 
     Returns:
         A sismic ``Statechart`` ready to feed into ``Interpreter``.
     """
     name = state_def_qn.split("::")[-1]
-    return StateMachineDriver(model).run(
-        state_def_qn,
-        SismicBuilder(
-            name, external=external, part_system_mode=part_system_mode
-        ),
+    if needs is None:
+        needs = QuakeRenderNeeds()
+        needs.types_module = f"{name}_types"
+        owns_needs = True
+    else:
+        owns_needs = False
+    builder = SismicBuilder(
+        name, external=external, part_system_mode=part_system_mode, needs=needs
     )
+    statechart = StateMachineDriver(model).run(state_def_qn, builder)
+    if owns_needs:
+        attach_types_module(statechart, needs)
+    return statechart

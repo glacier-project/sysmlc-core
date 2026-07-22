@@ -546,6 +546,11 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
     python_path, external = _resolve_python(args, backend, model, element_qn)
     if python_path is not None:
+        builder = getattr(
+            backend, "build_part" if kind == "part" else "build", None
+        )
+        if builder:
+            builder(model, element_qn, external=external)
         _load_external_module(python_path)
 
     report = hook(

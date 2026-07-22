@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
+import yaml as pyyaml
 from sismic.io import import_from_yaml
 
 from sysmlc.backends import Backend
@@ -459,9 +460,8 @@ def test_quake_build_with_python_imports_with_copying(
     yaml_path = out / "Ramp.yaml"
     yaml = yaml_path.read_text()
     sc = import_from_yaml(filepath=str(yaml_path))
-    assert sc.preamble.splitlines()[:3] == [
+    assert sc.preamble.splitlines()[:2] == [
         "from math import cos as _cos, sin as _sin, tan as _tan",
-        "from types import SimpleNamespace",
         "from ext import step",
     ]
     assert "x = step(x, 0.1)" in yaml
@@ -557,8 +557,8 @@ def test_quake_build_with_reps_imports_generated_module(
     tmp_path: Path,
 ) -> None:
     # quake consumes the rep-generated module through the same pipeline
-    # as --python; like --python, the module is not copied beside the
-    # .yaml (the run command regenerates and imports it).
+    # as --python; like --python, the module is copied same as
+    # .yaml (the run command also regenerates and imports it).
     out = tmp_path / "out"
     rc = main(
         [
@@ -575,7 +575,9 @@ def test_quake_build_with_reps_imports_generated_module(
     )
     assert rc == 0
     yaml = (out / "Ramp.yaml").read_text()
-    assert "from Ramp_impl import step" in yaml
+    docs = pyyaml.safe_load(yaml)
+    preamble = docs["statechart"]["preamble"]
+    assert "from Ramp_impl import step" in preamble
     assert "x = step(x, 0.1)" in yaml
     assert (out / "Ramp_impl.py").exists()
 
@@ -668,11 +670,11 @@ def test_build_part_system_with_python_copies_module_and_imports(
     assert (out / "bump.py").exists()  # copied beside the .lf
 
 
-def test_quake_build_part_system_with_python_imports_without_copying(
+def test_quake_build_part_system_with_python_imports_with_copying(
     tmp_path: Path,
 ) -> None:
     # --python for a quake part build: the per-instance YAML imports the
-    # external function, and the module is not copied.
+    # external function, and the module is copied.
     part_ext = SM_EXAMPLES_DIR / "part-external"
     py = tmp_path / "ext.py"
     py.write_text("def bump(v):\n    return v + 1.0\n")
@@ -693,9 +695,10 @@ def test_quake_build_part_system_with_python_imports_without_copying(
 
     assert rc == 0
     assert (out / "counterSystem" / "routing.json").exists()
-    yaml = (out / "counterSystem" / "c.yaml").read_text()
-    assert "from ext import bump" in yaml
-    assert not (out / "ext.py").exists()
+    yaml = pyyaml.safe_load((out / "counterSystem" / "c.yaml").read_text())
+    preamble = yaml["statechart"]["preamble"]
+    assert "from ext import bump" in preamble
+    assert (out / "counterSystem" / "ext.py").exists()
 
 
 def test_parse_external_collects_sync_functions(tmp_path: Path) -> None:

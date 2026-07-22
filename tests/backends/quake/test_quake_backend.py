@@ -100,6 +100,7 @@ def test_write_part_system_emits_manifest_and_instance_statecharts(
 
     relative = sorted(path.relative_to(tmp_path).as_posix() for path in written)
     assert relative == [
+        f"pingSystem/{artifact.types_module_name}.py",
         "pingSystem/plant.yaml",
         "pingSystem/routing.json",
         "pingSystem/tb.yaml",

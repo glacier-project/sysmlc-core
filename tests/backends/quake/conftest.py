@@ -12,7 +12,6 @@ from tests.backends.test_sm_examples import (  # noqa: F401  (re-exported)
 
 QUAKE_PREAMBLE_IMPORTS = (
     "from math import cos as _cos, sin as _sin, tan as _tan",
-    "from types import SimpleNamespace",
 )
 
 

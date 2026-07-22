@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, override
+from typing import TYPE_CHECKING, ClassVar, Final, override
 
 import syside
 
@@ -70,6 +70,34 @@ ROUTER_CONTEXT_KEY = "_sysmlc_route"
 # coordinator reads it to purge stale reminders.
 TICK_METADATA_KEY = "_sysmlc_tick"
 
+_SCALAR_PY: Final[dict[str, str]] = {
+    "Real": "float",
+    "Rational": "float",
+    "Integer": "int",
+    "Natural": "int",
+    "Boolean": "bool",
+    "String": "str",
+}
+
+
+def py_type(attr: syside.AttributeUsage) -> str:
+    """Map a declared attribute's type to a Python annotation.
+
+    Mirrors ``sysmlc.backends.rosetta.codegen.py_type``: SysML scalars map
+    to Python builtins, a nested composite maps to its own dataclass name,
+    anything unmapped falls back to ``object``.
+    """
+    for definition in attr.attribute_definitions.collect():
+        if definition.name in _SCALAR_PY:
+            return _SCALAR_PY[definition.name]
+        if (
+            isinstance(definition, syside.AttributeDefinition)
+            and definition.owned_attributes.collect()
+        ):
+            assert definition.name is not None
+            return definition.name
+    return "object"
+
 
 class QuakeRenderNeeds:
     """Data the code generator fills and the builder reads back.
@@ -85,6 +113,8 @@ class QuakeRenderNeeds:
         self.external_names: frozenset[str] = frozenset()
         self.used_external: set[str] = set()
         self.undeliverable_sends: set[tuple[str, str]] = set()
+        self.types_module: str | None = None
+        self.dataclass_blocks: dict[str, tuple[str, ...]] = {}
 
     def register_external(self, *, module: str, names: frozenset[str]) -> None:
         """Record the --python module and the function names it provides."""
@@ -104,6 +134,65 @@ class QuakeRenderNeeds:
             f"from {self.external_module} import {name}"
             for name in sorted(self.used_external)
         ]
+
+    def register_dataclass(self, name: str, lines: tuple[str, ...]) -> None:
+        """Register a fully-rendered dataclass block by type name.
+
+        Idempotent for identical blocks; a different block under the same
+        name is a name collision and fails loud — same policy as rosetta's
+        ``PreambleNeeds.register_dataclass``.
+        """
+        known = self.dataclass_blocks.get(name)
+        if known is not None and known != lines:
+            raise UnsupportedConstructError(
+                f"two types share the simple name {name!r}; rename one."
+            )
+        self.dataclass_blocks[name] = lines
+
+    @property
+    def has_types(self) -> bool:
+        """Whether any composite/item-def type was registered."""
+        return bool(self.dataclass_blocks)
+
+    def companion_module_lines(self) -> list[str]:
+        """Render the companion ``<types_module>.py`` body, sorted by name.
+
+        Returns:
+            Lines of Python source, empty when no type was registered — no
+            companion module is written or materialized in that case (see
+            ``QuakeBackend.write`` and
+            ``sysmlc.backends.quake.builder.attach_types_module``).
+        """
+        if not self.dataclass_blocks:
+            return []
+        lines = ["from dataclasses import dataclass", ""]
+        for name in sorted(self.dataclass_blocks):
+            lines.extend(self.dataclass_blocks[name])
+            lines.append("")
+        return lines
+
+    def types_import_lines(self) -> list[str]:
+        """Render the preamble-side ``from <types_module> import ...`` line."""
+        if not self.dataclass_blocks:
+            return []
+        assert self.types_module is not None, (
+            "types_module must be set before preamble assembly"
+        )
+        names = ", ".join(sorted(self.dataclass_blocks))
+        return [f"from {self.types_module} import {names}"]
+
+    def reset_call_tracking(self) -> None:
+        """Clear the build call-tracking sets before building another machine.
+
+        ``used_external`` and ``undeliverable_sends`` describe one machine's
+        calls and drops, unlike ``dataclass_blocks``/``enum_defs``/
+        ``types_module``, which accumulate across every machine sharing this
+        instance (e.g. a part system's companion types module). Call this
+        between builds that share one ``QuakeRenderNeeds`` so one machine's
+        calls don't leak an import into another that never makes them.
+        """
+        self.used_external = set()
+        self.undeliverable_sends = set()
 
 
 def _enumeration_is_structured(

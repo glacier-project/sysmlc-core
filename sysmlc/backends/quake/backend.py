@@ -132,6 +132,11 @@ class QuakeBackend(Backend):
             path = options.output_dir / f"{basename}.{self._EXTENSIONS[fmt]}"
             path.write_text(text)
             written.append(path)
+
+        types_path = _write_types_module(artifact, options.output_dir)
+        if types_path:
+            written.append(types_path)
+
         return written
 
     def _write_part_system(
@@ -147,6 +152,9 @@ class QuakeBackend(Backend):
             json.dumps(_part_system_manifest(artifact), indent=2) + "\n"
         )
         written = [manifest]
+        types_path = _write_types_module(artifact, system_dir)
+        if types_path:
+            written.append(types_path)
         for node in artifact.graph.parts:
             statechart = artifact.statecharts[node.usage_name]
             for fmt in formats:
@@ -188,3 +196,14 @@ def _part_system_manifest(artifact: QuakePartSystem) -> dict[str, object]:
         ],
         "routes": [asdict(route) for route in artifact.routes],
     }
+
+
+def _write_types_module(artifact: Statechart, out_dir: Path) -> Path | None:
+    """Write the artifact's companion types module."""
+    types_lines = artifact.types_module_lines
+    if not types_lines:
+        return None
+    types_name = artifact.types_module_name
+    path = out_dir / f"{types_name}.py"
+    path.write_text("\n".join(types_lines) + "\n")
+    return path

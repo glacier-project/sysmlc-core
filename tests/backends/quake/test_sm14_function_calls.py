@@ -57,7 +57,7 @@ def test_trig_call_renders_aliased_math_import(
 
     sc = build_statechart(model, "TrigCall::Machine")
 
-    assert sc.preamble.splitlines()[:2] == list(QUAKE_PREAMBLE_IMPORTS)
+    assert all(x in sc.preamble.splitlines() for x in QUAKE_PREAMBLE_IMPORTS)
     assert transition_from(sc, "idle").guard == "_cos(x) <= 1.0"
 
 
