@@ -930,6 +930,7 @@ def test_whole_payload_read_reconstructs_nested_literal(
     )
     effect = next(a for a in program.actions if "armed" in a.name)
     (stmt,) = effect.statements
+    assert isinstance(stmt, str)
     assert "sc_event_payload_read" in stmt
     assert "payload_status" in stmt
     assert "return payload_status" in stmt

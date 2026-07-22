@@ -18,7 +18,7 @@ SM_DIR = Path(__file__).resolve().parents[3] / "models" / "sm-examples"
 
 def _named_attr(
     model: syside.Model, qn: str, name: str
-) -> syside.AttributeUsage:
+) -> syside.AttributeUsage | syside.ItemUsage:
     machine = resolve(model, syside.StateDefinition, qn)
     return next(
         a for a in attributes.scope_attributes(machine) if a.name == name
