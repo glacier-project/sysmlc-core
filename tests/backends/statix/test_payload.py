@@ -14,7 +14,9 @@ from sysmlc.errors import UnsupportedConstructError
 
 def test_flatten_leaf_paths_two_level_nesting() -> None:
     structs = {
-        "sample_t": CStruct(name="sample_t", fields=(CField("value", "double", ""),)),
+        "sample_t": CStruct(
+            name="sample_t", fields=(CField("value", "double", ""),)
+        ),
         "measurement_t": CStruct(
             name="measurement_t",
             fields=(
@@ -38,7 +40,10 @@ def test_flatten_leaf_paths_three_level_nesting() -> None:
         ),
         "outer_t": CStruct(
             name="outer_t",
-            fields=(CField("x", "double", ""), CField("middle", "middle_t", "")),
+            fields=(
+                CField("x", "double", ""),
+                CField("middle", "middle_t", ""),
+            ),
         ),
     }
     assert _flatten_leaf_paths("outer_t", structs) == [

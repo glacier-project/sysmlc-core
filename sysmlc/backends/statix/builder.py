@@ -255,24 +255,6 @@ class StatixBuilder:
             enum_resolver=self._resolve_enum_literal,
             extern_resolver=self._resolve_extern_call,
         )
-
-    def set_compiler_context(
-        self, compiler: syside.Compiler, stdlib: syside.Stdlib
-    ) -> None:
-        """Give this builder access to the driver's own compiler/stdlib.
-
-        Needed only for default-value materialization of a payload type's
-        omitted constructor arguments (KerML 8.3.4.8.7 permits fewer
-        arguments than attributes) -- reuses attributes.bind_value, the
-        exact function driver.py's own _bind_attributes already uses for a
-        machine's context attributes. `StatixBuilder` otherwise has no
-        compiler/stdlib access (it is constructed from a bare qualified
-        name); this is a lightweight, optional setter rather than a
-        constructor change, so existing tests that construct a
-        `StatixBuilder` directly (bypassing the driver) are unaffected.
-        """
-        self._compiler = compiler
-        self._stdlib = stdlib
         self._init_gen = CCodeGen(
             allow_context=False,
             enum_resolver=self._resolve_enum_literal,
@@ -313,8 +295,26 @@ class StatixBuilder:
         self._has_when = False
         self._slots: dict[str, int] = {}
         self._region_roots: dict[str, list[str]] = {}
-        self._active_capacity: int = 1
         self._regions_flat: list[str] = []
+        self._active_capacity = 1
+
+    def set_compiler_context(
+        self, compiler: syside.Compiler, stdlib: syside.Stdlib
+    ) -> None:
+        """Give this builder access to the driver's own compiler/stdlib.
+
+        Needed only for default-value materialization of a payload type's
+        omitted constructor arguments (KerML 8.3.4.8.7 permits fewer
+        arguments than attributes) -- reuses attributes.bind_value, the
+        exact function driver.py's own _bind_attributes already uses for a
+        machine's context attributes. `StatixBuilder` otherwise has no
+        compiler/stdlib access (it is constructed from a bare qualified
+        name); this is a lightweight, optional setter rather than a
+        constructor change, so existing tests that construct a
+        `StatixBuilder` directly (bypassing the driver) are unaffected.
+        """
+        self._compiler = compiler
+        self._stdlib = stdlib
 
     # -- TargetBuilder protocol --
 
@@ -501,7 +501,9 @@ class StatixBuilder:
             regions=tuple(self._regions_flat),
             active_capacity=self._active_capacity,
             extern_functions=tuple(self._externs.values()),
-            payload_struct_types=tuple(sorted(self._whole_payload_struct_types)),
+            payload_struct_types=tuple(
+                sorted(self._whole_payload_struct_types)
+            ),
         )
 
     def _payload_gen(self, payload_feature: syside.Feature) -> CCodeGen:
@@ -718,7 +720,9 @@ class StatixBuilder:
             c_type = self._register_struct_from_definition(
                 binding.type_definition
             )
-            return CField(binding.name, c_type, self._scalar_init(value, c_type))
+            return CField(
+                binding.name, c_type, self._scalar_init(value, c_type)
+            )
         c_type = self._scalar_c_type(value, binding.name, binding.type_name)
         return CField(binding.name, c_type, self._scalar_init(value, c_type))
 
@@ -1284,12 +1288,16 @@ class StatixBuilder:
         if event_name in self._payload_reads:
             shape = self._payload_reads[event_name]
             if shape == ():
-                payload_lines = self._marshal_whole_payload(send, event_name, pairs)
+                payload_lines = self._marshal_whole_payload(
+                    send, event_name, pairs
+                )
             else:
                 value_expr = self._marshal_expr(event_name, pairs)
         self._events.setdefault(event_name, None)
         self._has_send = True
-        result = CSend(event=event_name, value_expr=value_expr, payload_lines=payload_lines)
+        result = CSend(
+            event=event_name, value_expr=value_expr, payload_lines=payload_lines
+        )
         self._sends.append(result)
         return result
 
@@ -1379,7 +1387,9 @@ class StatixBuilder:
         assert isinstance(event_type, syside.Definition)
         attributes = event_type.owned_attributes.collect()
         bound = dict(pairs)
-        payload_c_type = self._register_whole_payload_type(event_type, event_name)
+        payload_c_type = self._register_whole_payload_type(
+            event_type, event_name
+        )
         self._whole_payload_struct_types.add(payload_c_type)
         field_text = self._render_struct_fields(attributes, bound)
         leaf_paths = _flatten_leaf_paths(payload_c_type, self._structs)
@@ -1436,7 +1446,9 @@ class StatixBuilder:
             if attr.name in bound:
                 rendered = self._gen.render_expression(bound[attr.name])
             else:
-                value = attributes_mod.bind_value(attr, self._compiler, self._stdlib)
+                value = attributes_mod.bind_value(
+                    attr, self._compiler, self._stdlib
+                )
                 if isinstance(value, CompositeValue):
                     self._register_struct(value)
                     rendered = self._struct_init(value)

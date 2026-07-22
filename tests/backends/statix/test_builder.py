@@ -470,9 +470,6 @@ def test_unread_payload_sends_stay_id_only(sm_models: dict) -> None:
         assert effect.statements == (CSend(event=event, value_expr=None),)
 
 
-
-
-
 def test_two_segment_chain_machine_builds(sm_models: dict) -> None:
     program = build_statix(
         sm_models["sm11"], "SM11::MachineReadablePayloadChain"
@@ -828,7 +825,8 @@ def test_two_different_subfeature_paths_rejected() -> None:
     from sysmlc.backends.statix.builder import _validate_payload_shapes
 
     with pytest.raises(
-        UnsupportedConstructError, match=r"\.sample\.value.*\.value|\.value.*\.sample\.value"
+        UnsupportedConstructError,
+        match=r"\.sample\.value.*\.value|\.value.*\.sample\.value",
     ):
         _validate_payload_shapes(
             {"Measurement": {("value",), ("sample", "value")}}
@@ -924,7 +922,9 @@ def test_whole_payload_materializes_omitted_attribute_defaults(
     assert "sc_runtime_enqueue_payload" in joined
 
 
-def test_whole_payload_read_reconstructs_nested_literal(sm_models: dict) -> None:
+def test_whole_payload_read_reconstructs_nested_literal(
+    sm_models: dict,
+) -> None:
     program = build_statix(
         sm_models["sm11"], "SM11::MachineReadablePayloadWhole"
     )
@@ -936,6 +936,3 @@ def test_whole_payload_read_reconstructs_nested_literal(sm_models: dict) -> None
     assert "sc__payload[0]" in stmt
     assert "sc__payload[1]" in stmt
     assert "sample" in stmt and "sc__payload[1]" in stmt
-
-
-

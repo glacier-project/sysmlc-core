@@ -475,7 +475,8 @@ def test_multiple_programs_max_size_wins_not_sum(sm_models: dict) -> None:
         small_program,
         prefix="synthetic_big",
         context=replace(
-            small_program.context, structs=(*small_program.context.structs, big_struct)
+            small_program.context,
+            structs=(*small_program.context.structs, big_struct),
         ),
         payload_struct_types=("synthetic_big_t",),
     )
@@ -515,4 +516,3 @@ def test_unrelated_non_double_struct_does_not_affect_sizing(
     )
     text = emit_cmakelists(CProject(programs=(augmented,)))
     assert "SC_EVENT_PAYLOAD_SIZE=16u" in text  # unaffected by bool_struct
-

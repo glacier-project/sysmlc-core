@@ -18,9 +18,7 @@ from sysmlc.backends.statix.backend import StatixBackend
 from sysmlc.backends.statix.builder import build_statix
 from sysmlc.sysml.loading import load_model
 
-_FIXTURE = (
-    Path(__file__).resolve().parent / "fixtures" / "payload_abi_host.c"
-)
+_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "payload_abi_host.c"
 
 
 def test_payload_abi_host_inherits_size_through_public_link(

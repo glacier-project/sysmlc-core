@@ -435,4 +435,3 @@ def test_whole_payload_roundtrips_end_to_end(
     assert "state=fired" in last_line
     assert "ctx.captured.value=0.9" in last_line
     assert "ctx.captured.sample.value=0.75" in last_line
-

@@ -194,7 +194,8 @@ def _payload_gen(
         real_attributes=frozenset({"current", "captured"}),
         payload_feature=trigger.payload_feature,
         payload_c_type=payload_c_type,
-        attribute_c_types=attribute_c_types or {"current": "double", "captured": c_type},
+        attribute_c_types=attribute_c_types
+        or {"current": "double", "captured": c_type},
         struct_field_types=struct_field_types or {c_type: {"value": "double"}},
         structs_by_name=structs_by_name,
     )
@@ -275,7 +276,9 @@ def test_whole_payload_capture_no_longer_raises(sm_models: dict) -> None:
     assert "sc_event_payload_read" in rendered
 
 
-def test_scalar_payload_to_non_real_target_stays_rejected(sm_models: dict) -> None:
+def test_scalar_payload_to_non_real_target_stays_rejected(
+    sm_models: dict,
+) -> None:
     # The guard's real, correct purpose must survive the false-positive fix
     # below: a genuine scalar payload read assigned to a non-Real attribute
     # is still an error.
@@ -284,13 +287,14 @@ def test_scalar_payload_to_non_real_target_stays_rejected(sm_models: dict) -> No
     )
     gen = CCodeGen(
         attribute_names=frozenset({"current", "captured"}),
-        real_attributes=frozenset({"current"}),  # captured deliberately NOT Real
+        real_attributes=frozenset(
+            {"current"}
+        ),  # captured deliberately NOT Real
         payload_feature=t.trigger.payload_feature,
     )
     (assign,) = actions.inline_actions(t.effect)
     with pytest.raises(UnsupportedConstructError):
         gen.render_action(assign)
-
 
 
 def test_payload_read_without_binding_still_rejected(sm_models: dict) -> None:
@@ -380,7 +384,9 @@ def test_relational_between_two_enum_valued_composite_fields_is_rejected() -> (
         _guards(model, "ENUMREJECT::MachineRelationalCompositeFields", gen)
 
 
-def test_whole_payload_assignment_type_mismatch_rejected(sm_models: dict) -> None:
+def test_whole_payload_assignment_type_mismatch_rejected(
+    sm_models: dict,
+) -> None:
     # captured declared as a plain Real (not the Measurement struct type)
     # must be rejected with a clear statix-level diagnostic, not silently
     # emit an incompatible C compound-literal assignment.
@@ -398,9 +404,11 @@ def test_whole_payload_assignment_type_mismatch_rejected(sm_models: dict) -> Non
                 "sample": "sm11_machine_readable_payload_whole_sample_t",
             },
         },
-        attribute_c_types={"current": "double", "captured": "double"},  # WRONG on purpose
+        attribute_c_types={
+            "current": "double",
+            "captured": "double",
+        },  # WRONG on purpose
     )
     (assign,) = actions.inline_actions(t.effect)
     with pytest.raises(CCodeGenError, match="cannot assign the whole payload"):
         gen.render_action(assign)
-

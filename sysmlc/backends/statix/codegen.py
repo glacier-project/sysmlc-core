@@ -210,7 +210,9 @@ class CCodeGen:
                 )
             self.payload_reads.add(())
             self.whole_payload_types.add(self._payload_c_type)
-            return self._render_whole_payload_assignment(lhs, self._payload_c_type)
+            return self._render_whole_payload_assignment(
+                lhs, self._payload_c_type
+            )
         rhs = self._emit(value)
         if (self._used_math or self._used_scalar_payload) and (
             base is not None or target.name not in self._real_attributes
@@ -223,7 +225,9 @@ class CCodeGen:
             )
         return f"{lhs} = {rhs};"
 
-    def _render_whole_payload_assignment(self, lhs: str, struct_type: str) -> str:
+    def _render_whole_payload_assignment(
+        self, lhs: str, struct_type: str
+    ) -> str:
         """Decode a whole-payload event straight into `lhs`.
 
         Decodes as a multi-statement block (a local flat array, a checked read,
@@ -237,7 +241,9 @@ class CCodeGen:
                 "statix requires at least one.",
                 node=None,
             )
-        nested = _reconstruct_nested_literal(struct_type, self._structs_by_name, paths)
+        nested = _reconstruct_nested_literal(
+            struct_type, self._structs_by_name, paths
+        )
         lines = [
             "{",
             f"    double sc__payload[{len(paths)}];",

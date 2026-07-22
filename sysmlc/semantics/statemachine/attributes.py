@@ -186,8 +186,7 @@ def bind_value(
         (
             d
             for d in attr.attribute_definitions.collect()
-            if isinstance(d, syside.Definition)
-            and d.owned_attributes.collect()
+            if isinstance(d, syside.Definition) and d.owned_attributes.collect()
         ),
         None,
     )

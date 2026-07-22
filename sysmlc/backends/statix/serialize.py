@@ -283,7 +283,10 @@ def _source_view(program: CProgram) -> dict[str, object]:
         if isinstance(statement, CSend):
             token = _event_token(program, statement.event)
             if statement.payload_lines:
-                lines = [line.replace("__EVENT_TOKEN__", token) for line in statement.payload_lines]
+                lines = [
+                    line.replace("__EVENT_TOKEN__", token)
+                    for line in statement.payload_lines
+                ]
                 return ["{", *(f"    {line}" for line in lines), "}"]
             token = _event_token(program, statement.event)
             if statement.value_expr is None:

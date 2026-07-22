@@ -263,8 +263,8 @@ Bodyless `calc def`s (pure signatures with `result_expression` as `None`) are su
 Statix supports three forms of internal payload marshalling for self-sends (`send new Event(...) to ownPort`):
 
 1. **Scalar Real payload**: A single Real payload argument (`send new Reading(val)`) marshals via `sc_runtime_enqueue_f64` into the event's inline payload buffer and is read back as `sc_event_payload_f64(event)`.
-2. **Sub-feature access**: A single scalar field or nested leaf field of a composite payload argument (`reading.value` or `reading.sample.value`) resolves mechanically against the struct registry and marshals the target double.
-3. **Whole-payload assignment**: An entire composite payload object (`reading : Measurement`) assigned directly to a machine attribute (`assign captured := reading`) or sent as a composite payload object (`send new Measurement(...)`).
+1. **Sub-feature access**: A single scalar field or nested leaf field of a composite payload argument (`reading.value` or `reading.sample.value`) resolves mechanically against the struct registry and marshals the target double.
+1. **Whole-payload assignment**: An entire composite payload object (`reading : Measurement`) assigned directly to a machine attribute (`assign captured := reading`) or sent as a composite payload object (`send new Measurement(...)`).
 
 ### Whole-Payload Marshalling & Leaf Flattening
 
@@ -275,7 +275,7 @@ Whole-payload marshalling handles composite events with nested struct hierarchie
 - **Receive-Side Lowering & Reconstruction**: On the accepting transition, `assign target := reading` decodes the event payload via `sc_event_payload_read` into a local `sc__payload[]` array, then reconstructs the full nested C compound literal (`({ .value = sc__payload[0], .sample = { .value = sc__payload[1] } })`) and assigns it to `ctx->target`.
 - **Per-Event Read-Shape Consistency**: Every transition accepting a given signal event MUST use the exact same payload read shape (e.g., all whole-payload, or all reading `.value`). Mixing read shapes for the same event across different transitions is rejected at build time.
 - **`SC_EVENT_PAYLOAD_SIZE` Sizing**: Statix automatically computes the required payload size across all whole-payload struct types in the project:
-  $$\text{SC\_EVENT\_PAYLOAD\_SIZE} = 8 \times \max_{P \in \text{Payloads}} (\text{leaf\_count}(P)) \text{ bytes}$$
+  $$\\text{SC_EVENT_PAYLOAD_SIZE} = 8 \\times \\max\_{P \\in \\text{Payloads}} (\\text{leaf_count}(P)) \\text{ bytes}$$
   The generated `CMakeLists.txt` automatically emits `-DSC_EVENT_PAYLOAD_SIZE=<N>u` when $N > 8$. Consumers hand-integrating the generated C source without CMake MUST ensure `-DSC_EVENT_PAYLOAD_SIZE=<N>u` is provided to the build if $N > 8$.
 - **In-Process Scope**: Payload marshalling is an in-process, same-build runtime mechanism, not a portable network wire format. Byte order and struct alignment match the host compilation target.
 

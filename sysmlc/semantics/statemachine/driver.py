@@ -75,9 +75,9 @@ class StateMachineDriver:
                 if isinstance(scope, syside.StateDefinition)
                 else states.state_path(state_def, scope)
             )
-            defs_iter = getattr(
-                attr, "attribute_definitions", None
-            ) or getattr(attr, "definitions", None)
+            defs_iter = getattr(attr, "attribute_definitions", None) or getattr(
+                attr, "definitions", None
+            )
             type_def = (
                 next(
                     (
