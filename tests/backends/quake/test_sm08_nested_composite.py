@@ -73,6 +73,23 @@ def test_name_collision_disambiguated_by_relative_path(
     assert has_transition(sc, "groupB::active", "groupB::paused")
 
 
+def test_composite_out_without_done_fires_at_runtime(
+    model: syside.Model,
+) -> None:
+    """An eventless transition out of a composite with no ``done`` fires.
+
+    ``groupA`` has no ``then done`` anywhere inside it, so its outgoing
+    eventless transition is an ordinary succession, not a completion join:
+    it must fire as soon as ``groupA``'s substates settle, reaching
+    ``groupB`` at runtime.
+    """
+    sc = build_statechart(model, "SM08::MachineNameCollision")
+    interpreter = Interpreter(sc)
+    interpreter.execute()
+    assert "groupB" in interpreter.configuration
+    assert "groupB::paused" in interpreter.configuration
+
+
 def test_cross_boundary_out_resolves_dotted_source(
     model: syside.Model,
 ) -> None:

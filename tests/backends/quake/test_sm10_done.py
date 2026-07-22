@@ -113,3 +113,166 @@ def test_parallel_completion_waits_for_every_region(
     interpreter.queue("EventB")
     interpreter.execute()
     assert interpreter.configuration == ["MachineParallelJoin", "finished"]
+
+
+def test_composite_completion_waits_for_inner_done(
+    model: syside.Model,
+) -> None:
+    """A completion transition leaving a plain composite is a join of one.
+
+    ``working`` is an ordinary composite whose own ``done`` is reached only
+    after ``EventA`` arrives. The eventless transition first working then
+    finished may fire only once ``working`` has completed, not as soon as
+    the composite is entered.
+    """
+    sc = build_statechart(model, "SM10::MachineCompositeJoin")
+    assert has_transition(sc, "working", "finished")
+    interpreter = Interpreter(sc)
+    interpreter.execute()
+    assert "working::w1" in interpreter.configuration
+    assert "finished" not in interpreter.configuration
+
+    interpreter.queue("EventA")
+    interpreter.execute()
+    assert interpreter.configuration == ["MachineCompositeJoin", "finished"]
+
+
+def test_parallel_join_waits_for_all_three_regions(
+    model: syside.Model,
+) -> None:
+    """A three-region join fires only once every region completes.
+
+    ``working`` has three regions, each reaching its own scoped ``done``
+    on a distinct event. With two of the three complete the join must not
+    fire; only the third completion releases it.
+    """
+    sc = build_statechart(model, "SM10::MachineParallelJoinThree")
+    assert has_transition(sc, "working", "finished")
+    interpreter = Interpreter(sc)
+    interpreter.execute()
+    assert "working::a::a1" in interpreter.configuration
+    assert "working::b::b1" in interpreter.configuration
+    assert "working::c::c1" in interpreter.configuration
+
+    interpreter.queue("EventA")
+    interpreter.execute()
+    interpreter.queue("EventB")
+    interpreter.execute()
+    assert "working::a::done" in interpreter.configuration
+    assert "working::b::done" in interpreter.configuration
+    assert "working::c::c1" in interpreter.configuration
+    assert "finished" not in interpreter.configuration
+
+    interpreter.queue("EventC")
+    interpreter.execute()
+    assert "finished" in interpreter.configuration
+    assert "working" not in interpreter.configuration
+
+
+def test_join_re_arms_completion_flags_on_restart(
+    model: syside.Model,
+) -> None:
+    """Re-entering a parallel state clears stale completion flags.
+
+    ``working`` is paused mid-completion, with region ``a`` already done,
+    then resumed. Re-entry must reset both region flags, so completing
+    only region ``b`` afterward cannot fire the join off the stale ``a``
+    flag: the join waits for a fresh completion of every region.
+    """
+    sc = build_statechart(model, "SM10::MachineParallelRestart")
+    interpreter = Interpreter(sc)
+    interpreter.execute()
+    assert "working::a::a1" in interpreter.configuration
+    assert "working::b::b1" in interpreter.configuration
+
+    interpreter.queue("EventA")
+    interpreter.execute()
+    assert "working::a::done" in interpreter.configuration
+
+    interpreter.queue("Pause")
+    interpreter.execute()
+    assert interpreter.configuration == ["MachineParallelRestart", "paused"]
+
+    interpreter.queue("Resume")
+    interpreter.execute()
+    assert "working::a::a1" in interpreter.configuration
+    assert "working::b::b1" in interpreter.configuration
+
+    # Region a's earlier completion was discarded on re-entry, so
+    # completing only region b must not fire the join off a stale flag.
+    interpreter.queue("EventB")
+    interpreter.execute()
+    assert "working::b::done" in interpreter.configuration
+    assert "finished" not in interpreter.configuration
+
+    # Freshly completing region a as well now releases the join.
+    interpreter.queue("EventA")
+    interpreter.execute()
+    assert interpreter.configuration == ["MachineParallelRestart", "finished"]
+
+
+def test_user_guard_and_completion_flag_both_gate(
+    model: syside.Model,
+) -> None:
+    """A completion-gated eventless transition also honors its ``if`` guard.
+
+    ``working`` completes on ``EventA``. Its outgoing eventless transition
+    to ``rejected`` has guard ``not go``, true from the start, yet the
+    completion gate holds it inside ``working`` until ``EventA`` arrives;
+    only then, with the guard still satisfied, does it fire.
+    """
+    sc = build_statechart(model, "SM10::MachineGuardedJoin")
+    interpreter = Interpreter(sc)
+    interpreter.execute()
+    # `not go` is already true, but completion has not been reached.
+    assert "working::w1" in interpreter.configuration
+    assert "rejected" not in interpreter.configuration
+
+    interpreter.queue("EventA")
+    interpreter.execute()
+    assert interpreter.configuration == ["MachineGuardedJoin", "rejected"]
+
+
+def test_two_guarded_eventless_share_completion_gate(
+    model: syside.Model,
+) -> None:
+    """Both eventless branches from one source carry the completion gate.
+
+    ``working`` sources two guarded eventless transitions, ``if go`` and
+    ``if not go``. With ``go`` set, the ``go`` branch's guard is satisfied
+    from the start, yet it too waits for ``working`` to complete before
+    firing to ``approved``.
+    """
+    sc = build_statechart(model, "SM10::MachineGuardedJoin")
+    interpreter = Interpreter(sc)
+    interpreter.context["go"] = True
+    interpreter.execute()
+    # The `go` branch's guard holds, but completion has not been reached.
+    assert "working::w1" in interpreter.configuration
+    assert "approved" not in interpreter.configuration
+
+    interpreter.queue("EventA")
+    interpreter.execute()
+    assert interpreter.configuration == ["MachineGuardedJoin", "approved"]
+
+
+def test_deep_completion_chain_waits_for_full_descent(
+    model: syside.Model,
+) -> None:
+    """A nested completion chain fires the outer join only at the bottom.
+
+    Three composites nest, each with its own ``done``. The outermost
+    eventless transition to ``finished`` may fire only once the innermost
+    ``done`` has propagated up through every level, which a single
+    ``EventA`` cascades in one run.
+    """
+    sc = build_statechart(model, "SM10::MachineDeepJoin")
+    assert has_transition(sc, "l1", "finished")
+    interpreter = Interpreter(sc)
+    interpreter.execute()
+    assert "l1::l2::l3::leaf" in interpreter.configuration
+    assert "finished" not in interpreter.configuration
+
+    interpreter.queue("EventA")
+    interpreter.execute()
+    assert interpreter.configuration == ["MachineDeepJoin", "finished"]

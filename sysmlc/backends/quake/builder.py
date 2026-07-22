@@ -85,11 +85,14 @@ class SismicBuilder:
     - the flat preamble, with its name-collision policy;
     - the ``do`` -> run-once ``on_entry`` fusion;
     - the ``then done`` -> ``FinalState`` synthesis;
-    - the per-region ``_j_*`` join-flag encoding of a completion
-      transition leaving a ``parallel`` state: a flag per region, false
-      on entry, set true by that region's own scoped final state, and
-      conjoined into the completion transition's guard so it fires only
-      once every region has reached its own ``done``;
+    - the ``_c_*`` completion-flag encoding of an eventless transition
+      leaving a composite or ``parallel`` state whose own ``done`` is a
+      ``then done`` target: a flag per completing scope (the composite
+      itself, or each region of a parallel state), false on entry, set
+      true by that scope's own final state, and conjoined into the
+      transition's guard so it fires only once every completing scope has
+      reached its ``done`` rather than the instant the state is entered; a
+      scope that no ``then done`` targets gets no flag and stays ungated;
     - the one-shot delayed-event encoding of ``accept after`` and
       ``accept at``: a
       per-activation counter bumped ``on entry``, a ``send('_tick_...',
@@ -148,8 +151,8 @@ class SismicBuilder:
             int, _TimeTriggerPlan | _ChangeTriggerPlan
         ] = {}
         self._arming_by_source: dict[str, list[str]] = {}
-        self._join_flag_by_region: dict[str, str] = {}
-        self._join_flags_by_source: dict[str, list[str]] = {}
+        self._completion_flag_by_scope: dict[str, str] = {}
+        self._completion_flags_by_source: dict[str, str] = {}
 
     def bind_attribute(self, binding: AttributeBinding) -> None:
         """Seed an attribute into sismic's flat preamble namespace.
@@ -192,7 +195,7 @@ class SismicBuilder:
     def result(self) -> Statechart:
         """Build, validate, and return the assembled sismic statechart."""
         self._plan_triggers()
-        self._plan_joins()
+        self._plan_completions()
         if self._needs.external_module is not None:
             # Assemble a scratch statechart first purely to record the calls;
             self._assemble(Statechart(name=self._name, preamble=""))
@@ -262,6 +265,20 @@ class SismicBuilder:
         """Return ``name`` as a Python-identifier-safe fragment."""
         return name.replace("::", "__")
 
+    def _declare_armed(
+        self, source: str, name: str, initial: str, armed: str
+    ) -> None:
+        """Declare a preamble variable, re-armed on every entry of ``source``.
+
+        ``name`` starts at ``initial`` in the preamble, and is set to
+        ``armed`` every time ``source`` is (re-)entered, so a restart
+        re-arms whatever the variable tracks.
+        """
+        self._preamble.append(f"{name} = {initial}")
+        self._arming_by_source.setdefault(source, []).append(
+            f"{name} = {armed}"
+        )
+
     def _plan_time(
         self,
         index: int,
@@ -290,10 +307,7 @@ class SismicBuilder:
             event_name=event_name, counter=counter
         )
         if ordinal == 1:
-            self._preamble.append(f"{counter} = 0")
-            self._arming_by_source.setdefault(source, []).append(
-                f"{counter} = {counter} + 1"
-            )
+            self._declare_armed(source, counter, "0", f"{counter} + 1")
         # The time-trigger event self-describes which state and counter its
         # guard checks, so a runner can drop events the guard would ignore.
         stamp = f"{TICK_METADATA_KEY}=('{source}', '{counter}')"
@@ -342,51 +356,64 @@ class SismicBuilder:
             condition=self._codegen.render_expression(trigger.condition),
             consumer_priority=consumer_priority,
         )
-        self._preamble.append(f"{flag} = False")
-        self._arming_by_source.setdefault(source, []).append(f"{flag} = True")
+        self._declare_armed(source, flag, "False", "True")
 
-    def _plan_joins(self) -> None:
-        """Plan the join-flag machinery for every parallel state's regions.
+    def _plan_completions(self) -> None:
+        """Plan the completion-flag machinery for eventless-out composites.
 
-        A completion transition (no trigger) sourced at a parallel state
-        may only fire once every region has independently reached its own
-        scoped ``done``: that is a join, not an ordinary eventless
-        transition. Sismic has no built-in notion of this, so each region
-        gets a flag, false while the region is running, set true by that
-        region's own scoped final state, and reset on every (re-)entry of
-        the parallel state so a restart (e.g. after a group interrupt)
-        re-arms the join. Only planned for a parallel state that actually
-        owns an eventless outgoing transition: one with no such transition
-        needs no join flags, and must not have its ``on_entry`` touched.
+        An eventless transition sourced at a composite or ``parallel``
+        state may only fire once that state has reached its own ``done``,
+        not the instant the state is entered: a plain composite completes
+        when its own scoped final is reached, and a parallel state completes
+        only once every region has independently reached its own scoped
+        final. Sismic has no built-in notion of either, so each completing
+        scope gets a flag, false while the scope is running, set true by
+        that scope's own final state, and reset on every (re-)entry of the
+        sourcing state so a restart (e.g. after a group interrupt) re-arms
+        it. The completing scopes are the parallel state's regions, or the
+        composite itself in the single-region case.
+
+        A scope is gated only when some ``then done`` actually targets it:
+        a scope that never reaches a ``done`` would otherwise be gated on a
+        flag that can never become true, permanently disabling the
+        transition. A sourcing state with no gated scope keeps its guard
+        and its ``on_entry`` untouched, firing on sismic's inner-first
+        ordering exactly as an ordinary eventless transition does.
         """
-        eventless_sources = {
-            transition.source
-            for transition in self._transition_facts
-            if transition.trigger is None
-        }
-        for state in self._state_facts:
-            if (
-                state.kind is not StateKind.PARALLEL
-                or state.name not in eventless_sources
-            ):
-                continue
-            regions = [
-                child
-                for child in self._state_facts
-                if child.parent == state.name
-            ]
-            flags: list[str] = []
-            for region in regions:
-                ident = self._ident(region.name)
-                flag = f"_j_{ident}"
-                self._preamble.append(f"{flag} = False")
-                self._arming_by_source.setdefault(state.name, []).append(
-                    f"{flag} = False"
+        eventless_sources: set[str] = set()
+        completion_scopes: set[str] = set()
+        for transition in self._transition_facts:
+            if transition.trigger is None:
+                eventless_sources.add(transition.source)
+            if isinstance(transition.target, CompletionTarget):
+                completion_scopes.add(transition.target.scope)
+        children_by_parent: dict[str, list[str]] = {}
+        for child in self._state_facts:
+            if child.parent is not None:
+                children_by_parent.setdefault(child.parent, []).append(
+                    child.name
                 )
-                self._join_flag_by_region[region.name] = flag
+        for state in self._state_facts:
+            if state.name not in eventless_sources:
+                continue
+            if state.kind is StateKind.PARALLEL:
+                scopes = children_by_parent.get(state.name, [])
+            elif state.kind is StateKind.COMPOSITE:
+                scopes = [state.name]
+            else:
+                continue
+            flags: list[str] = []
+            for scope in scopes:
+                if scope not in completion_scopes:
+                    continue
+                flag = f"_c_{self._ident(scope)}"
+                self._declare_armed(state.name, flag, "False", "False")
+                self._completion_flag_by_scope[scope] = flag
                 flags.append(flag)
             if flags:
-                self._join_flags_by_source[state.name] = flags
+                self._completion_flags_by_source[state.name] = " and ".join(
+                    flags
+                )
 
     def _render_value(self, value: AttributeValue) -> str | None:
         if value is None:
@@ -570,10 +597,10 @@ class SismicBuilder:
         Conjoining the ``if`` condition with the ``event.n`` check is what
         makes a time trigger plus guard faithful: a deadline delivered
         while the condition is false is consumed, with no late firing.
-        Conjoining the region join flags is what makes a completion
-        transition leaving a parallel state wait for every region to
-        reach its own scoped ``done``, instead of firing as soon as the
-        parallel state is entered.
+        Conjoining the completion flags is what makes an eventless
+        transition leaving a composite or parallel state wait for that
+        state to reach its own ``done`` (every region, for a parallel
+        state), instead of firing as soon as the state is entered.
         """
         condition = (
             codegen.render_expression(transition.guard)
@@ -581,9 +608,11 @@ class SismicBuilder:
             else None
         )
         if transition.trigger is None:
-            join_flags = self._join_flags_by_source.get(transition.source)
-            if join_flags:
-                condition = self._conjoin(" and ".join(join_flags), condition)
+            completion_condition = self._completion_flags_by_source.get(
+                transition.source
+            )
+            if completion_condition is not None:
+                condition = self._conjoin(completion_condition, condition)
         if plan is None:
             return condition
         return self._conjoin(f"event.n == {plan.counter}", condition)
@@ -608,8 +637,12 @@ class SismicBuilder:
         scope_name = scope or self._name
         final_name = "done" if scope == "" else f"{scope}::done"
         if final_name not in done_finals:
-            join_flag = self._join_flag_by_region.get(scope)
-            on_entry = f"{join_flag} = True" if join_flag is not None else None
+            completion_flag = self._completion_flag_by_scope.get(scope)
+            on_entry = (
+                f"{completion_flag} = True"
+                if completion_flag is not None
+                else None
+            )
             statechart.add_state(
                 FinalState(final_name, on_entry=on_entry), parent=scope_name
             )
