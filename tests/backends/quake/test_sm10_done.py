@@ -85,3 +85,31 @@ def test_two_dones_in_one_scope_share_final(model: syside.Model) -> None:
     assert _final_states(sc) == ["done"]
     assert has_transition(sc, "idle", "done")
     assert has_transition(sc, "running", "done")
+
+
+def test_parallel_completion_waits_for_every_region(
+    model: syside.Model,
+) -> None:
+    """A completion transition leaving a parallel state is a join.
+
+    ``working`` has two regions, ``a`` and ``b``, each reaching its own
+    scoped ``done`` on a distinct event. The eventless transition first
+    working then finished may fire only once *both* regions have
+    completed, not as soon as the first one does.
+    """
+    sc = build_statechart(model, "SM10::MachineParallelJoin")
+    assert has_transition(sc, "working", "finished")
+    interpreter = Interpreter(sc)
+    interpreter.execute()
+    assert "working::a::a1" in interpreter.configuration
+    assert "working::b::b1" in interpreter.configuration
+
+    interpreter.queue("EventA")
+    interpreter.execute()
+    assert "working::a::done" in interpreter.configuration
+    assert "working::b::b1" in interpreter.configuration
+    assert "finished" not in interpreter.configuration
+
+    interpreter.queue("EventB")
+    interpreter.execute()
+    assert interpreter.configuration == ["MachineParallelJoin", "finished"]

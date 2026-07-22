@@ -58,4 +58,30 @@ package SM10 {
         transition first idle if not shortcut then running;
         transition first running then done;
     }
+
+    item def EventA;
+    item def EventB;
+
+    // A completion transition leaving a parallel state is a join: it may
+    // fire only once every region has independently reached its own done.
+    state def MachineParallelJoin {
+        entry;
+            then working;
+        state working parallel {
+            state a {
+                entry;
+                    then a1;
+                state a1;
+                transition first a1 accept EventA then done;
+            }
+            state b {
+                entry;
+                    then b1;
+                state b1;
+                transition first b1 accept EventB then done;
+            }
+        }
+        state finished;
+        transition first working then finished;
+    }
 }

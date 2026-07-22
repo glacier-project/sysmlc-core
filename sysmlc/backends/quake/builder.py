@@ -85,6 +85,11 @@ class SismicBuilder:
     - the flat preamble, with its name-collision policy;
     - the ``do`` -> run-once ``on_entry`` fusion;
     - the ``then done`` -> ``FinalState`` synthesis;
+    - the per-region ``_j_*`` join-flag encoding of a completion
+      transition leaving a ``parallel`` state: a flag per region, false
+      on entry, set true by that region's own scoped final state, and
+      conjoined into the completion transition's guard so it fires only
+      once every region has reached its own ``done``;
     - the one-shot delayed-event encoding of ``accept after`` and
       ``accept at``: a
       per-activation counter bumped ``on entry``, a ``send('_tick_...',
@@ -143,6 +148,8 @@ class SismicBuilder:
             int, _TimeTriggerPlan | _ChangeTriggerPlan
         ] = {}
         self._arming_by_source: dict[str, list[str]] = {}
+        self._join_flag_by_region: dict[str, str] = {}
+        self._join_flags_by_source: dict[str, list[str]] = {}
 
     def bind_attribute(self, binding: AttributeBinding) -> None:
         """Seed an attribute into sismic's flat preamble namespace.
@@ -185,6 +192,7 @@ class SismicBuilder:
     def result(self) -> Statechart:
         """Build, validate, and return the assembled sismic statechart."""
         self._plan_triggers()
+        self._plan_joins()
         if self._needs.external_module is not None:
             # Assemble a scratch statechart first purely to record the calls;
             self._assemble(Statechart(name=self._name, preamble=""))
@@ -249,6 +257,11 @@ class SismicBuilder:
                     index, trigger, transition, per_source_when, next_consumer
                 )
 
+    @staticmethod
+    def _ident(name: str) -> str:
+        """Return ``name`` as a Python-identifier-safe fragment."""
+        return name.replace("::", "__")
+
     def _plan_time(
         self,
         index: int,
@@ -264,7 +277,7 @@ class SismicBuilder:
         """
         ordinal = per_source_ordinal.get(source, 0) + 1
         per_source_ordinal[source] = ordinal
-        ident = source.replace("::", "__")
+        ident = self._ident(source)
         counter = f"_n_{ident}"
         delay = (
             self._render_value(trigger.duration)
@@ -315,7 +328,7 @@ class SismicBuilder:
         source = transition.source
         ordinal = per_source_ordinal.get(source, 0) + 1
         per_source_ordinal[source] = ordinal
-        ident = source.replace("::", "__")
+        ident = self._ident(source)
         flag = f"_w_{ident}_t{ordinal}"
         consumer_priority = None
         if transition.guard is not None:
@@ -331,6 +344,49 @@ class SismicBuilder:
         )
         self._preamble.append(f"{flag} = False")
         self._arming_by_source.setdefault(source, []).append(f"{flag} = True")
+
+    def _plan_joins(self) -> None:
+        """Plan the join-flag machinery for every parallel state's regions.
+
+        A completion transition (no trigger) sourced at a parallel state
+        may only fire once every region has independently reached its own
+        scoped ``done``: that is a join, not an ordinary eventless
+        transition. Sismic has no built-in notion of this, so each region
+        gets a flag, false while the region is running, set true by that
+        region's own scoped final state, and reset on every (re-)entry of
+        the parallel state so a restart (e.g. after a group interrupt)
+        re-arms the join. Only planned for a parallel state that actually
+        owns an eventless outgoing transition: one with no such transition
+        needs no join flags, and must not have its ``on_entry`` touched.
+        """
+        eventless_sources = {
+            transition.source
+            for transition in self._transition_facts
+            if transition.trigger is None
+        }
+        for state in self._state_facts:
+            if (
+                state.kind is not StateKind.PARALLEL
+                or state.name not in eventless_sources
+            ):
+                continue
+            regions = [
+                child
+                for child in self._state_facts
+                if child.parent == state.name
+            ]
+            flags: list[str] = []
+            for region in regions:
+                ident = self._ident(region.name)
+                flag = f"_j_{ident}"
+                self._preamble.append(f"{flag} = False")
+                self._arming_by_source.setdefault(state.name, []).append(
+                    f"{flag} = False"
+                )
+                self._join_flag_by_region[region.name] = flag
+                flags.append(flag)
+            if flags:
+                self._join_flags_by_source[state.name] = flags
 
     def _render_value(self, value: AttributeValue) -> str | None:
         if value is None:
@@ -498,6 +554,11 @@ class SismicBuilder:
             )
         return name
 
+    @staticmethod
+    def _conjoin(extra: str, condition: str | None) -> str:
+        """Return ``extra`` alone, or ANDed with ``condition`` when present."""
+        return extra if condition is None else f"{extra} and ({condition})"
+
     def _guard(
         self,
         transition: TransitionFact,
@@ -509,18 +570,23 @@ class SismicBuilder:
         Conjoining the ``if`` condition with the ``event.n`` check is what
         makes a time trigger plus guard faithful: a deadline delivered
         while the condition is false is consumed, with no late firing.
+        Conjoining the region join flags is what makes a completion
+        transition leaving a parallel state wait for every region to
+        reach its own scoped ``done``, instead of firing as soon as the
+        parallel state is entered.
         """
         condition = (
             codegen.render_expression(transition.guard)
             if transition.guard is not None
             else None
         )
+        if transition.trigger is None:
+            join_flags = self._join_flags_by_source.get(transition.source)
+            if join_flags:
+                condition = self._conjoin(" and ".join(join_flags), condition)
         if plan is None:
             return condition
-        deadline = f"event.n == {plan.counter}"
-        if condition is None:
-            return deadline
-        return f"{deadline} and ({condition})"
+        return self._conjoin(f"event.n == {plan.counter}", condition)
 
     def _transition_codegen(self, transition: TransitionFact) -> SismicCodeGen:
         """Return a code generator scoped to ``transition``."""
@@ -542,7 +608,11 @@ class SismicBuilder:
         scope_name = scope or self._name
         final_name = "done" if scope == "" else f"{scope}::done"
         if final_name not in done_finals:
-            statechart.add_state(FinalState(final_name), parent=scope_name)
+            join_flag = self._join_flag_by_region.get(scope)
+            on_entry = f"{join_flag} = True" if join_flag is not None else None
+            statechart.add_state(
+                FinalState(final_name, on_entry=on_entry), parent=scope_name
+            )
             done_finals.add(final_name)
         return final_name
 
