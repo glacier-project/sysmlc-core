@@ -41,7 +41,9 @@ def test_extern_call_site_uses_the_c_name() -> None:
 def test_bodyless_calc_with_structured_param_reuses_the_attribute_struct() -> (
     None
 ):
-    model = load_model("models/sm-examples/furuta-pendulum")
+    model = load_model(
+        "models/showcase/furuta-pendulum/deterministic/with-dataclass"
+    )
     program = build_statix(model, "FurutaPendulum::PendulumSimulation")
     step = next(
         fn for fn in program.extern_functions if fn.name.endswith("::step")
