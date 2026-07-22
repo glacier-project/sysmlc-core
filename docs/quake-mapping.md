@@ -424,17 +424,89 @@ What reaching that final state means depends on where the scope sits:
   forever.
 - **Inside a composite** (`running::done`): only that composite is finished.
   The machine stays alive: `running` itself stays active, and an outer
-  transition leaving `running` still fires, but only after the inner region
-  reaches `running::done`. This is exactly SysML's rule: a transition to `done`
-  marks the source as the final state of the containing state's performance
-  without terminating the machine, and an un-triggered transition out of a
-  state may fire only once that state has completed. Sismic produces the same
-  firing order without any completion check: **inner-first** ordering defers
-  the outer eventless transition as long as something deeper can still fire,
-  and the dead-end `running::done` leaf is what leaves nothing deeper to fire.
+  transition leaving `running` still fires, but only after `running` itself
+  has completed. This is exactly SysML's rule: a transition to `done` marks
+  the source as the final state of the containing state's performance without
+  terminating the machine, and an un-triggered transition out of a state may
+  fire only once that state has completed. An eventless transition sourced at
+  `running` gets its own generated **completion flag** (`_c_running`): false
+  on entry, set true by `running::done`'s `on entry`, and conjoined into the
+  outer transition's guard, so it waits for the actual completion rather than
+  any incidental firing order, correct even when reaching `running::done` is
+  itself delayed behind a future event.
 - **In a parallel state**: each region is its own scope, so each reaches its
-  **own** `<region>::done`. One region finishing finishes neither the other
-  regions nor the machine.
+  **own** `<region>::done` first. An eventless transition sourced at the
+  parallel state itself uses the same completion-flag mechanism, one flag per
+  region, all conjoined: it fires only once **every** region has reached its
+  own `done`, a **join**. A region declared with no `then done` of its own
+  makes the join permanently unreachable rather than exempting that region:
+  per SysML's AND-state semantics, a region with no path to completion means
+  the whole parallel state can never complete either.
+
+A source with no `then done` anywhere among its regions stays entirely
+ungated, firing on sismic's ordinary selection like any plain eventless
+transition.
+
+```sysml
+state def MachineParallelJoin {
+    entry;
+        then working;
+    state working parallel {
+        state a {
+            entry;
+                then a1;
+            state a1;
+            transition first a1 accept EventA then done;
+        }
+        state b {
+            entry;
+                then b1;
+            state b1;
+            transition first b1 accept EventB then done;
+        }
+    }
+    state finished;
+    transition first working then finished;
+}
+```
+
+```yaml
+statechart:
+  name: MachineParallelJoin
+  preamble: |
+    _c_working__a = False
+    _c_working__b = False
+  root state:
+    initial: working
+    name: MachineParallelJoin
+    states:
+    - name: working
+      on entry: |
+        _c_working__a = False
+        _c_working__b = False
+      parallel states:
+      - initial: working::a::a1
+        name: working::a
+        states:
+        - name: working::a::a1
+          transitions:
+          - {event: EventA, target: working::a::done}
+        - {name: working::a::done, on entry: _c_working__a = True, type: final}
+      - initial: working::b::b1
+        name: working::b
+        states:
+        - name: working::b::b1
+          transitions:
+          - {event: EventB, target: working::b::done}
+        - {name: working::b::done, on entry: _c_working__b = True, type: final}
+      transitions:
+      - {guard: _c_working__a and _c_working__b, target: finished}
+    - {name: finished}
+```
+
+The join's guard, `_c_working__a and _c_working__b`, is why region `b`
+finishing alone cannot release `working`: the transition simply is not
+enabled until both flags are true, regardless of macro-step ordering.
 
 ______________________________________________________________________
 
