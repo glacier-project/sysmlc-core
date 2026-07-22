@@ -507,9 +507,17 @@ class StatixBuilder:
         )
 
     def _payload_gen(self, payload_feature: syside.Feature) -> CCodeGen:
-        payload_c_type = self._resolve_extern_type(
-            payload_feature, payload_feature.name or "payload"
-        )
+        try:
+            payload_c_type = self._resolve_extern_type(
+                payload_feature, payload_feature.name or "payload"
+            )
+        except UnsupportedConstructError:
+            # Deriving a C type eagerly would wrongly reject a named binding
+            # to a type statix cannot represent (e.g. an empty/tag item like
+            # SM02's `Tick`) even when the binding is never actually read in
+            # a guard/effect. Defer: render with no payload C type, and let a
+            # genuine whole-payload/subfield read raise its own clear error.
+            payload_c_type = None
         return CCodeGen(
             attribute_names=frozenset(
                 self._attribute_names | {b.name for b in self._bindings}

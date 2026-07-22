@@ -36,6 +36,17 @@ def test_event_trigger_makes_a_signal_event(sm_models: dict) -> None:
     assert program.transitions[0].event == "Tick"
 
 
+def test_named_binding_to_empty_event_is_unread_id_only_event(
+    sm_models: dict,
+) -> None:
+    """A named accept binding to a zero-field event that is never read in a
+    guard/effect must build like an ordinary id-only event, not fail trying
+    to derive a payload C type for it."""
+    program = build_statix(sm_models["sm02"], "SM02::MachineNamed")
+    assert "Tick" in program.events
+    assert program.transitions[0].event == "Tick"
+
+
 def test_guard_becomes_a_cguard(sm_models: dict) -> None:
     program = build_statix(sm_models["sm03"], "SM03::MachineRef")
     assert program.transitions[0].guard is not None
