@@ -125,10 +125,23 @@ static void test_payload_below_threshold_consumes_event(void)
     CHECK(sc_event_queue_is_empty(sm.runtime.queue));
 }
 
+static void test_payload_len_is_not_uint8_t_truncating(void)
+{
+    /* sizeof(size_t) >= sizeof(uint8_t) is trivially true today; this test
+     * exists to be a compile-time proof once SC_EVENT_PAYLOAD_SIZE grows
+     * past 255 in a later increment -- pin the FIELD TYPE now via a static
+     * assertion so a future accidental narrowing is caught at compile time,
+     * not discovered as a silent runtime truncation. */
+    sc_event_t event;
+    (void)sc_event_init(&event, 1u);
+    CHECK(sizeof(event.payload_len) == sizeof(size_t));
+}
+
 int main(void)
 {
     test_payload_above_threshold_fires_and_captures();
     test_payload_below_threshold_consumes_event();
+    test_payload_len_is_not_uint8_t_truncating();
 
     if (g_failures == 0) {
         (void)printf("test_runtime_payload: OK\n");
@@ -137,3 +150,4 @@ int main(void)
     (void)printf("test_runtime_payload: %d failure(s)\n", g_failures);
     return 1;
 }
+

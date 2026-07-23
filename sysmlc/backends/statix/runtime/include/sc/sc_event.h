@@ -26,7 +26,7 @@ extern "C" {
 /// @brief Event value with an id and bounded inline payload storage.
 typedef struct sc_event_s {
     sc_event_id_t id; ///< @brief Event identifier.
-    uint8_t payload_len; ///< @brief Valid bytes in payload: 0..SIZE.
+    size_t payload_len; ///< @brief Valid bytes in payload: 0..SIZE.
     uint8_t payload[SC_EVENT_PAYLOAD_SIZE]; ///< @brief Inline payload bytes.
 } sc_event_t;
 
@@ -39,13 +39,13 @@ typedef struct sc_event_s {
 /// @return SC_STATUS_OK on success, or SC_STATUS_INVALID_ARGUMENT if event is NULL.
 static inline sc_status_t sc_event_init(sc_event_t *event, sc_event_id_t id)
 {
-    uint8_t i;
+    size_t i;
     if (event == NULL) {
         return SC_STATUS_INVALID_ARGUMENT;
     }
     event->id = id;
     event->payload_len = 0u;
-    for (i = 0u; i < (uint8_t)SC_EVENT_PAYLOAD_SIZE; ++i) {
+    for (i = 0u; i < (size_t)SC_EVENT_PAYLOAD_SIZE; ++i) {
         event->payload[i] = 0u;
     }
     return SC_STATUS_OK;
@@ -68,7 +68,7 @@ static inline sc_status_t sc_event_set_payload(sc_event_t *event, const uint8_t 
     for (i = 0u; i < len; ++i) {
         event->payload[i] = data[i];
     }
-    event->payload_len = (uint8_t)len;
+    event->payload_len = len;
     return SC_STATUS_OK;
 }
 
