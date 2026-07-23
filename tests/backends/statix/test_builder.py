@@ -867,7 +867,8 @@ def test_receive_only_event_still_sizes_the_project(sm_models: dict) -> None:
     # This model both sends and reads Measurement, so send-side registration
     # already covers it (regression check, unaffected by this task):
     text = emit_cmakelists(CProject(programs=(program,)))
-    assert "SC_EVENT_PAYLOAD_SIZE=16u" in text
+    assert 'set(STATIX_EVENT_PAYLOAD_SIZE "16" CACHE STRING' in text
+    assert "SC_EVENT_PAYLOAD_SIZE=${STATIX_EVENT_PAYLOAD_SIZE}u" in text
 
 
 def test_named_but_unreferenced_payload_is_dropped_not_marshalled(

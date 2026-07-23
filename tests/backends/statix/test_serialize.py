@@ -439,7 +439,8 @@ def test_whole_payload_type_emits_computed_size(sm_models: dict) -> None:
         sm_models["sm11"], "SM11::MachineReadablePayloadWhole"
     )
     text = emit_cmakelists(CProject(programs=(program,)))
-    assert "SC_EVENT_PAYLOAD_SIZE=16u" in text
+    assert 'set(STATIX_EVENT_PAYLOAD_SIZE "16" CACHE STRING' in text
+    assert "SC_EVENT_PAYLOAD_SIZE=${STATIX_EVENT_PAYLOAD_SIZE}u" in text
 
 
 def test_multiple_programs_max_size_wins_not_sum(sm_models: dict) -> None:
@@ -478,9 +479,10 @@ def test_multiple_programs_max_size_wins_not_sum(sm_models: dict) -> None:
         payload_struct_types=("synthetic_big_t",),
     )
     text = emit_cmakelists(CProject(programs=(small_program, big_program)))
-    assert "SC_EVENT_PAYLOAD_SIZE=32u" in text
-    assert "SC_EVENT_PAYLOAD_SIZE=16u" not in text
-    assert "SC_EVENT_PAYLOAD_SIZE=48u" not in text  # not the sum of 16 + 32
+    assert 'set(STATIX_EVENT_PAYLOAD_SIZE "32" CACHE STRING' in text
+    assert 'set(STATIX_EVENT_PAYLOAD_SIZE "16" CACHE STRING' not in text
+    assert 'set(STATIX_EVENT_PAYLOAD_SIZE "48" CACHE STRING' not in text
+    assert "SC_EVENT_PAYLOAD_SIZE=${STATIX_EVENT_PAYLOAD_SIZE}u" in text
 
 
 def test_unrelated_non_double_struct_does_not_affect_sizing(
@@ -512,7 +514,7 @@ def test_unrelated_non_double_struct_does_not_affect_sizing(
         # a whole-payload type, just an incidental extra registered struct.
     )
     text = emit_cmakelists(CProject(programs=(augmented,)))
-    assert "SC_EVENT_PAYLOAD_SIZE=16u" in text  # unaffected by bool_struct
+    assert 'set(STATIX_EVENT_PAYLOAD_SIZE "16" CACHE STRING' in text  # unaffected by bool_struct
 
 
 def test_subfield_only_read_sizes_the_project_too(sm_models: dict) -> None:
@@ -527,4 +529,4 @@ def test_subfield_only_read_sizes_the_project_too(sm_models: dict) -> None:
         sm_models["sm11"], "SM11::MachineReadablePayloadGuard"
     )
     text = emit_cmakelists(CProject(programs=(program,)))
-    assert "SC_EVENT_PAYLOAD_SIZE=16u" in text
+    assert 'set(STATIX_EVENT_PAYLOAD_SIZE "16" CACHE STRING' in text
