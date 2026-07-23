@@ -19,6 +19,14 @@ package SM11 {
         attribute value : Integer;
         attribute label : String;
     }
+    item def Flagged {
+        attribute armed : Boolean;
+    }
+    item def Mixed {
+        attribute armed : Boolean;
+        attribute value : Real;
+        attribute ready : Boolean;
+    }
 
     // A send effect raises an event the same machine then accepts.
     state def MachineSelfSend {
@@ -229,6 +237,70 @@ package SM11 {
         transition first armed
             accept reading : Labeled via commPort
             if reading.value > 0
+            then fired;
+    }
+
+    // A named accept payload of an Integer leaf, read in a guard.
+    state def MachineReadableIntegerPayload {
+        attribute count : Integer := 3;
+        port commPort;
+        entry;
+            then idle;
+        state idle;
+        state armed;
+        state fired;
+        transition first idle
+            do send new Reading(count) to commPort
+            then armed;
+        transition first armed
+            accept reading : Reading via commPort
+            if reading.value > 0
+            then fired;
+    }
+
+    // A named accept payload of a Boolean leaf, read bare (no comparison
+    // operator needed) in a guard -- mirrors SM03::MachineRef's bare
+    // `ctx->enabled` guard shape, now off a decoded payload local instead
+    // of a context attribute.
+    state def MachineReadableBooleanPayload {
+        attribute ready : Boolean := true;
+        port commPort;
+        entry;
+            then idle;
+        state idle;
+        state armed;
+        state fired;
+        transition first idle
+            do send new Flagged(ready) to commPort
+            then armed;
+        transition first armed
+            accept reading : Flagged via commPort
+            if reading.armed
+            then fired;
+    }
+
+    // Boolean, Real, Boolean in that DECLARATION ORDER specifically --
+    // proves sizeof(struct), not a naive sum of leaf sizes, is the real
+    // wire length: { bool, double, bool } needs 24 bytes on a common
+    // target (1 + 7 padding + 8 + 1 + 7 trailing padding), which a
+    // sum-then-round heuristic (1+8+1=10 -> 16) would under-count, but
+    // 8 x leaf_count (8 x 3 = 24) correctly covers.
+    state def MachineMixedPrimitivePadding {
+        attribute a : Boolean := true;
+        attribute v : Real := 1.5;
+        attribute r : Boolean := false;
+        port commPort;
+        entry;
+            then idle;
+        state idle;
+        state armed;
+        state fired;
+        transition first idle
+            do send new Mixed(a, v, r) to commPort
+            then armed;
+        transition first armed
+            accept reading : Mixed via commPort
+            if reading.value > 1.0
             then fired;
     }
 }

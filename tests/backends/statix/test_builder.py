@@ -950,3 +950,52 @@ def test_unrepresentable_type_never_referenced_still_builds(
     # build fine -- representability is checked only for REFERENCED events.
     program = build_statix(sm_models["sm11"], "SM11::MachineStringPayload")
     assert program is not None
+
+
+def test_integer_leaf_payload_builds_and_reads(sm_models: dict) -> None:
+    program = build_statix(
+        sm_models["sm11"], "SM11::MachineReadableIntegerPayload"
+    )
+    guard = next(g for g in program.guards)
+    assert guard.expr.endswith("sc__value.value > 0")
+    effect = next(a for a in program.actions if "idle_completion" in a.name)
+    (send,) = effect.statements
+    assert isinstance(send, CSend)
+    assert "sc__value.value = ctx->count;" in "\n".join(send.payload_lines)
+
+
+def test_boolean_leaf_payload_builds_and_reads(sm_models: dict) -> None:
+    program = build_statix(
+        sm_models["sm11"], "SM11::MachineReadableBooleanPayload"
+    )
+    guard = next(g for g in program.guards)
+    assert guard.expr.endswith("sc__value.armed")
+    effect = next(a for a in program.actions if "idle_completion" in a.name)
+    (send,) = effect.statements
+    assert isinstance(send, CSend)
+    assert "sc__value.armed = ctx->ready;" in "\n".join(send.payload_lines)
+
+
+def test_mixed_primitive_padding_fixture_builds(sm_models: dict) -> None:
+    program = build_statix(
+        sm_models["sm11"], "SM11::MachineMixedPrimitivePadding"
+    )
+    assert program is not None
+    guard = next(g for g in program.guards)
+    assert guard.expr.endswith("sc__value.value > 1.0")
+
+
+def test_furuta_pendulum_controller_builds(sm_models_showcase: dict) -> None:
+    # The actual motivating gap from the top of the design spec: reading
+    # AngleReading by TWO different subfields (r.theta, r.d_phi) in
+    # different transitions AND passing it whole to three different extern
+    # calcs (swingup_torque/catch_torque/stabilize_torque), all for the SAME
+    # event -- previously rejected outright by the one-shape-per-event rule.
+    program = build_statix(
+        sm_models_showcase["furuta"], "FurutaPendulum::PendulumController"
+    )
+    assert program is not None
+    assert program.extern_functions  # swingup_torque/catch_torque/etc.
+    guards = [g.expr for g in program.guards]
+    assert any("sc__value.theta" in g for g in guards)
+    assert any("sc__value.d_phi" in g for g in guards)

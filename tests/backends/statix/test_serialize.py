@@ -530,3 +530,43 @@ def test_subfield_only_read_sizes_the_project_too(sm_models: dict) -> None:
     )
     text = emit_cmakelists(CProject(programs=(program,)))
     assert 'set(STATIX_EVENT_PAYLOAD_SIZE "16" CACHE STRING' in text
+
+
+def test_mixed_primitive_padding_sizes_by_leaf_count_not_byte_sum(
+    sm_models: dict,
+) -> None:
+    from sysmlc.backends.statix.program import CProject
+    from sysmlc.backends.statix.serialize import emit_cmakelists
+
+    program = build_statix(
+        sm_models["sm11"], "SM11::MachineMixedPrimitivePadding"
+    )
+    text = emit_cmakelists(CProject(programs=(program,)))
+    # 3 leaves (armed, value, ready) x 8 bytes = 24 -- NOT 1+8+1=10 rounded
+    # to 16, which is what the old "sum sizes, round once" heuristic would
+    # have (wrongly) produced.
+    assert 'set(STATIX_EVENT_PAYLOAD_SIZE "24" CACHE STRING' in text
+
+
+def test_payload_struct_gets_a_compile_time_size_proof(sm_models: dict) -> None:
+    program = build_statix(
+        sm_models["sm11"], "SM11::MachineReadablePayloadWhole"
+    )
+    from sysmlc.backends.statix.serialize import emit_header
+    header = emit_header(program)
+    c_type = "sm11_machine_readable_payload_whole_measurement_t"
+    assert (
+        f"typedef char sc__payload_size_check_{c_type}"
+        f"[(sizeof({c_type}) <= SC_EVENT_PAYLOAD_SIZE) ? 1 : -1];" in header
+    )
+
+
+def test_non_payload_struct_gets_no_size_proof(sm_models: dict) -> None:
+    # A struct that is registered (e.g. an ordinary composite attribute)
+    # but never listed in payload_struct_types must not get a size-check
+    # typedef -- scoped to actual payload types only, same discipline as
+    # the sizing computation itself.
+    program = build_statix(sm_models["sm05"], "SM05::MachineChainNested")
+    from sysmlc.backends.statix.serialize import emit_header
+    header = emit_header(program)
+    assert "sc__payload_size_check_" not in header

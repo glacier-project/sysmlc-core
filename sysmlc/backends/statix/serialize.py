@@ -250,6 +250,7 @@ def _header_view(program: CProgram) -> dict[str, object]:
             }
             for st in program.context.structs
         ],
+        "payload_struct_names": list(program.payload_struct_types),
         "context_fields": [
             {"c_type": f.c_type, "name": f.name} for f in program.context.fields
         ],
