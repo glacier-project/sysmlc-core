@@ -84,6 +84,7 @@ def test_effect_captures_payload_value(sm_models: dict, tmp_path: Path) -> None:
         [
             "cc",
             "-std=c99",
+            "-DSC_EVENT_PAYLOAD_SIZE=16u",
             "-Iinclude",
             "capture_harness.c",
             "src/sm11/machine_readable_payload_effect.c",

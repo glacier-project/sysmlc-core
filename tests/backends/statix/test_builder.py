@@ -446,14 +446,17 @@ def test_readable_guard_machine_builds(sm_models: dict) -> None:
     program = build_statix(
         sm_models["sm11"], "SM11::MachineReadablePayloadGuard"
     )
-    # The guard reads the payload...
+    # The guard decodes the payload once, then reads .value off the local.
     guard = next(g for g in program.guards)
-    assert guard.expr == "sc_event_payload_f64(event) > 0.5"
-    # ...so the send marshals ctx->current.
+    assert guard.expr.endswith("sc__value.value > 0.5")
+    assert any("sc_event_payload_read" in line for line in guard.preamble)
+    # ...so the send materializes and marshals the full Measurement struct.
     effect = next(a for a in program.actions if "idle_completion" in a.name)
-    assert effect.statements == (
-        CSend(event="Measurement", value_expr="ctx->current"),
-    )
+    (send,) = effect.statements
+    assert isinstance(send, CSend) and send.event == "Measurement"
+    joined = "\n".join(send.payload_lines)
+    assert "sc__value.value = ctx->current;" in joined
+    assert "sc_runtime_enqueue_payload" in joined
 
 
 def test_readable_effect_machine_builds(sm_models: dict) -> None:
@@ -464,9 +467,10 @@ def test_readable_effect_machine_builds(sm_models: dict) -> None:
     capture = next(
         a for a in program.actions if a.name == "armed_Measurement_effect"
     )
-    assert capture.statements == (
-        "ctx->captured = sc_event_payload_f64(event);",
-    )
+    (stmt,) = capture.statements
+    assert isinstance(stmt, str)
+    assert "sc_event_payload_read" in stmt
+    assert "ctx->captured = sc__value.value;" in stmt
 
 
 def test_unread_payload_sends_stay_id_only(sm_models: dict) -> None:
@@ -478,7 +482,7 @@ def test_unread_payload_sends_stay_id_only(sm_models: dict) -> None:
     ):
         program = build_statix(sm_models["sm11"], qn)
         effect = next(a for a in program.actions if "idle_completion" in a.name)
-        assert effect.statements == (CSend(event=event, value_expr=None),)
+        assert effect.statements == (CSend(event=event),)
 
 
 def test_two_segment_chain_machine_builds(sm_models: dict) -> None:
@@ -486,13 +490,16 @@ def test_two_segment_chain_machine_builds(sm_models: dict) -> None:
         sm_models["sm11"], "SM11::MachineReadablePayloadChain"
     )
     guard = next(g for g in program.guards)
-    assert guard.expr == "sc_event_payload_f64(event) > 0.5"
-    # The send marshals ctx->sample.value; the unread `current` argument
-    # (bound to Measurement.value) is dropped, never rendered.
+    assert guard.expr.endswith("sc__value.sample.value > 0.5")
+    # The send materializes BOTH leaves now (value from `current`, sample.value
+    # from the bare-attribute-reference `sample` argument) -- receive always
+    # decodes the whole struct, so send always transmits the whole struct.
     effect = next(a for a in program.actions if "idle_completion" in a.name)
-    assert effect.statements == (
-        CSend(event="Measurement", value_expr="ctx->sample.value"),
-    )
+    (send,) = effect.statements
+    assert isinstance(send, CSend) and send.event == "Measurement"
+    joined = "\n".join(send.payload_lines)
+    assert "sc__value.value = ctx->current;" in joined
+    assert "sc__value.sample.value = ctx->sample.value;" in joined
 
 
 def test_three_segment_chain_is_rejected(sm_models: dict) -> None:
@@ -501,16 +508,25 @@ def test_three_segment_chain_is_rejected(sm_models: dict) -> None:
         build_statix(model, "DEEPCHAIN::MachineDeepChain")
 
 
-def test_chain_on_non_real_leaf_is_rejected() -> None:
+def test_chain_on_integer_leaf_now_builds(sm_models: dict) -> None:
+    # Previously rejected because the OLD scalar-marshal mechanism required
+    # the read leaf to be Real; that check was specific to the deleted
+    # _marshal_expr and never re-appears -- Integer leaves are representable
+    # (Task 2) and the whole struct (both leaves) is always materialized now.
     model = load_model(_DEEPCHAIN)
-    with pytest.raises(UnsupportedConstructError):
-        build_statix(model, "DEEPCHAIN::MachineChainOnIntegerLeaf")
+    program = build_statix(model, "DEEPCHAIN::MachineChainOnIntegerLeaf")
+    guard = next(g for g in program.guards)
+    assert guard.expr.endswith("sc__value.box.count > 0")
 
 
-def test_chain_with_no_matching_send_argument_is_rejected() -> None:
+def test_chain_with_no_send_argument_uses_default(sm_models: dict) -> None:
     model = load_model(_DEEPCHAIN)
-    with pytest.raises(UnsupportedConstructError):
-        build_statix(model, "DEEPCHAIN::MachineChainNoMatchingArg")
+    program = build_statix(model, "DEEPCHAIN::MachineChainNoMatchingArg")
+    effect = next(a for a in program.actions if "idle_completion" in a.name)
+    (send,) = effect.statements
+    assert isinstance(send, CSend)
+    joined = "\n".join(send.payload_lines)
+    assert "sc__value.box.count = 1;" in joined
 
 
 def test_chain_on_non_reference_send_argument_is_rejected() -> None:
@@ -887,13 +903,12 @@ def test_named_but_unreferenced_payload_is_dropped_not_marshalled(
     # cleanly and the event must simply be treated as unread (an id-only
     # send elsewhere in the same machine, exactly as an entirely payload-
     # less event would be), not crash _detect_payload_reads/
-    # _validate_payload_shapes on an empty shape set. See Step 0 below for
-    # the model addition this exercises.
+    # _validate_payload_shapes on an empty shape set.
     program = build_statix(
         sm_models["sm11"], "SM11::MachineReadablePayloadUnused"
     )
     assert "Measurement" not in program.events or all(
-        s.value_expr is None and not getattr(s, "payload_lines", ())
+        not s.payload_lines
         for a in program.actions
         for s in a.statements
         if isinstance(s, CSend) and s.event == "Measurement"
@@ -919,21 +934,22 @@ def test_whole_payload_materializes_omitted_attribute_defaults(
 ) -> None:
     # send new Measurement(current) binds only `value`; `sample` is
     # omitted (KerML permits fewer constructor args than attributes) and
-    # must be materialized from Sample's own default (0.75).
+    # must be materialized from Sample's own default (0.75), assigned to
+    # its own leaf statement -- never a single aggregate literal.
     program = build_statix(
         sm_models["sm11"], "SM11::MachineReadablePayloadWhole"
     )
     effect = next(a for a in program.actions if "idle" in a.name)
     send = next(s for s in effect.statements if isinstance(s, CSend))
-    assert send.value_expr is None
     joined = "\n".join(send.payload_lines)
     assert "sc__value" in joined
-    assert ".value = ctx->current" in joined
-    assert "0.75" in joined
+    assert "= {0};" in joined
+    assert "sc__value.value = ctx->current;" in joined
+    assert "sc__value.sample.value = 0.75;" in joined
     assert "sc_runtime_enqueue_payload" in joined
 
 
-def test_whole_payload_read_reconstructs_nested_literal(
+def test_whole_payload_read_decodes_once_into_typed_local(
     sm_models: dict,
 ) -> None:
     program = build_statix(
@@ -943,8 +959,6 @@ def test_whole_payload_read_reconstructs_nested_literal(
     (stmt,) = effect.statements
     assert isinstance(stmt, str)
     assert "sc_event_payload_read" in stmt
-    assert "payload_status" in stmt
-    assert "return payload_status" in stmt
-    assert "sc__payload[0]" in stmt
-    assert "sc__payload[1]" in stmt
-    assert "sample" in stmt and "sc__payload[1]" in stmt
+    assert "sc__status" in stmt
+    assert "return sc__status" in stmt
+    assert "ctx->captured = sc__value;" in stmt

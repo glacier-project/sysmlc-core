@@ -288,21 +288,10 @@ def _source_view(program: CProgram) -> dict[str, object]:
                     for line in statement.payload_lines
                 ]
                 return ["{", *(f"    {line}" for line in lines), "}"]
-            token = _event_token(program, statement.event)
-            if statement.value_expr is None:
-                call = [
-                    "    sc_status_t send_status = sc_runtime_enqueue(",
-                    f"        runtime, (sc_event_id_t){token});",
-                ]
-            else:
-                call = [
-                    "    sc_status_t send_status = sc_runtime_enqueue_f64(",
-                    f"        runtime, (sc_event_id_t){token},",
-                    f"        {statement.value_expr});",
-                ]
             return [
                 "{",
-                *call,
+                "    sc_status_t send_status = sc_runtime_enqueue(",
+                f"        runtime, (sc_event_id_t){token});",
                 "    if (send_status != SC_STATUS_OK) {",
                 "        return send_status;",
                 "    }",
@@ -366,6 +355,7 @@ def _source_view(program: CProgram) -> dict[str, object]:
                 "const": _const(p, "GUARD", g.name),
                 "expr": g.expr,
                 "name": g.name,
+                "preamble": g.preamble,
             }
             for g in program.guards
         ],

@@ -219,17 +219,14 @@ def test_send_block_preserves_statement_order(sm_models: dict) -> None:
     assert "return SC_STATUS_OK;" not in between
 
 
-def test_marshalled_send_renders_enqueue_f64(sm_models: dict) -> None:
+def test_marshalled_send_renders_enqueue_payload(sm_models: dict) -> None:
     program = build_statix(
         sm_models["sm11"], "SM11::MachineReadablePayloadGuard"
     )
     source = emit_source(program)
-    assert (
-        "sc_runtime_enqueue_f64(\n"
-        "                runtime, (sc_event_id_t)"
-        "SM11_MACHINE_READABLE_PAYLOAD_GUARD_EVENT_MEASUREMENT,\n"
-        "                ctx->current);" in source
-    )
+    assert "sc__value.value = ctx->current;" in source
+    assert "sc_runtime_enqueue_payload(" in source
+    assert "&sc__value, sizeof(sc__value));" in source
     assert "return send_status;" in source
 
 
@@ -516,3 +513,18 @@ def test_unrelated_non_double_struct_does_not_affect_sizing(
     )
     text = emit_cmakelists(CProject(programs=(augmented,)))
     assert "SC_EVENT_PAYLOAD_SIZE=16u" in text  # unaffected by bool_struct
+
+
+def test_subfield_only_read_sizes_the_project_too(sm_models: dict) -> None:
+    # Before this task, a subfield-only read (e.g. .value) never needed the
+    # struct's size registered, because it always fit the old fixed 8-byte
+    # scalar slot. Now it must: the whole Measurement struct (2 leaves ->
+    # 16 bytes) crosses the wire even for a single-field read.
+    from sysmlc.backends.statix.program import CProject
+    from sysmlc.backends.statix.serialize import emit_cmakelists
+
+    program = build_statix(
+        sm_models["sm11"], "SM11::MachineReadablePayloadGuard"
+    )
+    text = emit_cmakelists(CProject(programs=(program,)))
+    assert "SC_EVENT_PAYLOAD_SIZE=16u" in text

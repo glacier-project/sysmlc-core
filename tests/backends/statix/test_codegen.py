@@ -195,19 +195,27 @@ def _payload_gen(
         payload_feature=trigger.payload_feature,
         payload_c_type=payload_c_type,
         attribute_c_types=attribute_c_types
-        or {"current": "double", "captured": c_type},
+        or {"current": "double", "captured": "double"},
         struct_field_types=struct_field_types or {c_type: {"value": "double"}},
         structs_by_name=structs_by_name,
     )
 
 
-def test_payload_read_renders_f64_accessor(sm_models: dict) -> None:
+def test_payload_read_renders_struct_field_access(sm_models: dict) -> None:
     (t,) = _payload_facts(
         sm_models["sm11"], "SM11::MachineReadablePayloadGuard"
     )
     gen = _payload_gen(t.trigger)
-    assert gen.render_expression(t.guard) == "sc_event_payload_f64(event) > 0.5"
+    assert gen.render_expression(t.guard) == "sc__value.value > 0.5"
     assert gen.payload_reads == {("value",)}
+    assert gen.payload_preamble == [
+        "sample_t sc__value = {0};",
+        "sc_status_t sc__status = sc_event_payload_read(",
+        "    event, &sc__value, sizeof(sc__value));",
+        "if (sc__status != SC_STATUS_OK) {",
+        "    return false;",
+        "}",
+    ]
 
 
 def test_payload_read_in_effect_assignment(sm_models: dict) -> None:
@@ -216,25 +224,33 @@ def test_payload_read_in_effect_assignment(sm_models: dict) -> None:
     )
     gen = _payload_gen(t.trigger)
     (assign,) = actions.inline_actions(t.effect)
-    assert (
-        gen.render_action(assign)
-        == "ctx->captured = sc_event_payload_f64(event);"
-    )
+    rendered = gen.render_action(assign)
+    assert "sample_t sc__value = {0};" in rendered
+    assert "return sc__status;" in rendered
+    assert "ctx->captured = sc__value.value;" in rendered
     assert gen.payload_reads == {("value",)}
 
 
-def test_two_segment_payload_chain_renders_f64_accessor(
+def test_two_segment_payload_chain_renders_struct_field_access(
     sm_models: dict,
 ) -> None:
     (t,) = _payload_facts(
         sm_models["sm11"], "SM11::MachineReadablePayloadChain"
     )
-    gen = _payload_gen(t.trigger)
-    assert gen.render_expression(t.guard) == "sc_event_payload_f64(event) > 0.5"
+    gen = _payload_gen(
+        t.trigger,
+        payload_c_type="measurement_t",
+        struct_field_types={
+            "measurement_t": {"value": "double", "sample": "sample_t"},
+            "sample_t": {"value": "double"},
+        },
+    )
+    assert gen.render_expression(t.guard) == "sc__value.sample.value > 0.5"
     assert gen.payload_reads == {("sample", "value")}
 
 
-def test_three_segment_payload_chain_rejected(sm_models: dict) -> None:
+def test_three_segment_payload_chain_still_capped(sm_models: dict) -> None:
+    # The chain-depth cap is unchanged in this task -- Task 4 lifts it.
     model = load_model(_DEEPCHAIN)
     (t,) = _payload_facts(model, "DEEPCHAIN::MachineDeepChain")
     gen = _payload_gen(t.trigger)
@@ -242,58 +258,87 @@ def test_three_segment_payload_chain_rejected(sm_models: dict) -> None:
         gen.render_expression(t.guard)
 
 
-def test_whole_payload_capture_no_longer_raises(sm_models: dict) -> None:
-    from sysmlc.backends.statix.program import CField, CStruct
-
+def test_whole_payload_reference_decodes_and_returns_bare_local(
+    sm_models: dict,
+) -> None:
     (t,) = _payload_facts(
         sm_models["sm11"], "SM11::MachineReadablePayloadWhole"
     )
     c_type = "sm11_machine_readable_payload_whole_measurement_t"
-    sample_type = "sm11_machine_readable_payload_whole_sample_t"
-    structs = {
-        c_type: CStruct(
-            name=c_type,
-            fields=(
-                CField("value", "double", ""),
-                CField("sample", sample_type, ""),
-            ),
-        ),
-        sample_type: CStruct(
-            name=sample_type, fields=(CField("value", "double", ""),)
-        ),
-    }
     gen = _payload_gen(
         t.trigger,
         payload_c_type=c_type,
-        struct_field_types={
-            c_type: {"value": "double", "sample": sample_type},
-            sample_type: {"value": "double"},
-        },
-        structs_by_name=structs,
+        attribute_c_types={"current": "double", "captured": c_type},
+        struct_field_types={c_type: {"value": "double", "sample": "sample_t"}},
     )
     (assign,) = actions.inline_actions(t.effect)
     rendered = gen.render_action(assign)
     assert "sc_event_payload_read" in rendered
+    assert "ctx->captured = sc__value;" in rendered
+    assert gen.whole_payload_types == {c_type}
+
+
+def test_subfield_only_read_still_registers_whole_payload_type(
+    sm_models: dict,
+) -> None:
+    # A subfield-only read (never a bare whole-reference) must STILL
+    # register its struct type in whole_payload_types: unlike the old
+    # scalar-slot mechanism (always exactly sizeof(double), needing no
+    # registration), every decode now transmits the full struct, so sizing
+    # must see this type too, or SC_EVENT_PAYLOAD_SIZE stays at its 8-byte
+    # default while the actual struct needs more.
+    (t,) = _payload_facts(
+        sm_models["sm11"], "SM11::MachineReadablePayloadGuard"
+    )
+    gen = _payload_gen(t.trigger)
+    gen.render_expression(t.guard)
+    assert gen.whole_payload_types == {"sample_t"}
+
+
+def test_payload_decode_preamble_reset_between_guard_and_action(
+    sm_models: dict,
+) -> None:
+    # guard_eval and action_exec are separate generated functions -- a
+    # decode preamble captured while rendering the guard must not leak into
+    # (or be silently reused by) a later render_action call on the SAME
+    # CCodeGen instance for the same transition.
+    (t,) = _payload_facts(
+        sm_models["sm11"], "SM11::MachineReadablePayloadEffect"
+    )
+    gen = _payload_gen(t.trigger)
+    (assign,) = actions.inline_actions(t.effect)
+    gen.render_expression(
+        t.guard if t.guard is not None else assign.value_expression
+    )
+    guard_preamble = list(gen.payload_preamble)
+    action_rendered = gen.render_action(assign)
+    assert guard_preamble  # the first render populated it
+    assert "sample_t sc__value = {0};" in action_rendered
+    # The action's own preamble is independent -- present in ITS rendered
+    # text, not merely inherited/skipped because the guard already decoded.
+    assert action_rendered.count("sc_event_payload_read") == 1
 
 
 def test_scalar_payload_to_non_real_target_stays_rejected(
     sm_models: dict,
 ) -> None:
-    # The guard's real, correct purpose must survive the false-positive fix
-    # below: a genuine scalar payload read assigned to a non-Real attribute
-    # is still an error.
+    # A payload leaf read of one C type assigned to a target of a
+    # DIFFERENT C type is still an error -- now expressed as a type
+    # mismatch (double leaf vs. a target NOT recorded as double), not a
+    # blanket "any payload read must be Real" rule.
     (t,) = _payload_facts(
         sm_models["sm11"], "SM11::MachineReadablePayloadEffect"
     )
     gen = CCodeGen(
         attribute_names=frozenset({"current", "captured"}),
-        real_attributes=frozenset(
-            {"current"}
-        ),  # captured deliberately NOT Real
+        real_attributes=frozenset({"current"}),
         payload_feature=t.trigger.payload_feature,
+        payload_c_type="sample_t",
+        attribute_c_types={"current": "double", "captured": "bool"},
+        struct_field_types={"sample_t": {"value": "double"}},
     )
     (assign,) = actions.inline_actions(t.effect)
-    with pytest.raises(UnsupportedConstructError):
+    with pytest.raises(CCodeGenError, match="cannot assign a payload read"):
         gen.render_action(assign)
 
 
@@ -389,7 +434,7 @@ def test_whole_payload_assignment_type_mismatch_rejected(
 ) -> None:
     # captured declared as a plain Real (not the Measurement struct type)
     # must be rejected with a clear statix-level diagnostic, not silently
-    # emit an incompatible C compound-literal assignment.
+    # emit an incompatible C assignment.
     (t,) = _payload_facts(
         sm_models["sm11"], "SM11::MachineReadablePayloadWhole"
     )
@@ -410,5 +455,5 @@ def test_whole_payload_assignment_type_mismatch_rejected(
         },  # WRONG on purpose
     )
     (assign,) = actions.inline_actions(t.effect)
-    with pytest.raises(CCodeGenError, match="cannot assign the whole payload"):
+    with pytest.raises(CCodeGenError, match="cannot assign a payload read"):
         gen.render_action(assign)

@@ -264,7 +264,7 @@ class StatixBuilder:
         self._state_facts: list[StateFact] = []
         self._transition_facts: list[TransitionFact] = []
         self._bindings: list[AttributeBinding] = []
-        self._guard_names: dict[str, str] = {}
+        self._guard_names: dict[tuple[str | None, str], str] = {}
         self._guards: list[CGuard] = []
         self._actions: list[CAction] = []
         self._used_action_names: set[str] = set()
@@ -1238,22 +1238,40 @@ class StatixBuilder:
         scope = None if fact.scope == "" else fact.scope
         return CInvariant(scope=scope, guard=guard)
 
-    def _register_rendered_guard(self, rendered: str) -> str:
-        """Register (deduped) a guard from an already-rendered C bool expr."""
-        if rendered not in self._guard_names:
+    def _register_rendered_guard(
+        self,
+        rendered: str,
+        preamble: tuple[str, ...] = (),
+        payload_c_type: str | None = None,
+    ) -> str:
+        """Register (deduped) a guard from an already-rendered C bool expr.
+
+        Deduped on (payload_c_type, rendered), not rendered text alone: once
+        a guard's boolean expression can be preceded by a payload-decode
+        preamble tied to a specific struct type, two guards with identical
+        trailing text but different payload types must never merge --
+        preamble is fully determined by payload_c_type, so it need not be
+        part of the key separately.
+        """
+        key = (payload_c_type, rendered)
+        if key not in self._guard_names:
             name = f"g{len(self._guards)}"
-            self._guard_names[rendered] = name
-            self._guards.append(CGuard(name=name, expr=rendered))
-        return self._guard_names[rendered]
+            self._guard_names[key] = name
+            self._guards.append(
+                CGuard(name=name, expr=rendered, preamble=preamble)
+            )
+        return self._guard_names[key]
 
     def _guard_for(
         self, guard: syside.Expression | None, gen: CCodeGen | None = None
     ) -> str | None:
         if guard is None:
             return None
-        return self._register_rendered_guard(
-            (gen or self._gen).render_expression(guard)
-        )
+        active_gen = gen or self._gen
+        rendered = active_gen.render_expression(guard)
+        preamble = tuple(active_gen.payload_preamble)
+        payload_c_type = active_gen._payload_c_type if preamble else None
+        return self._register_rendered_guard(rendered, preamble, payload_c_type)
 
     def _register_action(
         self, statements: tuple[str | CSend, ...], id_hint: str
@@ -1291,103 +1309,32 @@ class StatixBuilder:
             raise UnsupportedConstructError(
                 f"unsupported send payload: {exc}"
             ) from exc
-        value_expr: str | None = None
         payload_lines: tuple[str, ...] = ()
         if event_name in self._payload_reads:
-            shape = self._payload_reads[event_name]
-            if shape == ():
-                payload_lines = self._marshal_whole_payload(
-                    send, event_name, pairs
-                )
-            else:
-                value_expr = self._marshal_expr(event_name, pairs)
+            payload_lines = self._marshal_payload(send, event_name, pairs)
         self._events.setdefault(event_name, None)
         self._has_send = True
-        result = CSend(
-            event=event_name, value_expr=value_expr, payload_lines=payload_lines
-        )
+        result = CSend(event=event_name, payload_lines=payload_lines)
         self._sends.append(result)
         return result
 
-    def _marshal_expr(
-        self,
-        event_name: str,
-        pairs: list[tuple[str, syside.Expression]],
-    ) -> str:
-        """Render the marshalled Real expression for a read event, or reject.
-
-        `path` is the event's read path (from `_detect_payload_reads`):
-        either one segment (position-0 case) or exactly two (one composite
-        hop then a Real leaf, e.g. `.sample.value`). `payload_signature`
-        binds constructor arguments positionally; the argument matching
-        `path[0]` is the one that must supply the read value, whichever
-        position it sits at -- any other argument is unread and is never
-        rendered.
-        """
-        path = self._payload_reads[event_name]
-        match = next((p for p in pairs if p[0] == path[0]), None)
-        if match is None:
-            raise UnsupportedConstructError(
-                f"the payload of event {event_name!r} is read as "
-                f".{'.'.join(path)}; no `send` constructor argument is "
-                f"bound to attribute {path[0]!r}."
-            )
-        expr = match[1]
-        if len(path) == 1:
-            if isinstance(expr, syside.LiteralRational):
-                return repr(expr.value)
-            if isinstance(expr, syside.FeatureReferenceExpression):
-                ref = expr.referent
-                if ref is not None and ref.name in self._real_attribute_names:
-                    return f"ctx->{ref.name}"
-            raise UnsupportedConstructError(
-                f"the marshalled payload of event {event_name!r} must be "
-                "provably Real: a Real literal or a Real machine attribute; "
-                "other expressions are unsupported by statix yet."
-            )
-        # len(path) == 2: the matched argument must be a bare reference to a
-        # registered composite attribute; mechanically resolve path[1]
-        # against its fields (never a vibe check -- the field's generated C
-        # type comes from the struct registry built from the model's own
-        # composite attribute defs).
-        base_error = UnsupportedConstructError(
-            f"the payload of event {event_name!r} is read as "
-            f".{'.'.join(path)}; the matching `send` argument "
-            f"({path[0]!r}) must be a bare reference to a composite "
-            "machine attribute."
-        )
-        if not isinstance(expr, syside.FeatureReferenceExpression):
-            raise base_error
-        ref = expr.referent
-        if ref is None or ref.name is None:
-            raise base_error
-        base_type = self._attribute_c_types.get(ref.name)
-        struct = None if base_type is None else self._structs.get(base_type)
-        if struct is None:
-            raise base_error
-        field = next((f for f in struct.fields if f.name == path[1]), None)
-        if field is None or field.c_type != "double":
-            raise UnsupportedConstructError(
-                f"the payload of event {event_name!r} is read as "
-                f".{'.'.join(path)}, but {base_type}.{path[1]!r} is not a "
-                "Real (double) field."
-            )
-        return f"ctx->{ref.name}.{path[1]}"
-
-    def _marshal_whole_payload(
+    def _marshal_payload(
         self,
         send: syside.SendActionUsage,
         event_name: str,
         pairs: list[tuple[str, syside.Expression]],
     ) -> tuple[str, ...]:
-        """Render a whole-payload send.
+        """Render a payload-bearing send: zero-init, assign each leaf, send.
 
-        Materialize every top-level payload attribute (bound expression, or
-        its own generated default when KerML's fewer-args-than-attributes
-        rule leaves it unbound), assemble one nested compound literal, then
-        read the flattened leaf array off THAT local -- guaranteeing each
-        supplied expression evaluates exactly once regardless of how many
-        leaves it contributes to.
+        Every payload-bearing send renders through this one path regardless
+        of which subset of fields any transition actually reads (receive
+        always decodes the whole struct). Each leaf gets its own assignment
+        statement against a zero-initialized local -- never a single
+        aggregate literal naming every field, which C does not guarantee
+        zeroes padding (the "remainder is implicitly zeroed" rule applies
+        only to unlisted members). Zero-init once, then one plain scalar
+        assignment per leaf (which only ever touches its own member's
+        bytes), keeps padding deterministic through the whole sequence.
         """
         payload = send.payload_argument
         assert isinstance(payload, syside.ConstructorExpression)
@@ -1399,26 +1346,102 @@ class StatixBuilder:
             event_type, event_name
         )
         self._whole_payload_struct_types.add(payload_c_type)
-        field_text = self._render_struct_fields(attributes, bound)
         leaf_paths = _walk_payload_fields(payload_c_type, self._structs)
         if not leaf_paths:
             raise UnsupportedConstructError(
                 f"event {event_name!r} uses an empty composite payload; "
-                "whole payloads require at least one Real leaf."
+                "a payload-bearing send requires at least one leaf."
             )
-        leaf_reads = ", ".join(
-            "sc__value." + ".".join(path) for path in leaf_paths
+        assignments = self._render_leaf_assignments(
+            leaf_paths, attributes, bound
         )
         return (
-            f"const {payload_c_type} sc__value = {field_text};",
-            f"const double sc__payload[] = {{ {leaf_reads} }};",
+            f"{payload_c_type} sc__value = {{0}};",
+            *assignments,
             "sc_status_t send_status = sc_runtime_enqueue_payload(",
             "    runtime, (sc_event_id_t)__EVENT_TOKEN__,",
-            "    sc__payload, sizeof(sc__payload));",
+            "    &sc__value, sizeof(sc__value));",
             "if (send_status != SC_STATUS_OK) {",
             "    return send_status;",
             "}",
         )
+
+    def _render_leaf_assignments(
+        self,
+        leaf_paths: list[tuple[str, ...]],
+        attributes: list[syside.AttributeUsage],
+        bound: dict[str, syside.Expression],
+    ) -> tuple[str, ...]:
+        """One `sc__value.<path> = <expr>;` statement per payload leaf.
+
+        For each top-level attribute (bound by the send's constructor
+        arguments, or defaulted via KerML's fewer-args-than-attributes
+        rule), walks down to each of ITS OWN leaf paths and renders the
+        exact matching sub-expression.
+        """
+        attrs_by_name = {a.name: a for a in attributes}
+        lines: list[str] = []
+        for path in leaf_paths:
+            top_name = path[0]
+            sub_path = path[1:]
+            if top_name in bound:
+                rhs = self._render_bound_leaf(bound[top_name], sub_path)
+            else:
+                attr = attrs_by_name[top_name]
+                assert self._compiler is not None and self._stdlib is not None
+                value = attributes_mod.bind_value(
+                    attr, self._compiler, self._stdlib
+                )
+                rhs = self._render_default_leaf(value, sub_path)
+            lines.append(f"sc__value.{'.'.join(path)} = {rhs};")
+        return tuple(lines)
+
+    def _render_bound_leaf(
+        self, expr: syside.Expression, sub_path: tuple[str, ...]
+    ) -> str:
+        """Render the leaf value at `sub_path` within a bound constructor arg.
+
+        `sub_path` empty means the bound expression itself IS the leaf
+        (rendered exactly as any other bound scalar expression). A non-empty
+        `sub_path` means the top-level attribute is composite: the bound
+        expression must be a bare reference to a composite machine
+        attribute, so `sub_path` can be mechanically resolved against it --
+        never a vibe check, this only ever emits `ctx->` accesses the
+        attribute registry can already prove exist.
+        """
+        if not sub_path:
+            return self._gen.render_expression(expr)
+        if not isinstance(expr, syside.FeatureReferenceExpression):
+            raise UnsupportedConstructError(
+                f"the payload leaf '.{'.'.join(sub_path)}' of a composite "
+                "send argument must be a bare reference to a composite "
+                "machine attribute; statix cannot resolve a leaf field of "
+                "an inline constructor or computed expression."
+            )
+        ref = expr.referent
+        if ref is None or ref.name is None:
+            raise UnsupportedConstructError(
+                "send argument has no resolved referent"
+            )
+        return "ctx->" + ref.name + "." + ".".join(sub_path)
+
+    def _render_default_leaf(
+        self, value: AttributeValue, sub_path: tuple[str, ...]
+    ) -> str:
+        """Render the leaf value at `sub_path` within a materialized default."""
+        current: AttributeValue = value
+        for name in sub_path:
+            assert isinstance(current, CompositeValue)
+            current = next(v for n, v in current.fields if n == name)
+        if isinstance(current, CompositeValue):
+            raise UnsupportedConstructError(
+                "internal error: a payload leaf path resolved to a "
+                "composite default value"
+            )
+        if isinstance(current, float):
+            return repr(current)
+        assert current is not None
+        return self._init_gen.render_expression(current)
 
     def _register_whole_payload_type(
         self, event_type: syside.Definition, event_name: str
@@ -1433,38 +1456,6 @@ class StatixBuilder:
                 fields.append(CField(attr.name, field_type, ""))
             self._structs[c_type] = CStruct(name=c_type, fields=tuple(fields))
         return c_type
-
-    def _render_struct_fields(
-        self,
-        attributes: list[syside.AttributeUsage],
-        bound: dict[str, syside.Expression],
-    ) -> str:
-        """Render one nested compound literal.
-
-        Bound attrs use the caller's expression (through self._gen, the
-        machine's own context codegen); every OMITTED attribute (KerML
-        permits fewer args than attributes) is materialized from its own
-        declared default via the exact same bind_value/_scalar_init/_struct_init
-        machinery already used for a machine's own context attributes.
-        """
-        assert self._compiler is not None and self._stdlib is not None
-        parts: list[str] = []
-        for attr in attributes:
-            assert attr.name is not None
-            if attr.name in bound:
-                rendered = self._gen.render_expression(bound[attr.name])
-            else:
-                value = attributes_mod.bind_value(
-                    attr, self._compiler, self._stdlib
-                )
-                if isinstance(value, CompositeValue):
-                    self._register_struct(value)
-                    rendered = self._struct_init(value)
-                else:
-                    c_type = self._scalar_c_type(value, attr.name)
-                    rendered = self._scalar_init(value, c_type)
-            parts.append(f".{attr.name} = {rendered}")
-        return "{" + ", ".join(parts) + "}"
 
     def _action_for(
         self,
