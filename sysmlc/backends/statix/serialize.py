@@ -5,7 +5,7 @@ from typing import Final
 from jinja2 import Environment, PackageLoader
 
 from sysmlc.backends.statix.builder import _c_identifier
-from sysmlc.backends.statix.payload import _flatten_leaf_paths
+from sysmlc.backends.statix.payload import _walk_payload_fields
 from sysmlc.backends.statix.program import (
     COMPLETION_EVENT,
     INTERNAL_TARGET,
@@ -533,7 +533,7 @@ def _cmakelists_view(project: CProject) -> dict[str, object]:
         s.name: s for p in project.programs for s in p.context.structs
     }
     payload_leaf_counts = [
-        len(_flatten_leaf_paths(name, structs_by_name))
+        len(_walk_payload_fields(name, structs_by_name))
         for p in project.programs
         for name in p.payload_struct_types
     ]

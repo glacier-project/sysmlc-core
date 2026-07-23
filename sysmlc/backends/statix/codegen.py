@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING, Final
 import syside
 
 from sysmlc.backends.statix.payload import (
-    _flatten_leaf_paths,
     _reconstruct_nested_literal,
+    _walk_payload_fields,
 )
 from sysmlc.errors import UnsupportedConstructError
 
@@ -234,7 +234,7 @@ class CCodeGen:
         then the reconstructed nested assignment) -- never a single expression,
         per the C99 constraint above.
         """
-        paths = _flatten_leaf_paths(struct_type, self._structs_by_name)
+        paths = _walk_payload_fields(struct_type, self._structs_by_name)
         if not paths:
             raise CCodeGenError(
                 f"whole-payload type {struct_type!r} has no Real leaves; "

@@ -6,7 +6,7 @@ from typing import Final, NamedTuple
 import syside
 
 from sysmlc.backends.statix.codegen import CCodeGen
-from sysmlc.backends.statix.payload import _flatten_leaf_paths
+from sysmlc.backends.statix.payload import _walk_payload_fields
 from sysmlc.backends.statix.program import (
     COMPLETION_EVENT,
     INTERNAL_TARGET,
@@ -1400,7 +1400,7 @@ class StatixBuilder:
         )
         self._whole_payload_struct_types.add(payload_c_type)
         field_text = self._render_struct_fields(attributes, bound)
-        leaf_paths = _flatten_leaf_paths(payload_c_type, self._structs)
+        leaf_paths = _walk_payload_fields(payload_c_type, self._structs)
         if not leaf_paths:
             raise UnsupportedConstructError(
                 f"event {event_name!r} uses an empty composite payload; "
