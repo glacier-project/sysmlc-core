@@ -927,3 +927,26 @@ def test_whole_payload_read_decodes_once_into_typed_local(
     assert "sc__status" in stmt
     assert "return sc__status" in stmt
     assert "ctx->captured = sc__value;" in stmt
+
+
+def test_unread_sibling_field_unrepresentability_still_rejected(
+    sm_models: dict,
+) -> None:
+    # Reading ONLY reading.value (Integer, representable) must still be
+    # rejected: Labeled.label (String) is an unrepresentable SIBLING field,
+    # and the whole struct crosses the wire together now.
+    with pytest.raises(UnsupportedConstructError, match="label"):
+        build_statix(
+            sm_models["sm11"],
+            "SM11::MachineReadablePayloadUnrepresentableSibling",
+        )
+
+
+def test_unrepresentable_type_never_referenced_still_builds(
+    sm_models: dict,
+) -> None:
+    # The SAME Labeled type, used only as an id-only accept (no named
+    # binding referencing any field) elsewhere in the model, must still
+    # build fine -- representability is checked only for REFERENCED events.
+    program = build_statix(sm_models["sm11"], "SM11::MachineStringPayload")
+    assert program is not None

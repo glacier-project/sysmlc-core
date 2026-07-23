@@ -414,6 +414,7 @@ class StatixBuilder:
             generated_enum_types=self._generated_enum_type_names(),
         )
         self._referenced_payload_events = self._detect_payload_events()
+        self._validate_referenced_payload_schemas()
         self._assign_when_slots()
         real_states = tuple(self._build_state(f) for f in self._state_facts)
         transitions = tuple(
@@ -558,6 +559,38 @@ class StatixBuilder:
             if has_ref:
                 payload_events.add(trigger.signal_name)
         return payload_events
+
+    def _validate_referenced_payload_schemas(self) -> None:
+        """Every REFERENCED event's full declared payload type must be
+        representable -- not just the specific field(s) some transition
+        happens to read. Every leaf crosses the wire together (Task 3's
+        whole-struct transfer), so an unrepresentable sibling field breaks
+        the transfer even if it's never itself read. An unreferenced event
+        is never checked here (an id-only accept of a type statix cannot
+        fully represent must still build, per the SM02 lazy-resolution fix).
+        """
+        checked: set[str] = set()
+        for t in self._transition_facts:
+            trigger = t.trigger
+            if (
+                not isinstance(trigger, SignalTrigger)
+                or trigger.payload_feature is None
+                or trigger.signal_name not in self._referenced_payload_events
+                or trigger.signal_name in checked
+            ):
+                continue
+            checked.add(trigger.signal_name)
+            payload_c_type = self._resolve_extern_type(
+                trigger.payload_feature,
+                trigger.payload_feature.name or "payload",
+            )
+            leaf_paths = _walk_payload_fields(payload_c_type, self._structs)
+            if not leaf_paths:
+                raise UnsupportedConstructError(
+                    f"event {trigger.signal_name!r} uses an empty "
+                    "composite payload; a referenced payload requires at "
+                    "least one leaf."
+                )
 
 
 
