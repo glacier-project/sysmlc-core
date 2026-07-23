@@ -93,12 +93,10 @@ class CCodeGen:
 
     When ``payload_feature`` is provided (the signal feature bound by the
     active transition's trigger, such as ``reading`` on ``Measurement``), a
-    reference to a sub-feature of that payload (such as ``reading.value``, one
-    segment) or one composite hop into it (``reading.sample.value``, two
-    segments) renders as ``sc_event_payload_f64(event)``, and the read path
-    (as a tuple of segment names) is recorded in ``payload_reads``. A
-    reference to the whole payload without a sub-feature, or a chain three or
-    more segments deep, is rejected.
+    reference to the payload itself or a chain into it (such as ``reading.value``
+    or ``reading.sample.value``) renders as field accesses on the decoded local
+    ``sc__value``, e.g. ``sc__value``, ``sc__value.value``, or
+    ``sc__value.sample.value``.
 
     When ``enum_resolver`` is provided, a reference whose referent is a
     ``syside.EnumerationUsage`` (an enum literal, e.g. ``LightColor::red``)

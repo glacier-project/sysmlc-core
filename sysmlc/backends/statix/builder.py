@@ -561,8 +561,9 @@ class StatixBuilder:
         return payload_events
 
     def _validate_referenced_payload_schemas(self) -> None:
-        """Every REFERENCED event's full declared payload type must be
-        representable -- not just the specific field(s) some transition
+        """Every REFERENCED event's full declared payload type must be representable.
+
+        Not just the specific field(s) some transition
         happens to read. Every leaf crosses the wire together (Task 3's
         whole-struct transfer), so an unrepresentable sibling field breaks
         the transfer even if it's never itself read. An unreferenced event

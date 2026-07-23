@@ -5,7 +5,7 @@
 /// @brief Machine-agnostic statechart runtime support.
 ///
 /// Implementation gate: this header declares sc_runtime_bind/_get_state/
-/// _enqueue/_enqueue_f64/sc_seconds_to_ticks/sc_runtime_regions_all_final
+/// _enqueue/_enqueue_payload/sc_seconds_to_ticks/sc_runtime_regions_all_final
 /// unconditionally, but only DEFINES them when SC_RUNTIME_IMPLEMENTATION is
 /// defined before this include. Exactly one translation unit per link unit
 /// must do:
@@ -190,9 +190,8 @@ sc_status_t sc_runtime_enqueue(sc_runtime_t *runtime, sc_event_id_t event_id);
 
 /// @brief Post an internal event carrying an arbitrary bounded byte payload.
 ///
-/// Generic counterpart of sc_runtime_enqueue_f64: copies `len` bytes into
-/// the event's inline buffer via sc_event_set_payload and pushes the event.
-/// `len` must not exceed SC_EVENT_PAYLOAD_SIZE.
+/// Copies `len` bytes into the event's inline buffer via sc_event_set_payload
+/// and pushes the event. `len` must not exceed SC_EVENT_PAYLOAD_SIZE.
 /// @param runtime Runtime instance to post into.
 /// @param event_id Event identifier to enqueue.
 /// @param data Payload bytes to marshal, or NULL iff len is 0.
@@ -200,16 +199,6 @@ sc_status_t sc_runtime_enqueue(sc_runtime_t *runtime, sc_event_id_t event_id);
 /// @return SC_STATUS_OK, SC_STATUS_QUEUE_FULL, or SC_STATUS_INVALID_ARGUMENT.
 sc_status_t sc_runtime_enqueue_payload(sc_runtime_t *runtime, sc_event_id_t event_id,
                                         const void *data, size_t len);
-
-/// @brief Post an internal event carrying one Real (double) payload value.
-///
-/// Thin wrapper over sc_runtime_enqueue_payload, preserving this function's
-/// original signature/behavior exactly for every existing caller.
-/// @param runtime Runtime instance to post into.
-/// @param event_id Event identifier to enqueue.
-/// @param value Payload value to marshal.
-/// @return SC_STATUS_OK, SC_STATUS_QUEUE_FULL, or SC_STATUS_INVALID_ARGUMENT.
-sc_status_t sc_runtime_enqueue_f64(sc_runtime_t *runtime, sc_event_id_t event_id, double value);
 
 /// @brief Convert SI seconds to ticks, rejecting negative or unrepresentable values.
 ///
@@ -391,10 +380,6 @@ sc_status_t sc_runtime_enqueue_payload(sc_runtime_t *runtime, sc_event_id_t even
     return sc_event_queue_push(runtime->queue, &event);
 }
 
-sc_status_t sc_runtime_enqueue_f64(sc_runtime_t *runtime, sc_event_id_t event_id, double value)
-{
-    return sc_runtime_enqueue_payload(runtime, event_id, &value, sizeof(value));
-}
 
 bool sc_seconds_to_ticks(double seconds, sc_time_t *out_ticks)
 {

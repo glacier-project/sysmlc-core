@@ -70,9 +70,11 @@ static const sc_machine_t pl_machine = {
 
 static bool pl_guard_eval(sc_guard_id_t g, const sc_runtime_t *rt, const sc_event_t *ev)
 {
+    double value = 0.0;
     (void)rt;
     if (g == 1u) {
-        return sc_event_payload_f64(ev) > 0.5;
+        (void)sc_event_payload_read(ev, &value, sizeof(value));
+        return value > 0.5;
     }
     return false;
 }
@@ -84,10 +86,12 @@ static sc_status_t pl_action_exec(sc_action_id_t a, sc_runtime_t *rt, const sc_e
         return SC_STATUS_INVALID_ARGUMENT;
     }
     if (a == 1u) {
-        return sc_runtime_enqueue_f64(rt, PL_EVENT_MEAS, ctx->current);
+        return sc_runtime_enqueue_payload(rt, PL_EVENT_MEAS, &ctx->current, sizeof(ctx->current));
     }
     if (a == 2u) {
-        ctx->captured = sc_event_payload_f64(ev);
+        double value = 0.0;
+        (void)sc_event_payload_read(ev, &value, sizeof(value));
+        ctx->captured = value;
     }
     return SC_STATUS_OK;
 }
