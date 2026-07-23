@@ -191,13 +191,17 @@ rosetta.
   `assert not constraint` wraps `!(...)`. Function-call constraints stay rejected
   until the functions increment.
 - **E Functions + external (partially landed)** — allowlisted `NumericalFunctions`/`TrigFunctions` calls lower to `<math.h>` C (`fmax`/`cos`/…) in guards/effects/constraints, with conditional `#include <math.h>` + `-lm`; external calc-defs and the timer-gated sm14/sm15 whole-model conformance remain out of scope.
-- **F send / internal-event RTC / payloads (partially landed)** — `send` pushes to the internal
-  queue; the macro-step drains it bounded by `SC_MAX_RTC_STEPS` (B.1 landed); readable scalar
-  Real payloads use a marshal-on-demand f64 slot (`sc_event_payload_f64`), with sm11
-  Guard/Rejected/Effect conformance-gated and a captured-value harness (B.2 landed); 2-segment
-  chained Real payload reads landed (one composite hop, `reading.sample.value`, sm11
-  `MachineReadablePayloadChain` conformance-gated); 3+ segment chains and whole-payload capture
-  (`MachineReadablePayloadWhole`) remain deferred to a future increment.
+- **F send / internal-event RTC / payloads (landed)** — `send` pushes to the internal queue;
+  the macro-step drains it bounded by `SC_MAX_RTC_STEPS` (B.1 landed). Payloads are marshalled
+  via the event's own declared type as the wire format (`sc_event_payload_read`/
+  `sc_runtime_enqueue_payload`, generic byte-copy primitives) — whole reads, field reads, and
+  field chains of any depth, with Real/Integer/Boolean leaves, all legal for the same event
+  across different transitions (sm11 `MachineReadablePayloadGuard`/`Effect`/`Chain`/`Whole`/
+  `Mixed` conformance-gated; see docs/superpowers/specs/2026-07-23-statix-canonical-payload-encoding-design.md).
+  Cross-machine payload delivery (one machine's send reaching a different machine's accept, e.g.
+  Furuta's `PendulumSimulation` → `PendulumController`) remains out of scope: statix's payload
+  usage analysis is machine-local, and part instantiation/port routing between separately-built
+  machines isn't implemented at all yet regardless (tracked separately).
 - **G Timers `after`/`at`** — `sc_runtime_tick(rt, elapsed)`; timers armed on
   entry, disarmed on exit, stale expiries invalidated by a per-source activation
   counter (Sismic's mechanism); expiry posts a synthetic event. Per-instance
@@ -237,10 +241,13 @@ Conformance-gated, hierarchy before advanced features, untimed before timed.
   - Features: **composite (landed)**, **then done/final (landed)**, **one-shot do (landed)**, **constraints (landed)**, **functions/extern (partially landed)**
   - Corpus: sm08, sm10, sm12, sm14, sm17
   - Runtime delta: state tree + LCA dispatch + MAX_DEPTH; final states; invariant check + new status
-- **Phase B: Internal-event RTC (partially landed)**
-  - Features: **`send` + internal queue drain (landed)**, **readable scalar Real payloads (landed)**, chained/whole/multi-field payloads
-  - Corpus: sm11
-  - Runtime delta: generalize the bounded micro-step; typed payloads in the event buffer
+- **Phase B: Internal-event RTC (landed)**
+  - Features: **`send` + internal queue drain (landed)**, **canonical whole-struct payload
+    encoding — whole/field/chain reads, Real/Integer/Boolean leaves, mixed reads across
+    transitions, unbounded chain depth (landed)**
+  - Corpus: sm11 (Guard/Effect/Chain/Whole/Mixed), Furuta `PendulumController`
+  - Runtime delta: generalized the bounded micro-step; the event's own struct type is the typed
+    payload buffer, decoded once per `guard_eval`/`action_exec` callback
 - **Phase B.5: Host execution & testbench**
   - Features: `sysmlc statix run`; virtual-time testbench DSL; state/context expectations; JSON/CSV traces; statix-vs-quake trace comparison
   - Corpus: sm01-sm17 reusable scripted traces

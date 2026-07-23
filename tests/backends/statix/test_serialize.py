@@ -490,7 +490,7 @@ def test_unrelated_non_double_struct_does_not_affect_sizing(
 ) -> None:
     # A struct containing a Boolean field, registered in context.structs but
     # NOT listed in payload_struct_types (an ordinary attribute struct, not
-    # a whole-payload type), must never be passed to _flatten_leaf_paths --
+    # a whole-payload type), must never be passed to _walk_payload_fields --
     # proving the all-double validation is scoped to actual payload types,
     # not every registered struct in the project.
     from dataclasses import replace
