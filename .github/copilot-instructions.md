@@ -127,26 +127,26 @@ We follow a simplified Git-flow model for releases:
 #### Branches
 
 - `main`: Represents the latest stable, released version. Only hotfixes and release merges are committed directly to `main`.
-- `develop`: Integration branch for ongoing development. All new features and bug fixes are merged into `develop`.
-- `feature/<feature-name>`: Used for developing new features. Branch off `develop` and merge back into `develop` upon completion.
+- `dev`: Integration branch for ongoing development. All new features and bug fixes are merged into `dev`.
+- `feature/<feature-name>`: Used for developing new features. Branch off `dev` and merge back into `dev` upon completion.
 
 Here is the release process:
 
-1. Prepare `develop` for Release:
-   - Ensure all desired features and bug fixes are merged into `develop`.
+1. Prepare `dev` for Release:
+   - Ensure all desired features and bug fixes are merged into `dev`.
    - Update `CHANGELOG.md` with changes for the new version, with the help of the command: `git log --pretty=format:"- (%h) %s" ...`
    - Update version numbers in relevant project files (e.g., `pyproject.toml`, `package.json`).
 1. Make sure we start from a clean state:
-   - Make sure you are on the `develop`, and that we start from there.
+   - Make sure you are on the `dev`, and that we start from there.
    - Perform final testing and bug fixing on this branch.
 1. Merge to `main` and Tag:
-   - Once the develop branch is stable, merge it into `main`:
+   - Once the dev branch is stable, merge it into `main`:
      1. `git checkout main`
-     1. `git merge --no-ff develop`
+     1. `git merge --no-ff dev`
    - Tag the release on `main`: `git tag -a v<version-number> -m "Release v<version-number>"`
    - Ask the user to push the changes to the `main` branch, including tags: `git push origin main --tags`
-1. Merge back to `develop`:
-   - Merge the main branch back into `develop` to ensure `develop` has all release changes:
-     1. `git checkout develop`
+1. Merge back to `dev`:
+   - Merge the main branch back into `dev` to ensure `dev` has all release changes:
+     1. `git checkout dev`
      1. `git merge --no-ff main`
-   - Ask the user to push the changes to `develop` branch: `git push origin develop`
+   - Ask the user to push the changes to `dev` branch: `git push origin dev`
