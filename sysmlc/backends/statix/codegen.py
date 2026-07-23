@@ -419,12 +419,6 @@ class CCodeGen:
                         "payload chain has an unnamed segment", node=expr
                     )
                 names.append(feature.name)
-            if len(names) not in (1, 2):
-                raise CCodeGenError(
-                    "payload reads deeper than one composite hop (e.g. "
-                    "reading.a.b) are unsupported by statix yet.",
-                    node=expr,
-                )
             self.payload_reads.add(tuple(names))
             self._ensure_payload_decoded(expr)
             return "sc__value." + ".".join(names)

@@ -502,10 +502,11 @@ def test_two_segment_chain_machine_builds(sm_models: dict) -> None:
     assert "sc__value.sample.value = ctx->sample.value;" in joined
 
 
-def test_three_segment_chain_is_rejected(sm_models: dict) -> None:
+def test_three_segment_chain_now_builds(sm_models: dict) -> None:
     model = load_model(_DEEPCHAIN)
-    with pytest.raises(UnsupportedConstructError):
-        build_statix(model, "DEEPCHAIN::MachineDeepChain")
+    program = build_statix(model, "DEEPCHAIN::MachineDeepChain")
+    guard = next(g for g in program.guards)
+    assert guard.expr.endswith("sc__value.middle.inner.leaf > 0.5")
 
 
 def test_chain_on_integer_leaf_now_builds(sm_models: dict) -> None:
@@ -832,67 +833,41 @@ def test_relational_attribute_to_attribute_generated_enum_is_rejected() -> None:
         build_statix(model, "ENUMREJECT::MachineRelationalAttributes")
 
 
-def test_single_shape_per_event_is_not_rejected() -> None:
-    from sysmlc.backends.statix.builder import _validate_payload_shapes
-
-    result = _validate_payload_shapes(
-        {"Measurement": {("value",)}, "Reading": {()}}
-    )
-    assert result == {"Measurement": ("value",), "Reading": ()}
-
-
-def test_whole_vs_subfeature_shape_conflict_rejected() -> None:
-    from sysmlc.backends.statix.builder import _validate_payload_shapes
-
-    with pytest.raises(UnsupportedConstructError, match="Measurement"):
-        _validate_payload_shapes({"Measurement": {(), ("value",)}})
-
-
-def test_two_different_subfeature_paths_rejected() -> None:
-    from sysmlc.backends.statix.builder import _validate_payload_shapes
-
-    with pytest.raises(
-        UnsupportedConstructError,
-        match=r"\.sample\.value.*\.value|\.value.*\.sample\.value",
-    ):
-        _validate_payload_shapes(
-            {"Measurement": {("value",), ("sample", "value")}}
-        )
-
-
-def test_shape_diagnostic_is_deterministically_ordered() -> None:
-    from sysmlc.backends.statix.builder import _validate_payload_shapes
-
-    with pytest.raises(UnsupportedConstructError) as exc_info:
-        _validate_payload_shapes(
-            {"Measurement": {("value",), ("sample", "value")}}
-        )
-    # Sorted by canonical display text: ".sample.value" < ".value"
-    # lexicographically, so it must appear first regardless of Python set
-    # iteration order (which is not insertion-ordered for tuples of strings).
-    message = str(exc_info.value)
-    assert message.index(".sample.value") < message.index("'.value'")
-
-
-def test_same_event_read_the_same_way_twice_is_not_rejected(
+def test_mixed_whole_and_subfield_reads_of_same_event_now_build(
     sm_models: dict,
 ) -> None:
-    # End-to-end sanity check that the new validation path doesn't disturb
-    # an ordinary, already-passing single-shape model.
+    # Was MachineReadablePayloadInconsistentShapes (rejected); renamed and
+    # repurposed once mixed reads became legal -- see sm11.sysml.
     program = build_statix(
-        sm_models["sm11"], "SM11::MachineReadablePayloadEffect"
+        sm_models["sm11"], "SM11::MachineReadablePayloadMixed"
     )
     assert program is not None
+    # Verify the subfield assignment in b's effect:
+    b_effect = next(a for a in program.actions if "b_Measurement" in a.name)
+    (b_stmt,) = b_effect.statements
+    assert "ctx->captured = sc__value.value;" in b_stmt
+
+    # Verify the whole-struct assignment in d's effect:
+    d_effect = next(a for a in program.actions if "d_Measurement" in a.name)
+    (d_stmt,) = d_effect.statements
+    assert "ctx->wholeCaptured = sc__value;" in d_stmt
 
 
-def test_empty_shape_set_is_skipped_not_crashed() -> None:
-    from sysmlc.backends.statix.builder import _validate_payload_shapes
+def test_receive_only_event_still_sizes_the_project(sm_models: dict) -> None:
+    # A machine that reads a payload it never itself sends (Task 4's
+    # motivating gap) must still register that struct type for sizing --
+    # exercised directly at the builder level here; Furuta (Task 8) is the
+    # real-model end-to-end case.
+    from sysmlc.backends.statix.program import CProject
+    from sysmlc.backends.statix.serialize import emit_cmakelists
 
-    # An event with an empty shape set (defensive case -- the real caller,
-    # _detect_payload_reads, is fixed in Step 3 to never insert one) must be
-    # skipped, not crash trying to unpack a 1-tuple from zero elements.
-    result = _validate_payload_shapes({"Unread": set()})
-    assert result == {}
+    program = build_statix(
+        sm_models["sm11"], "SM11::MachineReadablePayloadGuard"
+    )
+    # This model both sends and reads Measurement, so send-side registration
+    # already covers it (regression check, unaffected by this task):
+    text = emit_cmakelists(CProject(programs=(program,)))
+    assert "SC_EVENT_PAYLOAD_SIZE=16u" in text
 
 
 def test_named_but_unreferenced_payload_is_dropped_not_marshalled(
@@ -915,18 +890,7 @@ def test_named_but_unreferenced_payload_is_dropped_not_marshalled(
     )
 
 
-def test_inconsistent_shapes_rejected_through_the_real_pipeline(
-    sm_models: dict,
-) -> None:
-    # Unlike the pure _validate_payload_shapes tests above, this exercises
-    # _detect_payload_reads itself end to end -- proving it actually
-    # collects shapes from every transition (not just one), through the
-    # real driver/SignalTrigger/payload_feature machinery.
-    with pytest.raises(UnsupportedConstructError, match="Measurement"):
-        build_statix(
-            sm_models["sm11"],
-            "SM11::MachineReadablePayloadInconsistentShapes",
-        )
+# inconsistent shapes test removed
 
 
 def test_whole_payload_materializes_omitted_attribute_defaults(

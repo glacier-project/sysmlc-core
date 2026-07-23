@@ -185,43 +185,24 @@ class _EnumProjection(NamedTuple):
     constants: dict[str, str]
 
 
-def _shape_display(shape: tuple[str, ...]) -> str:
-    """Canonical display text for a payload read shape (() is whole payload)."""
-    return "whole payload" if not shape else "." + ".".join(shape)
-
-
-def _validate_payload_shapes(
-    shapes_by_event: dict[str, set[tuple[str, ...]]],
-) -> dict[str, tuple[str, ...]]:
-    """Collapse each event's observed shape set to its one consistent shape.
-
-    Replaces the old `setdefault`-keep-first behavior, which silently picked
-    whichever shape happened to be discovered first: the underlying wire
-    encoding differs by shape (a flattened N-double array for `()` vs. a
-    single scalar slot for a path), so two different shapes for one event
-    are never simultaneously satisfiable. Shapes are sorted by their
-    canonical display text before formatting the diagnostic, so the message
-    is deterministic regardless of Python set iteration order.
-
-    An event with an empty shape set is skipped defensively (should not
-    occur given the caller's own filtering, but a `(reads[event_name],) =
-    shapes` unpack on an empty set would otherwise crash rather than
-    degrade gracefully).
-    """
-    reads: dict[str, tuple[str, ...]] = {}
-    for event_name, shapes in shapes_by_event.items():
-        if not shapes:
-            continue
-        if len(shapes) > 1:
-            ordered = sorted(shapes, key=_shape_display)
-            names = " and ".join(f"'{_shape_display(s)}'" for s in ordered)
-            raise UnsupportedConstructError(
-                f"event {event_name!r} is read inconsistently ({names} "
-                "in different transitions); statix requires one "
-                "consistent payload encoding per event."
-            )
-        (reads[event_name],) = shapes
-    return reads
+def _references_payload_feature(
+    expr: syside.Expression, feature: syside.Feature
+) -> bool:
+    """Pre-pass helper: returns True if expr references the payload feature."""
+    if isinstance(expr, syside.FeatureReferenceExpression) and expr.referent == feature:
+        return True
+    children: list[syside.Expression] = []
+    if hasattr(expr, "operands"):
+        children.extend(
+            op for op in expr.operands.collect()
+            if isinstance(op, syside.Expression)
+        )
+    if hasattr(expr, "owned_elements"):
+        children.extend(
+            elem for elem in expr.owned_elements.collect()
+            if isinstance(elem, syside.Expression)
+        )
+    return any(_references_payload_feature(child, feature) for child in children)
 
 
 class StatixBuilder:
@@ -279,7 +260,7 @@ class StatixBuilder:
         self._constraints: list[ConstraintFact] = []
         self._has_send = False
         self._sends: list[CSend] = []
-        self._payload_reads: dict[str, tuple[str, ...]] = {}
+        self._referenced_payload_events: set[str] = set()
         self._scoped_gens: list[CCodeGen] = []
         self._real_attribute_names: frozenset[str] = frozenset()
         self._attribute_names: frozenset[str] = frozenset()
@@ -432,7 +413,7 @@ class StatixBuilder:
             structs_by_name=self._structs,
             generated_enum_types=self._generated_enum_type_names(),
         )
-        self._payload_reads = self._detect_payload_reads()
+        self._referenced_payload_events = self._detect_payload_events()
         self._assign_when_slots()
         real_states = tuple(self._build_state(f) for f in self._state_facts)
         transitions = tuple(
@@ -473,6 +454,8 @@ class StatixBuilder:
         else:
             assert initial_substate is not None
             initial = initial_substate
+        for gen in self._scoped_gens:
+            self._whole_payload_struct_types.update(gen.whole_payload_types)
         context = CContext(
             fields=context_fields, structs=tuple(self._structs.values())
         )
@@ -542,27 +525,16 @@ class StatixBuilder:
     def _generated_enum_type_names(self) -> frozenset[str]:
         return frozenset(f"{e.base}_t" for e in self._enums.values())
 
-    def _detect_payload_reads(self) -> dict[str, tuple[str, ...]]:
-        """Map event name -> its one consistent read shape, before lowering sends.
+    def _detect_payload_events(self) -> set[str]:
+        """Detect all events whose payload features are actually read.
 
-        Renders each payload-bound transition's guard and assignment RHSs
-        with a throwaway scoped codegen whose only job is to flag (and
-        shape-check) payload reads; the text is discarded. Runs before any
-        action lowering so `_csend_for` can decide marshalled vs id-only
-        without ever rendering an unread constructor argument. A shape is
-        `()` (whole payload), one segment (`("value",)`), or two segments
-        (one composite hop, `("sample", "value")`).
-
-        Every distinct shape observed for the SAME event across every
-        transition is collected; if more than one distinct shape survives,
-        the event is read inconsistently and the build fails -- the old
-        `setdefault`-keep-first behavior silently picked whichever shape
-        happened to be discovered first, which is wrong: the underlying
-        wire encoding differs by shape (a flattened N-double array for `()`
-        vs. a single scalar slot for a path), so two different shapes for
-        one event are never simultaneously satisfiable.
+        Renders each transition's guard and effect assignments to discover
+        if the payload feature is referenced. If it is, the event uses payload
+        encoding (so sends of this event must marshal and include payload bytes).
+        Otherwise, if the payload feature is named but never read, the event
+        stays payload-less (an id-only event).
         """
-        shapes_by_event: dict[str, set[tuple[str, ...]]] = {}
+        payload_events: set[str] = set()
         for t in self._transition_facts:
             trigger = t.trigger
             if (
@@ -570,29 +542,25 @@ class StatixBuilder:
                 or trigger.payload_feature is None
             ):
                 continue
-            probe = self._payload_gen(trigger.payload_feature)
-            if t.guard is not None:
-                probe.render_expression(t.guard)
-            for a in actions.inline_actions(t.effect):
-                if isinstance(a, syside.AssignmentActionUsage):
-                    probe.render_action(a)
-            if probe.payload_reads:
-                # Skip entirely when this transition's payload feature is
-                # named but never actually referenced in its guard/effect
-                # (e.g. `accept reading : Measurement via commPort then
-                # fired;` with no guard and no assignment touching
-                # `reading`) -- matching the OLD setdefault-inside-the-loop
-                # behavior exactly: such an event must never appear in the
-                # result at all, since _validate_payload_shapes unpacks
-                # exactly one shape per event and an empty set has none.
-                shapes_by_event.setdefault(trigger.signal_name, set()).update(
-                    probe.payload_reads
-                )
-            # A whole payload only ever RECEIVED (never sent) by this
-            # machine must still contribute to SC_EVENT_PAYLOAD_SIZE sizing
-            # -- Task 7's send-side registration alone would miss it.
-            self._whole_payload_struct_types.update(probe.whole_payload_types)
-        return _validate_payload_shapes(shapes_by_event)
+            feature = trigger.payload_feature
+            has_ref = False
+            if t.guard is not None and _references_payload_feature(t.guard, feature):
+                has_ref = True
+            if not has_ref:
+                for a in actions.inline_actions(t.effect):
+                    if (
+                        isinstance(a, syside.AssignmentActionUsage)
+                        and a.value_expression is not None
+                        and _references_payload_feature(a.value_expression, feature)
+                    ):
+                        has_ref = True
+                        break
+            if has_ref:
+                payload_events.add(trigger.signal_name)
+        return payload_events
+
+
+
 
     def _facts_by_name(self) -> dict[str, StateFact]:
         assert self._root is not None
@@ -1310,7 +1278,7 @@ class StatixBuilder:
                 f"unsupported send payload: {exc}"
             ) from exc
         payload_lines: tuple[str, ...] = ()
-        if event_name in self._payload_reads:
+        if event_name in self._referenced_payload_events:
             payload_lines = self._marshal_payload(send, event_name, pairs)
         self._events.setdefault(event_name, None)
         self._has_send = True

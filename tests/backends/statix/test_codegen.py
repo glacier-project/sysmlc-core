@@ -249,13 +249,19 @@ def test_two_segment_payload_chain_renders_struct_field_access(
     assert gen.payload_reads == {("sample", "value")}
 
 
-def test_three_segment_payload_chain_still_capped(sm_models: dict) -> None:
-    # The chain-depth cap is unchanged in this task -- Task 4 lifts it.
+def test_three_segment_payload_chain_now_builds(sm_models: dict) -> None:
     model = load_model(_DEEPCHAIN)
     (t,) = _payload_facts(model, "DEEPCHAIN::MachineDeepChain")
-    gen = _payload_gen(t.trigger)
-    with pytest.raises(UnsupportedConstructError):
-        gen.render_expression(t.guard)
+    gen = _payload_gen(
+        t.trigger,
+        payload_c_type="deep_t",
+        struct_field_types={
+            "deep_t": {"middle": "middle_t"},
+            "middle_t": {"inner": "inner_t"},
+            "inner_t": {"leaf": "double"},
+        },
+    )
+    assert gen.render_expression(t.guard) == "sc__value.middle.inner.leaf > 0.5"
 
 
 def test_whole_payload_reference_decodes_and_returns_bare_local(

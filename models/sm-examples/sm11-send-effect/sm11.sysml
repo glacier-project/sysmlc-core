@@ -166,18 +166,21 @@ package SM11 {
     }
 
     // Two different transitions read the SAME event via two DIFFERENT
-    // subfeature paths -- must be rejected as inconsistent, exercised
-    // through the real driver/builder pipeline (_detect_payload_reads),
-    // not only the pure _validate_payload_shapes unit tests above.
-    state def MachineReadablePayloadInconsistentShapes {
+    // subfeature paths, AND a third reads it wholly -- all now legal:
+    // statix's wire format is the event's own declared type regardless of
+    // which subset of fields (or the whole value) any given transition
+    // reads.
+    state def MachineReadablePayloadMixed {
         attribute current : Real := 0.9;
         attribute captured : Real := 0.0;
+        item wholeCaptured : Measurement;
         port commPort;
         entry;
             then a;
         state a;
         state b;
         state c;
+        state d;
         transition first a do send new Measurement(current) to commPort then b;
         transition first b
             accept reading : Measurement via commPort
@@ -186,6 +189,10 @@ package SM11 {
         transition first c
             accept reading : Measurement via commPort
             if reading.sample.value > 0.5
+            then d;
+        transition first d
+            accept reading : Measurement via commPort
+            do assign wholeCaptured := reading
             then a;
     }
 
