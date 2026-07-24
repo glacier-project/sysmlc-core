@@ -1,0 +1,18 @@
+name: Set up Python and uv
+description: Install the requested Python version and uv with dependency caching.
+inputs:
+  python-version:
+    description: Python version to install.
+    required: true
+runs:
+  using: composite
+  steps:
+  - name: Set up Python
+    uses: actions/setup-python@v6
+    with:
+      python-version: ${{ inputs.python-version }}
+  - name: Install uv
+    uses: astral-sh/setup-uv@v7
+    with:
+      enable-cache: true
+      cache-dependency-glob: uv.lock
