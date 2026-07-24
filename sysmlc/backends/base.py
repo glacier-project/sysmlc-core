@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from importlib.metadata import entry_points
 from typing import TYPE_CHECKING
 
-from sysmlc.errors import SerializationError
+from sysmlc.errors import BackendError, SerializationError
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -135,12 +135,18 @@ def discover_backends() -> dict[str, Backend]:
 
     Each entry point must name a no-argument :class:`Backend` subclass. A
     backend that fails to load is skipped with a logged warning, so a single
-    broken plugin cannot take down the whole CLI.
+    broken plugin cannot take down the whole CLI. Two backends claiming the
+    same ``name`` cannot be resolved unambiguously, so a collision is refused
+    rather than letting one silently shadow the other.
 
     Returns:
         Backend instances keyed by ``Backend.name``.
+
+    Raises:
+        BackendError: If two entry points yield backends with the same name.
     """
     backends: dict[str, Backend] = {}
+    providers: dict[str, str] = {}
     for entry_point in entry_points(group=BACKEND_ENTRY_POINT_GROUP):
         try:
             backend = entry_point.load()()
@@ -155,5 +161,13 @@ def discover_backends() -> dict[str, Backend]:
                 entry_point.name,
             )
             continue
+        if backend.name in backends:
+            raise BackendError(
+                f"duplicate backend name {backend.name!r}: provided by both "
+                f"entry points {providers[backend.name]!r} and "
+                f"{entry_point.name!r}; uninstall one of the conflicting "
+                "plugins."
+            )
         backends[backend.name] = backend
+        providers[backend.name] = entry_point.name
     return backends

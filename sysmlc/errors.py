@@ -52,3 +52,7 @@ class UnsupportedConstructError(CodeGenerationError):
 
 class ValuesError(SysmlcError):
     """Raised for an unreadable, ill-formed, or inapplicable values file."""
+
+
+class BackendError(SysmlcError):
+    """Raised when backend discovery finds an unusable configuration."""

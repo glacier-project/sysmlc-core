@@ -592,10 +592,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     Returns:
         A process exit code: ``0`` on success, ``1`` on a user-facing error.
     """
-    backends = discover_backends()
-    args = _build_parser(backends).parse_args(argv)
-    configure_logging("DEBUG" if args.verbose else "INFO")
     try:
+        backends = discover_backends()
+        args = _build_parser(backends).parse_args(argv)
+        configure_logging("DEBUG" if args.verbose else "INFO")
         if args.command == "backends":
             return _cmd_backends(backends)
         if args.action == "run":
