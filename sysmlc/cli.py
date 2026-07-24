@@ -32,7 +32,7 @@ from sysmlc.sysml.textual_representation import (
 from sysmlc.values import configure_model, load_values, select_values
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Sequence
 
 __all__ = ["main"]
 
@@ -398,16 +398,16 @@ def _cmd_build(args: argparse.Namespace) -> int:
     """Run a ``<backend> build`` command."""
     backend: Backend = args._backend
     model = load_model(args.model)
-    build_model: Callable[[syside.Model], object] | None = getattr(
-        backend, "build_model", None
-    )
-    if getattr(args, "element", None) is None and build_model is not None:
+    if (
+        getattr(args, "element", None) is None
+        and "model" in backend.build_kinds()
+    ):
         if getattr(args, "values", None) is not None:
             raise CliError(
                 f"backend {backend.name!r} whole-model builds do not support "
                 "--values yet"
             )
-        artifact = build_model(model)
+        artifact = backend.build_model(model)
         return _write_artifact(args, backend, "model", artifact, None)
 
     element_qn, kind = _select_element(model, args.element)
@@ -422,11 +422,8 @@ def _cmd_build(args: argparse.Namespace) -> int:
     if kind == "part":
         return _build_part(args, backend, model, element_qn, target_options)
 
-    build_composition: Callable[[syside.Model, str], object] | None = getattr(
-        backend, "build_composition", None
-    )
     is_rig = kind == "rig"
-    if is_rig and build_composition is None:
+    if is_rig and "rig" not in backend.build_kinds():
         raise CliError(
             f"backend {backend.name!r} cannot build a rig composition; "
             "select a state definition with --element if the model declares one"
@@ -452,12 +449,11 @@ def _cmd_build(args: argparse.Namespace) -> int:
 
     python_path, external = _resolve_python(args, backend, model, element_qn)
 
-    build_kwargs: dict[str, object] = (
+    build_kwargs: dict[str, tuple[str, frozenset[str]]] = (
         {"external": external} if external is not None else {}
     )
     if is_rig:
-        assert build_composition is not None  # guarded above
-        artifact = build_composition(model, element_qn, **build_kwargs)
+        artifact = backend.build_composition(model, element_qn, **build_kwargs)
     else:
         artifact = backend.build(model, element_qn, **build_kwargs)
     return _write_artifact(args, backend, element_qn, artifact, python_path)
@@ -471,20 +467,17 @@ def _build_part(
     target_options: tuple[tuple[str, str], ...],
 ) -> int:
     """Build a top-level part usage into a main reactor and write it."""
-    build_part: Callable[..., object] | None = getattr(
-        backend, "build_part", None
-    )
-    if build_part is None:
+    if "part" not in backend.build_kinds():
         raise CliError(f"backend {backend.name!r} cannot build a part system")
     if getattr(args, "values", None) is not None:
         raise CliError("--values is not supported with part systems yet")
 
     python_path, external = _resolve_python(args, backend, model, usage_qn)
 
-    build_kwargs: dict[str, object] = (
+    build_kwargs: dict[str, tuple[str, frozenset[str]]] = (
         {"external": external} if external is not None else {}
     )
-    artifact = build_part(
+    artifact = backend.build_part(
         model, usage_qn, target_options=target_options, **build_kwargs
     )
     return _write_artifact(args, backend, usage_qn, artifact, python_path)
@@ -526,19 +519,18 @@ def _cmd_run(args: argparse.Namespace) -> int:
     backend: Backend = args._backend
     model = load_model(args.model)
     element_qn, kind = _select_element(model, args.element)
-    hook_name = {
-        "statedef": "run_state_def",
-        "part": "run_part_system",
-    }.get(kind)
-    hook = getattr(backend, hook_name, None) if hook_name else None
-    if hook is None:
+    if kind not in backend.run_kinds():
         raise CliError(f"backend {backend.name!r} cannot run a {kind!r}")
 
     python_path, external = _resolve_python(args, backend, model, element_qn)
     if python_path is not None:
         _load_external_module(python_path)
 
-    report = hook(
+    if kind == "statedef":
+        run = backend.run_state_def
+    else:
+        run = backend.run_part_system
+    report = run(
         model,
         element_qn,
         max_steps=args.max_steps,
