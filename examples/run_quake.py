@@ -168,7 +168,7 @@ def print_trace(steps: list[MacroStep]) -> None:
         print(f"    {i}. {macro}")
 
 
-def print_coverage(coverage: Mapping[str, Counter]) -> None:
+def print_coverage(coverage: Mapping[str, Counter[str]]) -> None:
     """Print state and transition coverage from an execution trace.
 
     Args:

@@ -141,7 +141,7 @@ Run the test suite, type checker, and linter directly:
 uv run pytest
 # Requires lfc and Java.
 uv run pytest -m lf
-uv run mypy sysmlc
+uv run pyrefly check
 uv run ruff check
 ```
 

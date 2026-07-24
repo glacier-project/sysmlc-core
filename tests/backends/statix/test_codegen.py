@@ -15,27 +15,11 @@ from sysmlc.semantics.statemachine import actions
 from sysmlc.semantics.statemachine.driver import StateMachineDriver
 from sysmlc.semantics.statemachine.facts import CompositeValue, SignalTrigger
 from sysmlc.sysml.loading import load_model
+from tests.test_recording import RecordingBuilder
 
 _DEEPCHAIN = Path(__file__).resolve().parent / "fixtures" / "deepchain"
 _ENUMCOMPOSITE = Path(__file__).resolve().parent / "fixtures" / "enumcomposite"
 _ENUMREJECT = Path(__file__).resolve().parent / "fixtures" / "enumreject"
-
-
-class _FactSink:
-    """Minimal TargetBuilder that just records transition facts."""
-
-    def __init__(self, out: list) -> None:
-        self.transitions = out
-
-    def bind_attribute(self, b: object) -> None: ...
-
-    def add_state(self, s: object) -> None: ...
-
-    def add_transition(self, t: object) -> None:
-        self.transitions.append(t)
-
-    def result(self) -> object:
-        return None
 
 
 def _guards(
@@ -43,10 +27,12 @@ def _guards(
 ) -> list[str]:
     """Return rendered guards for every guarded transition of a state def."""
     gen = gen or CCodeGen()
-    facts: list = []
-    StateMachineDriver(model).run(qn, _FactSink(facts))
+    builder = RecordingBuilder()
+    StateMachineDriver(model).run(qn, builder)
     return [
-        gen.render_expression(t.guard) for t in facts if t.guard is not None
+        gen.render_expression(t.guard)
+        for t in builder.transitions
+        if t.guard is not None
     ]
 
 
@@ -79,23 +65,12 @@ def test_enum_literal_reference_ignores_allow_context(
         assert literal.name == "red"
         return "my_enum_t", "MY_CONST_RED", True
 
-    attributes: list = []
-
-    class _AttrSink:
-        def bind_attribute(self, b: object) -> None:
-            attributes.append(b)
-
-        def bind_constraint(self, c: object) -> None: ...
-        def add_state(self, s: object) -> None: ...
-        def add_transition(self, t: object) -> None: ...
-        def result(self) -> object:
-            return None
-
+    builder = RecordingBuilder()
     enumcomposite = load_model(_ENUMCOMPOSITE)
     StateMachineDriver(enumcomposite).run(
-        "ENUMCOMPOSITE::MachineEnumComposite", _AttrSink()
+        "ENUMCOMPOSITE::MachineEnumComposite", builder
     )
-    (box_binding,) = [b for b in attributes if b.name == "box"]
+    (box_binding,) = [b for b in builder.attributes if b.name == "box"]
     assert isinstance(box_binding.value, CompositeValue)
     (color_value,) = [
         v for name, v in box_binding.value.fields if name == "color"
@@ -140,10 +115,10 @@ def test_chained_reference(sm_models: dict) -> None:
 def _effect_values(model: syside.Model, qn: str) -> tuple[list[str], CCodeGen]:
     """Rendered value expressions of transition effects (bypasses builder)."""
     gen = CCodeGen()
-    facts: list = []
-    StateMachineDriver(model).run(qn, _FactSink(facts))
+    builder = RecordingBuilder()
+    StateMachineDriver(model).run(qn, builder)
     out: list[str] = []
-    for t in facts:
+    for t in builder.transitions:
         if t.effect is None:
             continue
         for a in actions.inline_actions(t.effect):
@@ -171,11 +146,11 @@ def test_external_calc_def_call_is_rejected(sm_models: dict) -> None:
 
 def _payload_facts(model: syside.Model, qn: str) -> list:
     """Transition facts whose trigger binds a payload feature."""
-    facts: list = []
-    StateMachineDriver(model).run(qn, _FactSink(facts))
+    builder = RecordingBuilder()
+    StateMachineDriver(model).run(qn, builder)
     return [
         t
-        for t in facts
+        for t in builder.transitions
         if isinstance(t.trigger, SignalTrigger)
         and t.trigger.payload_feature is not None
     ]

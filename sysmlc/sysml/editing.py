@@ -65,6 +65,29 @@ def literal_class(value: ValueScalar) -> type[syside.Element]:
     return syside.LiteralString
 
 
+def set_literal_value(lit: syside.Element, value: ValueScalar) -> None:
+    """Assign *value* to the literal node it is paired with.
+
+    Callers guarantee the pairing: the node was chosen (or created) via
+    ``literal_class(value)``, or *value* was previously read back from the
+    same node. The per-kind narrowing makes that invariant visible to the
+    type checker, since each literal class accepts only its own value type.
+    """
+    if isinstance(lit, syside.LiteralBoolean):
+        assert isinstance(value, bool)
+        lit.value = value
+    elif isinstance(lit, syside.LiteralInteger):
+        assert isinstance(value, int)
+        lit.value = value
+    elif isinstance(lit, syside.LiteralRational):
+        assert isinstance(value, float)
+        lit.value = value
+    else:
+        assert isinstance(lit, syside.LiteralString)
+        assert isinstance(value, str)
+        lit.value = value
+
+
 def set_value(
     attr: syside.AttributeUsage, name: str, value: ValueScalar
 ) -> None:
@@ -82,8 +105,7 @@ def set_value(
         _new_rel, lit = attr.children.append(
             syside.FeatureValue, literal_class(value)
         )
-        assert isinstance(lit, LITERAL_NODE_TYPES)
-        lit.value = value
+        set_literal_value(lit, value)
         return
     existing = rel.value
     if (
@@ -93,10 +115,8 @@ def set_value(
     ):
         existing.value = float(value)  # keep the declared rational kind
         return
-    if isinstance(existing, literal_class(value)) and isinstance(
-        existing, LITERAL_NODE_TYPES
-    ):
-        existing.value = value
+    if isinstance(existing, literal_class(value)):
+        set_literal_value(existing, value)
         return
     if isinstance(existing, syside.LiteralInteger) and isinstance(value, float):
         raise ValuesError(
@@ -238,13 +258,13 @@ def _unit_scale(
     magnitude, _unit = expr.operands.collect()
     assert isinstance(magnitude, LITERAL_NODE_TYPES)
     original = magnitude.value
-    magnitude.value = type(original)(1)
+    set_literal_value(magnitude, type(original)(1))
     try:
         scale = evaluate_to_number(
             expr, syside.Compiler(), syside.Stdlib(model.index)
         )
     finally:
-        magnitude.value = original
+        set_literal_value(magnitude, original)
     if not scale:
         raise ValuesError(
             f"cannot determine the unit scale of {name!r}'s initializer"
