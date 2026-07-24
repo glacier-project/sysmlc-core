@@ -39,6 +39,7 @@ exclude_patterns = [
 
 html_theme = "furo"
 html_title = "sysmlc documentation"
+suppress_warnings = ["sphinx_autodoc_typehints.forward_reference"]
 
 myst_enable_extensions = [
     "colon_fence",
