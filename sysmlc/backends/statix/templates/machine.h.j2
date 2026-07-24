@@ -54,6 +54,17 @@ typedef struct {
 } {{ st.name }};
 
 {% endfor %}
+{% if payload_struct_names %}
+/// @brief Compile-time proof each payload-bearing struct fits the
+/// configured SC_EVENT_PAYLOAD_SIZE budget. A C99-safe idiom, not
+/// _Static_assert (C11, incompatible with this project's -Wpedantic C99
+/// build) -- an array of size -1 is a compile error, so an undersized
+/// budget fails the BUILD, never a silent runtime buffer overflow.
+{% for name in payload_struct_names %}
+typedef char sc__payload_size_check_{{ name }}[(sizeof({{ name }}) <= SC_EVENT_PAYLOAD_SIZE) ? 1 : -1];
+{% endfor %}
+
+{% endif %}
 /// @brief Generated context for {{ qn }}.
 typedef struct {{ prefix }}_context_s {
 {% for f in context_fields %}

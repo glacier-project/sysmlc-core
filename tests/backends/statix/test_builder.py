@@ -446,14 +446,17 @@ def test_readable_guard_machine_builds(sm_models: dict) -> None:
     program = build_statix(
         sm_models["sm11"], "SM11::MachineReadablePayloadGuard"
     )
-    # The guard reads the payload...
+    # The guard decodes the payload once, then reads .value off the local.
     guard = next(g for g in program.guards)
-    assert guard.expr == "sc_event_payload_f64(event) > 0.5"
-    # ...so the send marshals ctx->current.
+    assert guard.expr.endswith("sc__value.value > 0.5")
+    assert any("sc_event_payload_read" in line for line in guard.preamble)
+    # ...so the send materializes and marshals the full Measurement struct.
     effect = next(a for a in program.actions if "idle_completion" in a.name)
-    assert effect.statements == (
-        CSend(event="Measurement", value_expr="ctx->current"),
-    )
+    (send,) = effect.statements
+    assert isinstance(send, CSend) and send.event == "Measurement"
+    joined = "\n".join(send.payload_lines)
+    assert "sc__value.value = ctx->current;" in joined
+    assert "sc_runtime_enqueue_payload" in joined
 
 
 def test_readable_effect_machine_builds(sm_models: dict) -> None:
@@ -464,9 +467,10 @@ def test_readable_effect_machine_builds(sm_models: dict) -> None:
     capture = next(
         a for a in program.actions if a.name == "armed_Measurement_effect"
     )
-    assert capture.statements == (
-        "ctx->captured = sc_event_payload_f64(event);",
-    )
+    (stmt,) = capture.statements
+    assert isinstance(stmt, str)
+    assert "sc_event_payload_read" in stmt
+    assert "ctx->captured = sc__value.value;" in stmt
 
 
 def test_unread_payload_sends_stay_id_only(sm_models: dict) -> None:
@@ -478,7 +482,7 @@ def test_unread_payload_sends_stay_id_only(sm_models: dict) -> None:
     ):
         program = build_statix(sm_models["sm11"], qn)
         effect = next(a for a in program.actions if "idle_completion" in a.name)
-        assert effect.statements == (CSend(event=event, value_expr=None),)
+        assert effect.statements == (CSend(event=event),)
 
 
 def test_two_segment_chain_machine_builds(sm_models: dict) -> None:
@@ -486,31 +490,44 @@ def test_two_segment_chain_machine_builds(sm_models: dict) -> None:
         sm_models["sm11"], "SM11::MachineReadablePayloadChain"
     )
     guard = next(g for g in program.guards)
-    assert guard.expr == "sc_event_payload_f64(event) > 0.5"
-    # The send marshals ctx->sample.value; the unread `current` argument
-    # (bound to Measurement.value) is dropped, never rendered.
+    assert guard.expr.endswith("sc__value.sample.value > 0.5")
+    # The send materializes BOTH leaves now (value from `current`, sample.value
+    # from the bare-attribute-reference `sample` argument) -- receive always
+    # decodes the whole struct, so send always transmits the whole struct.
     effect = next(a for a in program.actions if "idle_completion" in a.name)
-    assert effect.statements == (
-        CSend(event="Measurement", value_expr="ctx->sample.value"),
-    )
+    (send,) = effect.statements
+    assert isinstance(send, CSend) and send.event == "Measurement"
+    joined = "\n".join(send.payload_lines)
+    assert "sc__value.value = ctx->current;" in joined
+    assert "sc__value.sample.value = ctx->sample.value;" in joined
 
 
-def test_three_segment_chain_is_rejected(sm_models: dict) -> None:
+def test_three_segment_chain_now_builds(sm_models: dict) -> None:
     model = load_model(_DEEPCHAIN)
-    with pytest.raises(UnsupportedConstructError):
-        build_statix(model, "DEEPCHAIN::MachineDeepChain")
+    program = build_statix(model, "DEEPCHAIN::MachineDeepChain")
+    guard = next(g for g in program.guards)
+    assert guard.expr.endswith("sc__value.middle.inner.leaf > 0.5")
 
 
-def test_chain_on_non_real_leaf_is_rejected() -> None:
+def test_chain_on_integer_leaf_now_builds(sm_models: dict) -> None:
+    # Previously rejected because the OLD scalar-marshal mechanism required
+    # the read leaf to be Real; that check was specific to the deleted
+    # _marshal_expr and never re-appears -- Integer leaves are representable
+    # (Task 2) and the whole struct (both leaves) is always materialized now.
     model = load_model(_DEEPCHAIN)
-    with pytest.raises(UnsupportedConstructError):
-        build_statix(model, "DEEPCHAIN::MachineChainOnIntegerLeaf")
+    program = build_statix(model, "DEEPCHAIN::MachineChainOnIntegerLeaf")
+    guard = next(g for g in program.guards)
+    assert guard.expr.endswith("sc__value.box.count > 0")
 
 
-def test_chain_with_no_matching_send_argument_is_rejected() -> None:
+def test_chain_with_no_send_argument_uses_default(sm_models: dict) -> None:
     model = load_model(_DEEPCHAIN)
-    with pytest.raises(UnsupportedConstructError):
-        build_statix(model, "DEEPCHAIN::MachineChainNoMatchingArg")
+    program = build_statix(model, "DEEPCHAIN::MachineChainNoMatchingArg")
+    effect = next(a for a in program.actions if "idle_completion" in a.name)
+    (send,) = effect.statements
+    assert isinstance(send, CSend)
+    joined = "\n".join(send.payload_lines)
+    assert "sc__value.box.count = 1;" in joined
 
 
 def test_chain_on_non_reference_send_argument_is_rejected() -> None:
@@ -816,67 +833,44 @@ def test_relational_attribute_to_attribute_generated_enum_is_rejected() -> None:
         build_statix(model, "ENUMREJECT::MachineRelationalAttributes")
 
 
-def test_single_shape_per_event_is_not_rejected() -> None:
-    from sysmlc.backends.statix.builder import _validate_payload_shapes
-
-    result = _validate_payload_shapes(
-        {"Measurement": {("value",)}, "Reading": {()}}
-    )
-    assert result == {"Measurement": ("value",), "Reading": ()}
-
-
-def test_whole_vs_subfeature_shape_conflict_rejected() -> None:
-    from sysmlc.backends.statix.builder import _validate_payload_shapes
-
-    with pytest.raises(UnsupportedConstructError, match="Measurement"):
-        _validate_payload_shapes({"Measurement": {(), ("value",)}})
-
-
-def test_two_different_subfeature_paths_rejected() -> None:
-    from sysmlc.backends.statix.builder import _validate_payload_shapes
-
-    with pytest.raises(
-        UnsupportedConstructError,
-        match=r"\.sample\.value.*\.value|\.value.*\.sample\.value",
-    ):
-        _validate_payload_shapes(
-            {"Measurement": {("value",), ("sample", "value")}}
-        )
-
-
-def test_shape_diagnostic_is_deterministically_ordered() -> None:
-    from sysmlc.backends.statix.builder import _validate_payload_shapes
-
-    with pytest.raises(UnsupportedConstructError) as exc_info:
-        _validate_payload_shapes(
-            {"Measurement": {("value",), ("sample", "value")}}
-        )
-    # Sorted by canonical display text: ".sample.value" < ".value"
-    # lexicographically, so it must appear first regardless of Python set
-    # iteration order (which is not insertion-ordered for tuples of strings).
-    message = str(exc_info.value)
-    assert message.index(".sample.value") < message.index("'.value'")
-
-
-def test_same_event_read_the_same_way_twice_is_not_rejected(
+def test_mixed_whole_and_subfield_reads_of_same_event_now_build(
     sm_models: dict,
 ) -> None:
-    # End-to-end sanity check that the new validation path doesn't disturb
-    # an ordinary, already-passing single-shape model.
+    # Was MachineReadablePayloadInconsistentShapes (rejected); renamed and
+    # repurposed once mixed reads became legal -- see sm11.sysml.
     program = build_statix(
-        sm_models["sm11"], "SM11::MachineReadablePayloadEffect"
+        sm_models["sm11"], "SM11::MachineReadablePayloadMixed"
     )
     assert program is not None
+    # Verify the subfield assignment in b's effect:
+    b_effect = next(a for a in program.actions if "b_Measurement" in a.name)
+    (b_stmt,) = b_effect.statements
+    assert isinstance(b_stmt, str)
+    assert "ctx->captured = sc__value.value;" in b_stmt
+
+    # Verify the whole-struct assignment in d's effect:
+    d_effect = next(a for a in program.actions if "d_Measurement" in a.name)
+    (d_stmt,) = d_effect.statements
+    assert isinstance(d_stmt, str)
+    assert "ctx->wholeCaptured = sc__value;" in d_stmt
 
 
-def test_empty_shape_set_is_skipped_not_crashed() -> None:
-    from sysmlc.backends.statix.builder import _validate_payload_shapes
+def test_receive_only_event_still_sizes_the_project(sm_models: dict) -> None:
+    # A machine that reads a payload it never itself sends (Task 4's
+    # motivating gap) must still register that struct type for sizing --
+    # exercised directly at the builder level here; Furuta (Task 8) is the
+    # real-model end-to-end case.
+    from sysmlc.backends.statix.program import CProject
+    from sysmlc.backends.statix.serialize import emit_cmakelists
 
-    # An event with an empty shape set (defensive case -- the real caller,
-    # _detect_payload_reads, is fixed in Step 3 to never insert one) must be
-    # skipped, not crash trying to unpack a 1-tuple from zero elements.
-    result = _validate_payload_shapes({"Unread": set()})
-    assert result == {}
+    program = build_statix(
+        sm_models["sm11"], "SM11::MachineReadablePayloadGuard"
+    )
+    # This model both sends and reads Measurement, so send-side registration
+    # already covers it (regression check, unaffected by this task):
+    text = emit_cmakelists(CProject(programs=(program,)))
+    assert 'set(STATIX_EVENT_PAYLOAD_SIZE "16" CACHE STRING' in text
+    assert "SC_EVENT_PAYLOAD_SIZE=${STATIX_EVENT_PAYLOAD_SIZE}u" in text
 
 
 def test_named_but_unreferenced_payload_is_dropped_not_marshalled(
@@ -887,31 +881,19 @@ def test_named_but_unreferenced_payload_is_dropped_not_marshalled(
     # cleanly and the event must simply be treated as unread (an id-only
     # send elsewhere in the same machine, exactly as an entirely payload-
     # less event would be), not crash _detect_payload_reads/
-    # _validate_payload_shapes on an empty shape set. See Step 0 below for
-    # the model addition this exercises.
+    # _validate_payload_shapes on an empty shape set.
     program = build_statix(
         sm_models["sm11"], "SM11::MachineReadablePayloadUnused"
     )
     assert "Measurement" not in program.events or all(
-        s.value_expr is None and not getattr(s, "payload_lines", ())
+        not s.payload_lines
         for a in program.actions
         for s in a.statements
         if isinstance(s, CSend) and s.event == "Measurement"
     )
 
 
-def test_inconsistent_shapes_rejected_through_the_real_pipeline(
-    sm_models: dict,
-) -> None:
-    # Unlike the pure _validate_payload_shapes tests above, this exercises
-    # _detect_payload_reads itself end to end -- proving it actually
-    # collects shapes from every transition (not just one), through the
-    # real driver/SignalTrigger/payload_feature machinery.
-    with pytest.raises(UnsupportedConstructError, match="Measurement"):
-        build_statix(
-            sm_models["sm11"],
-            "SM11::MachineReadablePayloadInconsistentShapes",
-        )
+# inconsistent shapes test removed
 
 
 def test_whole_payload_materializes_omitted_attribute_defaults(
@@ -919,21 +901,22 @@ def test_whole_payload_materializes_omitted_attribute_defaults(
 ) -> None:
     # send new Measurement(current) binds only `value`; `sample` is
     # omitted (KerML permits fewer constructor args than attributes) and
-    # must be materialized from Sample's own default (0.75).
+    # must be materialized from Sample's own default (0.75), assigned to
+    # its own leaf statement -- never a single aggregate literal.
     program = build_statix(
         sm_models["sm11"], "SM11::MachineReadablePayloadWhole"
     )
     effect = next(a for a in program.actions if "idle" in a.name)
     send = next(s for s in effect.statements if isinstance(s, CSend))
-    assert send.value_expr is None
     joined = "\n".join(send.payload_lines)
     assert "sc__value" in joined
-    assert ".value = ctx->current" in joined
-    assert "0.75" in joined
+    assert "= {0};" in joined
+    assert "sc__value.value = ctx->current;" in joined
+    assert "sc__value.sample.value = 0.75;" in joined
     assert "sc_runtime_enqueue_payload" in joined
 
 
-def test_whole_payload_read_reconstructs_nested_literal(
+def test_whole_payload_read_decodes_once_into_typed_local(
     sm_models: dict,
 ) -> None:
     program = build_statix(
@@ -943,8 +926,78 @@ def test_whole_payload_read_reconstructs_nested_literal(
     (stmt,) = effect.statements
     assert isinstance(stmt, str)
     assert "sc_event_payload_read" in stmt
-    assert "payload_status" in stmt
-    assert "return payload_status" in stmt
-    assert "sc__payload[0]" in stmt
-    assert "sc__payload[1]" in stmt
-    assert "sample" in stmt and "sc__payload[1]" in stmt
+    assert "sc__status" in stmt
+    assert "return sc__status" in stmt
+    assert "ctx->captured = sc__value;" in stmt
+
+
+def test_unread_sibling_field_unrepresentability_still_rejected(
+    sm_models: dict,
+) -> None:
+    # Reading ONLY reading.value (Integer, representable) must still be
+    # rejected: Labeled.label (String) is an unrepresentable SIBLING field,
+    # and the whole struct crosses the wire together now.
+    with pytest.raises(UnsupportedConstructError, match="label"):
+        build_statix(
+            sm_models["sm11"],
+            "SM11::MachineReadablePayloadUnrepresentableSibling",
+        )
+
+
+def test_unrepresentable_type_never_referenced_still_builds(
+    sm_models: dict,
+) -> None:
+    # The SAME Labeled type, used only as an id-only accept (no named
+    # binding referencing any field) elsewhere in the model, must still
+    # build fine -- representability is checked only for REFERENCED events.
+    program = build_statix(sm_models["sm11"], "SM11::MachineStringPayload")
+    assert program is not None
+
+
+def test_integer_leaf_payload_builds_and_reads(sm_models: dict) -> None:
+    program = build_statix(
+        sm_models["sm11"], "SM11::MachineReadableIntegerPayload"
+    )
+    guard = next(g for g in program.guards)
+    assert guard.expr.endswith("sc__value.value > 0")
+    effect = next(a for a in program.actions if "idle_completion" in a.name)
+    (send,) = effect.statements
+    assert isinstance(send, CSend)
+    assert "sc__value.value = ctx->count;" in "\n".join(send.payload_lines)
+
+
+def test_boolean_leaf_payload_builds_and_reads(sm_models: dict) -> None:
+    program = build_statix(
+        sm_models["sm11"], "SM11::MachineReadableBooleanPayload"
+    )
+    guard = next(g for g in program.guards)
+    assert guard.expr.endswith("sc__value.armed")
+    effect = next(a for a in program.actions if "idle_completion" in a.name)
+    (send,) = effect.statements
+    assert isinstance(send, CSend)
+    assert "sc__value.armed = ctx->ready;" in "\n".join(send.payload_lines)
+
+
+def test_mixed_primitive_padding_fixture_builds(sm_models: dict) -> None:
+    program = build_statix(
+        sm_models["sm11"], "SM11::MachineMixedPrimitivePadding"
+    )
+    assert program is not None
+    guard = next(g for g in program.guards)
+    assert guard.expr.endswith("sc__value.value > 1.0")
+
+
+def test_furuta_pendulum_controller_builds(sm_models_showcase: dict) -> None:
+    # The actual motivating gap from the top of the design spec: reading
+    # AngleReading by TWO different subfields (r.theta, r.d_phi) in
+    # different transitions AND passing it whole to three different extern
+    # calcs (swingup_torque/catch_torque/stabilize_torque), all for the SAME
+    # event -- previously rejected outright by the one-shape-per-event rule.
+    program = build_statix(
+        sm_models_showcase["furuta"], "FurutaPendulum::PendulumController"
+    )
+    assert program is not None
+    assert program.extern_functions  # swingup_torque/catch_torque/etc.
+    guards = [g.expr for g in program.guards]
+    assert any("sc__value.theta" in g for g in guards)
+    assert any("sc__value.d_phi" in g for g in guards)

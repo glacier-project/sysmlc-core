@@ -51,7 +51,10 @@ def sm_models() -> dict[str, syside.Model]:
 @pytest.fixture(scope="session")
 def sm_models_showcase() -> dict[str, syside.Model]:
     """Load showcase models referenced across the statix backend tests."""
-    return {"microwave": load_model(_SHOWCASE_MODELS / "microwave")}
+    return {
+        "microwave": load_model(_SHOWCASE_MODELS / "microwave"),
+        "furuta": load_model(_SHOWCASE_MODELS / "furuta-pendulum"),
+    }
 
 
 def _expand_legacy_tick_tokens(events: tuple[str, ...]) -> list[str]:

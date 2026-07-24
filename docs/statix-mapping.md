@@ -101,11 +101,13 @@ When a machine includes a self-send (`send new E()` or `do send new E()`), stati
 
 `accept E [via port]` is a **signal trigger**: `E` becomes an `enum` event id
 (`<PREFIX>_EVENT_E`, numbered from 1), and the transition matches that id in
-`<prefix>_dispatch` / `<prefix>_post`. A named binding (`accept reading : E`) may read the event's single
-marshalled Real value — either directly (`reading.value`) or one composite
-hop deep (`reading.sample.value`) — in the transition's guard and effect;
-deeper chains, whole-payload capture, and non-Real payload data remain
-rejected (§9).
+`<prefix>_dispatch` / `<prefix>_post`. A named binding (`accept reading : E`)
+may read the event's payload — wholly (`reading`), by one field
+(`reading.value`), or by a field chain of any depth (`reading.a.b.c`) — in
+the transition's guard and effect. The SAME event may be read differently by
+different transitions (wholly in one, by different fields in others): the
+wire format is the event's own declared type, not however any one site
+happens to read it (§6c). Leaf fields may be Real, Integer, or Boolean.
 
 `after` / `at` triggers are supported (§4a); `when` (change) triggers are
 supported too (§4b).
@@ -260,24 +262,33 @@ Bodyless `calc def`s (pure signatures with `result_expression` as `None`) are su
 
 ## 6c. Self-sends and payload marshalling
 
-Statix supports three forms of internal payload marshalling for self-sends (`send new Event(...) to ownPort`):
+Statix marshals every payload-bearing self-send (`send new Event(...) to ownPort`) through one mechanism: **the event's own declared type is the wire format.**
 
-1. **Scalar Real payload**: A single Real payload argument (`send new Reading(val)`) marshals via `sc_runtime_enqueue_f64` into the event's inline payload buffer and is read back as `sc_event_payload_f64(event)`.
-1. **Sub-feature access**: A single scalar field or nested leaf field of a composite payload argument (`reading.value` or `reading.sample.value`) resolves mechanically against the struct registry and marshals the target double.
-1. **Whole-payload assignment**: An entire composite payload object (`reading : Measurement`) assigned directly to a machine attribute (`assign captured := reading`) or sent as a composite payload object (`send new Measurement(...)`).
+### The wire format: the payload's own generated struct
 
-### Whole-Payload Marshalling & Leaf Flattening
+An event's payload C type (already generated for extern-call/attribute purposes) is used directly as the wire format — no separate flattened intermediate. `sc_event_payload_read`/`sc_runtime_enqueue_payload` are generic byte-copy primitives; producer and consumer are the same generated build, so byte order/struct layout is not a portability concern (documented on `sc_event_t` itself).
 
-Whole-payload marshalling handles composite events with nested struct hierarchies by flattening all leaf fields depth-first (in declaration order) into a linear array of standard `double` values (`sc__payload[]`).
+- **Send**: a zero-initialized local of the payload's struct type, one plain assignment statement per leaf field (never a single aggregate literal naming every field — C does not guarantee zeroed padding for that shape), then `sc_runtime_enqueue_payload(runtime, event_id, &sc__value, sizeof(sc__value))`. Every top-level payload attribute is either the send's own bound constructor argument or materialized from its own declared SysML default (KerML's fewer-args-than-attributes rule).
+- **Receive**: one `sc_event_payload_read(event, &sc__value, sizeof(sc__value))` decode per callback (`guard_eval`/`action_exec` are separate generated functions, so each gets its own decode if it references the payload), then plain C field access for whatever the transition needs — the whole value (`ctx->target = sc__value;`), one field (`sc__value.value`), or a field chain of any depth (`sc__value.a.b.c`).
+- **Mixed reads across transitions are legal**: the same event may be read wholly in one transition and by different fields in others — there is no "shape" to be inconsistent about, since every read decodes the identical bytes into the identical struct type.
+- **Leaf types**: Real (`double`), Integer (`int32_t`), and Boolean (`bool`) — including nested all-primitive composites. String and generated-enum-typed leaves are rejected (§9): the whole struct crosses the wire together, so **every** leaf of a referenced event's type must be representable, not just whichever field a given transition happens to read.
 
-- **Leaf-Flattening Requirement**: Every leaf field of a whole-payload composite struct type must resolve to `Real` (`double`). The check is strictly scoped to actual whole-payload struct types; non-payload structs used elsewhere in context attributes are unaffected.
-- **Send-Side Lowering & Default Materialization**: A send action (`send new Event(...)`) evaluates its arguments into a temporary local C struct. Any top-level payload attribute omitted by KerML's fewer-args-than-attributes rule is automatically materialized from its own declared SysML default. The flattened leaf array is then read off that temporary struct and passed to `sc_runtime_enqueue_payload`.
-- **Receive-Side Lowering & Reconstruction**: On the accepting transition, `assign target := reading` decodes the event payload via `sc_event_payload_read` into a local `sc__payload[]` array, then reconstructs the full nested C compound literal (`({ .value = sc__payload[0], .sample = { .value = sc__payload[1] } })`) and assigns it to `ctx->target`.
-- **Per-Event Read-Shape Consistency**: Every transition accepting a given signal event MUST use the exact same payload read shape (e.g., all whole-payload, or all reading `.value`). Mixing read shapes for the same event across different transitions is rejected at build time.
-- **`SC_EVENT_PAYLOAD_SIZE` Sizing**: Statix automatically computes the required payload size across all whole-payload struct types in the project:
-  $$\\text{SC_EVENT_PAYLOAD_SIZE} = 8 \\times \\max\_{P \\in \\text{Payloads}} (\\text{leaf_count}(P)) \\text{ bytes}$$
-  The generated `CMakeLists.txt` automatically emits `-DSC_EVENT_PAYLOAD_SIZE=<N>u` when $N > 8$. Consumers hand-integrating the generated C source without CMake MUST ensure `-DSC_EVENT_PAYLOAD_SIZE=<N>u` is provided to the build if $N > 8$.
-- **In-Process Scope**: Payload marshalling is an in-process, same-build runtime mechanism, not a portable network wire format. Byte order and struct alignment match the host compilation target.
+### `SC_EVENT_PAYLOAD_SIZE` sizing
+
+Statix computes a **conservative default**, `8 × (leaf count of the largest payload-bearing struct in the project)` — every `bool`/`int32_t`/`double` leaf is budgeted a full 8-byte slot regardless of its own width, a proven-sufficient upper bound for this exact leaf-type universe (every one has alignment ≤ 8 and size ≤ 8, so no field's own padding can ever exceed one 8-byte slot). The generated header also emits a compile-time size-fits proof (a `typedef char x[cond ? 1 : -1];` array-size idiom, not `_Static_assert` — C11, incompatible with this project's C99 build) for every payload-bearing struct type: an undersized budget fails the **build**, never a silent runtime buffer overflow.
+
+The computed default is exposed as a CMake cache variable, genuinely overridable at configure time:
+
+```cmake
+set(STATIX_EVENT_PAYLOAD_SIZE "<computed>" CACHE STRING "...")
+target_compile_definitions(statix_statecharts PUBLIC SC_EVENT_PAYLOAD_SIZE=${STATIX_EVENT_PAYLOAD_SIZE})
+```
+
+`cmake -D STATIX_EVENT_PAYLOAD_SIZE=<N> ...` overrides the computed default. `sc/sc_event.h`'s own `#ifndef SC_EVENT_PAYLOAD_SIZE` guard remains meaningful only for a consumer compiling that header completely outside the generated CMake build (skipping the cache variable path entirely).
+
+### In-process scope
+
+Payload marshalling is an in-process, same-build runtime mechanism, not a portable network wire format. Byte order and struct alignment match the host compilation target.
 
 ## 7. Attributes and the context struct
 
@@ -348,25 +359,26 @@ statix **never silently drops** a construct: anything outside the supported flat
 subset raises `UnsupportedConstructError` with a clear message. Rejected in
 iteration 1:
 
-| Construct                                                                                   | Status                                                                                                   |
-| ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| a structured enumeration literal (attribute-carrying, `:>>` redefinitions)                  | rejected (mirrors quake's exact boundary, §8a)                                                           |
-| an enum definition with mixed/incompatible declared-value kinds                             | rejected (every literal must share one declared-value kind, or none may declare one, §8a)                |
-| an enum literal's declared value is a computed expression, not a bare literal               | rejected (only bare Boolean/Integer/Real/String literal defaults are supported, §8a)                     |
-| two enum definitions collide after C-identifier sanitization                                | rejected (rename one, §8a)                                                                               |
-| relational comparison (`<`,`<=`,`>`,`>=`) against a generated (String-valued or plain) enum | rejected (only `==`/`!=` are supported for symbolic enum values, §8a)                                    |
-| history states                                                                              | rejected (parallel/composite/leaf supported; direct parallel inside parallel is rejected)                |
-| `when` sourced from a composite (non-leaf) state                                            | rejected (mirrors the after/at leaf-only rule, §4b)                                                      |
-| `when` self-loop (target equals source)                                                     | rejected (a conservative guardrail, §4b)                                                                 |
-| `after`/`at` sourced from a composite (non-leaf) state                                      | rejected (state_entered_at needs one unambiguous leaf)                                                   |
-| a second `after`/`at` sourced from the same state                                           | rejected (at most one timer per leaf, §4a)                                                               |
-| a literal duration/instant out of the representable tick range                              | rejected at build time (an out-of-range attribute-driven one is never-due at runtime instead, §4a)       |
-| more than 65,533 distinct signal events in one machine                                      | rejected (the top of the 16-bit event id space is reserved for `SC_EVENT_TIMEOUT`/`SC_EVENT_COMPLETION`) |
-| chains 3+ segments deep, whole, or non-Real payload reads                                   | rejected (2-segment Real chains supported; whole capture is future work)                                 |
-| machine-level (state def) entry/do/exit actions                                             | rejected (put on states)                                                                                 |
-| non-inline / referenced `do` activities                                                     | rejected                                                                                                 |
-| `String` / non-scalar, non-composite attributes                                             | rejected                                                                                                 |
-| non-allowlist function calls in expressions that are not bodyless external calculations     | rejected (allowlisted library calls and bodyless FFI externs supported, §6b)                             |
+| Construct                                                                                                                          | Status                                                                                                   |
+| ---------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| a structured enumeration literal (attribute-carrying, `:>>` redefinitions)                                                         | rejected (mirrors quake's exact boundary, §8a)                                                           |
+| an enum definition with mixed/incompatible declared-value kinds                                                                    | rejected (every literal must share one declared-value kind, or none may declare one, §8a)                |
+| an enum literal's declared value is a computed expression, not a bare literal                                                      | rejected (only bare Boolean/Integer/Real/String literal defaults are supported, §8a)                     |
+| two enum definitions collide after C-identifier sanitization                                                                       | rejected (rename one, §8a)                                                                               |
+| relational comparison (`<`,`<=`,`>`,`>=`) against a generated (String-valued or plain) enum                                        | rejected (only `==`/`!=` are supported for symbolic enum values, §8a)                                    |
+| history states                                                                                                                     | rejected (parallel/composite/leaf supported; direct parallel inside parallel is rejected)                |
+| `when` sourced from a composite (non-leaf) state                                                                                   | rejected (mirrors the after/at leaf-only rule, §4b)                                                      |
+| `when` self-loop (target equals source)                                                                                            | rejected (a conservative guardrail, §4b)                                                                 |
+| `after`/`at` sourced from a composite (non-leaf) state                                                                             | rejected (state_entered_at needs one unambiguous leaf)                                                   |
+| a second `after`/`at` sourced from the same state                                                                                  | rejected (at most one timer per leaf, §4a)                                                               |
+| a literal duration/instant out of the representable tick range                                                                     | rejected at build time (an out-of-range attribute-driven one is never-due at runtime instead, §4a)       |
+| more than 65,533 distinct signal events in one machine                                                                             | rejected (the top of the 16-bit event id space is reserved for `SC_EVENT_TIMEOUT`/`SC_EVENT_COMPLETION`) |
+| a payload leaf of type String or a generated enum (anywhere in a REFERENCED event's declared type, even a field never itself read) | rejected (Real/Integer/Boolean leaves, at any nesting depth, are supported)                              |
+| an empty composite used as a referenced payload (no leaves at all)                                                                 | rejected (a referenced payload requires at least one leaf)                                               |
+| machine-level (state def) entry/do/exit actions                                                                                    | rejected (put on states)                                                                                 |
+| non-inline / referenced `do` activities                                                                                            | rejected                                                                                                 |
+| `String` / non-scalar, non-composite attributes                                                                                    | rejected                                                                                                 |
+| non-allowlist function calls in expressions that are not bodyless external calculations                                            | rejected (allowlisted library calls and bodyless FFI externs supported, §6b)                             |
 
 ## 10. Forward notes (not settled)
 

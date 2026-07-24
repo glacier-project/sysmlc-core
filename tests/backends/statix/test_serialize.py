@@ -219,17 +219,14 @@ def test_send_block_preserves_statement_order(sm_models: dict) -> None:
     assert "return SC_STATUS_OK;" not in between
 
 
-def test_marshalled_send_renders_enqueue_f64(sm_models: dict) -> None:
+def test_marshalled_send_renders_enqueue_payload(sm_models: dict) -> None:
     program = build_statix(
         sm_models["sm11"], "SM11::MachineReadablePayloadGuard"
     )
     source = emit_source(program)
-    assert (
-        "sc_runtime_enqueue_f64(\n"
-        "                runtime, (sc_event_id_t)"
-        "SM11_MACHINE_READABLE_PAYLOAD_GUARD_EVENT_MEASUREMENT,\n"
-        "                ctx->current);" in source
-    )
+    assert "sc__value.value = ctx->current;" in source
+    assert "sc_runtime_enqueue_payload(" in source
+    assert "&sc__value, sizeof(sc__value));" in source
     assert "return send_status;" in source
 
 
@@ -442,7 +439,8 @@ def test_whole_payload_type_emits_computed_size(sm_models: dict) -> None:
         sm_models["sm11"], "SM11::MachineReadablePayloadWhole"
     )
     text = emit_cmakelists(CProject(programs=(program,)))
-    assert "SC_EVENT_PAYLOAD_SIZE=16u" in text
+    assert 'set(STATIX_EVENT_PAYLOAD_SIZE "16" CACHE STRING' in text
+    assert "SC_EVENT_PAYLOAD_SIZE=${STATIX_EVENT_PAYLOAD_SIZE}u" in text
 
 
 def test_multiple_programs_max_size_wins_not_sum(sm_models: dict) -> None:
@@ -481,9 +479,10 @@ def test_multiple_programs_max_size_wins_not_sum(sm_models: dict) -> None:
         payload_struct_types=("synthetic_big_t",),
     )
     text = emit_cmakelists(CProject(programs=(small_program, big_program)))
-    assert "SC_EVENT_PAYLOAD_SIZE=32u" in text
-    assert "SC_EVENT_PAYLOAD_SIZE=16u" not in text
-    assert "SC_EVENT_PAYLOAD_SIZE=48u" not in text  # not the sum of 16 + 32
+    assert 'set(STATIX_EVENT_PAYLOAD_SIZE "32" CACHE STRING' in text
+    assert 'set(STATIX_EVENT_PAYLOAD_SIZE "16" CACHE STRING' not in text
+    assert 'set(STATIX_EVENT_PAYLOAD_SIZE "48" CACHE STRING' not in text
+    assert "SC_EVENT_PAYLOAD_SIZE=${STATIX_EVENT_PAYLOAD_SIZE}u" in text
 
 
 def test_unrelated_non_double_struct_does_not_affect_sizing(
@@ -491,7 +490,7 @@ def test_unrelated_non_double_struct_does_not_affect_sizing(
 ) -> None:
     # A struct containing a Boolean field, registered in context.structs but
     # NOT listed in payload_struct_types (an ordinary attribute struct, not
-    # a whole-payload type), must never be passed to _flatten_leaf_paths --
+    # a whole-payload type), must never be passed to _walk_payload_fields --
     # proving the all-double validation is scoped to actual payload types,
     # not every registered struct in the project.
     from dataclasses import replace
@@ -515,4 +514,63 @@ def test_unrelated_non_double_struct_does_not_affect_sizing(
         # a whole-payload type, just an incidental extra registered struct.
     )
     text = emit_cmakelists(CProject(programs=(augmented,)))
-    assert "SC_EVENT_PAYLOAD_SIZE=16u" in text  # unaffected by bool_struct
+    assert (
+        'set(STATIX_EVENT_PAYLOAD_SIZE "16" CACHE STRING' in text
+    )  # unaffected by bool_struct
+
+
+def test_subfield_only_read_sizes_the_project_too(sm_models: dict) -> None:
+    # Before this task, a subfield-only read (e.g. .value) never needed the
+    # struct's size registered, because it always fit the old fixed 8-byte
+    # scalar slot. Now it must: the whole Measurement struct (2 leaves ->
+    # 16 bytes) crosses the wire even for a single-field read.
+    from sysmlc.backends.statix.program import CProject
+    from sysmlc.backends.statix.serialize import emit_cmakelists
+
+    program = build_statix(
+        sm_models["sm11"], "SM11::MachineReadablePayloadGuard"
+    )
+    text = emit_cmakelists(CProject(programs=(program,)))
+    assert 'set(STATIX_EVENT_PAYLOAD_SIZE "16" CACHE STRING' in text
+
+
+def test_mixed_primitive_padding_sizes_by_leaf_count_not_byte_sum(
+    sm_models: dict,
+) -> None:
+    from sysmlc.backends.statix.program import CProject
+    from sysmlc.backends.statix.serialize import emit_cmakelists
+
+    program = build_statix(
+        sm_models["sm11"], "SM11::MachineMixedPrimitivePadding"
+    )
+    text = emit_cmakelists(CProject(programs=(program,)))
+    # 3 leaves (armed, value, ready) x 8 bytes = 24 -- NOT 1+8+1=10 rounded
+    # to 16, which is what the old "sum sizes, round once" heuristic would
+    # have (wrongly) produced.
+    assert 'set(STATIX_EVENT_PAYLOAD_SIZE "24" CACHE STRING' in text
+
+
+def test_payload_struct_gets_a_compile_time_size_proof(sm_models: dict) -> None:
+    program = build_statix(
+        sm_models["sm11"], "SM11::MachineReadablePayloadWhole"
+    )
+    from sysmlc.backends.statix.serialize import emit_header
+
+    header = emit_header(program)
+    c_type = "sm11_machine_readable_payload_whole_measurement_t"
+    assert (
+        f"typedef char sc__payload_size_check_{c_type}"
+        f"[(sizeof({c_type}) <= SC_EVENT_PAYLOAD_SIZE) ? 1 : -1];" in header
+    )
+
+
+def test_non_payload_struct_gets_no_size_proof(sm_models: dict) -> None:
+    # A struct that is registered (e.g. an ordinary composite attribute)
+    # but never listed in payload_struct_types must not get a size-check
+    # typedef -- scoped to actual payload types only, same discipline as
+    # the sizing computation itself.
+    program = build_statix(sm_models["sm05"], "SM05::MachineChainNested")
+    from sysmlc.backends.statix.serialize import emit_header
+
+    header = emit_header(program)
+    assert "sc__payload_size_check_" not in header

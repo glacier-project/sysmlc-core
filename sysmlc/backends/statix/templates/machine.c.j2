@@ -94,7 +94,16 @@ static bool guard_eval(sc_guard_id_t guard_id, const sc_runtime_t *runtime, cons
     switch (guard_id) {
 {% for g in guards %}
     case {{ g.const }}:
+{% if g.preamble %}
+        {
+{% for line in g.preamble %}
+            {{ line }}
+{% endfor %}
+            return {{ g.expr }};
+        }
+{% else %}
         return {{ g.expr }};
+{% endif %}
 {% endfor %}
     default:
         return false;

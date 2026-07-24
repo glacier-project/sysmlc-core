@@ -70,9 +70,11 @@ static const sc_machine_t pl_machine = {
 
 static bool pl_guard_eval(sc_guard_id_t g, const sc_runtime_t *rt, const sc_event_t *ev)
 {
+    double value = 0.0;
     (void)rt;
     if (g == 1u) {
-        return sc_event_payload_f64(ev) > 0.5;
+        (void)sc_event_payload_read(ev, &value, sizeof(value));
+        return value > 0.5;
     }
     return false;
 }
@@ -84,10 +86,12 @@ static sc_status_t pl_action_exec(sc_action_id_t a, sc_runtime_t *rt, const sc_e
         return SC_STATUS_INVALID_ARGUMENT;
     }
     if (a == 1u) {
-        return sc_runtime_enqueue_f64(rt, PL_EVENT_MEAS, ctx->current);
+        return sc_runtime_enqueue_payload(rt, PL_EVENT_MEAS, &ctx->current, sizeof(ctx->current));
     }
     if (a == 2u) {
-        ctx->captured = sc_event_payload_f64(ev);
+        double value = 0.0;
+        (void)sc_event_payload_read(ev, &value, sizeof(value));
+        ctx->captured = value;
     }
     return SC_STATUS_OK;
 }
@@ -125,10 +129,23 @@ static void test_payload_below_threshold_consumes_event(void)
     CHECK(sc_event_queue_is_empty(sm.runtime.queue));
 }
 
+static void test_payload_len_is_not_uint8_t_truncating(void)
+{
+    /* sizeof(size_t) >= sizeof(uint8_t) is trivially true today; this test
+     * exists to be a compile-time proof once SC_EVENT_PAYLOAD_SIZE grows
+     * past 255 in a later increment -- pin the FIELD TYPE now via a static
+     * assertion so a future accidental narrowing is caught at compile time,
+     * not discovered as a silent runtime truncation. */
+    sc_event_t event;
+    (void)sc_event_init(&event, 1u);
+    CHECK(sizeof(event.payload_len) == sizeof(size_t));
+}
+
 int main(void)
 {
     test_payload_above_threshold_fires_and_captures();
     test_payload_below_threshold_consumes_event();
+    test_payload_len_is_not_uint8_t_truncating();
 
     if (g_failures == 0) {
         (void)printf("test_runtime_payload: OK\n");

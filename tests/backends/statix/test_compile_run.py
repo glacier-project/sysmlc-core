@@ -84,6 +84,7 @@ def test_effect_captures_payload_value(sm_models: dict, tmp_path: Path) -> None:
         [
             "cc",
             "-std=c99",
+            "-DSC_EVENT_PAYLOAD_SIZE=16u",
             "-Iinclude",
             "capture_harness.c",
             "src/sm11/machine_readable_payload_effect.c",
@@ -435,3 +436,43 @@ def test_whole_payload_roundtrips_end_to_end(
     assert "state=fired" in last_line
     assert "ctx.captured.value=0.9" in last_line
     assert "ctx.captured.sample.value=0.75" in last_line
+
+
+def test_undersized_payload_override_fails_to_compile(
+    sm_models: dict, tmp_path: Path
+) -> None:
+    # Force STATIX_EVENT_PAYLOAD_SIZE smaller than Measurement's real 16
+    # bytes via the override this task added -- the generated size-fits
+    # typedef (Task 6, Step 4) must fail the BUILD, not silently truncate
+    # at runtime.
+    program = build_statix(
+        sm_models["sm11"], "SM11::MachineReadablePayloadWhole"
+    )
+    StatixBackend().write(program, OutputOptions(output_dir=tmp_path))
+    build = tmp_path / "build"
+    subprocess.run(
+        [
+            "cmake",
+            "-S",
+            str(tmp_path),
+            "-B",
+            str(build),
+            "-D",
+            "STATIX_EVENT_PAYLOAD_SIZE=4",
+        ],
+        check=True,
+        capture_output=True,
+    )
+    result = subprocess.run(
+        ["cmake", "--build", str(build)],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert "sc__payload_size_check" in (result.stdout + result.stderr)
+
+
+def test_mixed_primitive_padding_fixture_compiles(
+    build_and_compile: Callable,
+) -> None:
+    build_and_compile("sm11", "SM11::MachineMixedPrimitivePadding")

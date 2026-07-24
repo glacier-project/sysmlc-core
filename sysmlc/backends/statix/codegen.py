@@ -5,10 +5,6 @@ from typing import TYPE_CHECKING, Final
 
 import syside
 
-from sysmlc.backends.statix.payload import (
-    _flatten_leaf_paths,
-    _reconstruct_nested_literal,
-)
 from sysmlc.errors import UnsupportedConstructError
 
 if TYPE_CHECKING:
@@ -97,12 +93,10 @@ class CCodeGen:
 
     When ``payload_feature`` is provided (the signal feature bound by the
     active transition's trigger, such as ``reading`` on ``Measurement``), a
-    reference to a sub-feature of that payload (such as ``reading.value``, one
-    segment) or one composite hop into it (``reading.sample.value``, two
-    segments) renders as ``sc_event_payload_f64(event)``, and the read path
-    (as a tuple of segment names) is recorded in ``payload_reads``. A
-    reference to the whole payload without a sub-feature, or a chain three or
-    more segments deep, is rejected.
+    reference to the payload itself or a chain into it (such as ``reading.value``
+    or ``reading.sample.value``) renders as field accesses on the decoded local
+    ``sc__value``, e.g. ``sc__value``, ``sc__value.value``, or
+    ``sc__value.sample.value``.
 
     When ``enum_resolver`` is provided, a reference whose referent is a
     ``syside.EnumerationUsage`` (an enum literal, e.g. ``LightColor::red``)
@@ -147,16 +141,40 @@ class CCodeGen:
         self._generated_enum_types = generated_enum_types
         self.payload_reads: set[tuple[str, ...]] = set()
         self.whole_payload_types: set[str] = set()
-        self._used_scalar_payload = False
+        self.payload_preamble: list[str] = []
+        self._payload_decoded = False
+        self._payload_decode_failure_return = "return false;"
         self.needs_math = False
         self._used_math = False
 
     def render_expression(self, expr: syside.Expression) -> str:
-        """Translate ``expr`` to C source (no enclosing parentheses)."""
+        """Translate ``expr`` to C source (no enclosing parentheses).
+
+        Resets payload-decode tracking at entry: guard_eval is a separate
+        generated function from action_exec, so a decode triggered while
+        rendering one call to this method must never be inherited by a
+        later, independent render_expression/render_action call on the same
+        CCodeGen instance (see payload_preamble's own docstring below).
+        """
+        self.payload_preamble = []
+        self._payload_decoded = False
+        self._payload_decode_failure_return = "return false;"
         return self._emit(expr)
 
     def render_action(self, action: syside.ActionUsage) -> str:
-        """Translate a supported action usage to a C statement ending in ';'."""
+        """Translate a supported action usage to a C statement ending in ';'.
+
+        Resets payload-decode tracking at entry (see render_expression) --
+        each action statement rendered this way gets its own independent,
+        self-contained decode if it touches a payload, since action_exec's
+        statements are rendered one at a time and no two current or planned
+        statix models have two separate payload-reading statements in one
+        action (a redundant re-decode across statements would be correct,
+        just not maximally efficient, if that ever changes).
+        """
+        self.payload_preamble = []
+        self._payload_decoded = False
+        self._payload_decode_failure_return = "return sc__status;"
         if isinstance(action, syside.AssignmentActionUsage):
             return self._render_assignment(action)
         if isinstance(action, syside.SendActionUsage):
@@ -166,6 +184,47 @@ class CCodeGen:
                 node=action,
             )
         raise CCodeGenError("unsupported action type", node=action)
+
+    def _ensure_payload_decoded(self, node: syside.Expression) -> None:
+        """Emit the decode preamble for the bound payload event.
+
+        Emitted once per render_expression/render_action call into
+        ``self.payload_preamble``. A no-op on the second+ reference to the
+        payload within the SAME render call (e.g. `r.theta` and `r.d_phi`
+        both in one guard expression share one decode).
+
+        Also registers the decoded type into ``self.whole_payload_types``
+        regardless of whether THIS particular access is a whole reference or
+        a subfield chain: unlike the old scalar-slot mechanism (always
+        exactly ``sizeof(double)``, needing no registration), every decode
+        now transmits the FULL struct, so a subfield-only read's struct type
+        must contribute to sizing exactly the same as a whole-reference
+        read's does -- the field name is a historical holdover from when
+        only whole references populated it, not a remaining behavioral
+        distinction.
+        """
+        if self._payload_decoded:
+            return
+        if self._payload_c_type is None:
+            raise CCodeGenError(
+                "internal error: a payload reference was rendered without "
+                "a resolvable payload C type (the caller must resolve or "
+                "reject before rendering, not swallow the error and still "
+                "render)",
+                node=node,
+            )
+        self.payload_preamble.extend(
+            [
+                f"{self._payload_c_type} sc__value = {{0}};",
+                "sc_status_t sc__status = sc_event_payload_read(",
+                "    event, &sc__value, sizeof(sc__value));",
+                "if (sc__status != SC_STATUS_OK) {",
+                f"    {self._payload_decode_failure_return}",
+                "}",
+            ]
+        )
+        self.whole_payload_types.add(self._payload_c_type)
+        self._payload_decoded = True
 
     def _render_assignment(self, assign: syside.AssignmentActionUsage) -> str:
         target = assign.referent
@@ -185,77 +244,68 @@ class CCodeGen:
                 "assignment has no value expression", node=assign
             )
         self._used_math = False
-        self._used_scalar_payload = False
-        if (
-            self._payload_feature is not None
-            and isinstance(value, syside.FeatureReferenceExpression)
-            and value.referent == self._payload_feature
-            and self._payload_c_type is not None
-            and self._payload_c_type in self._struct_field_types
-        ):
-            target_c_type = (
-                self._attribute_c_types.get(target.name)
-                if base is None
-                else self._struct_field_types.get(
-                    self._attribute_c_types.get(base, ""), {}
-                ).get(target.name)
-            )
-            if target_c_type != self._payload_c_type:
-                raise CCodeGenError(
-                    f"cannot assign the whole payload (type "
-                    f"{self._payload_c_type!r}) to {lhs!r}, which has type "
-                    f"{target_c_type!r}; statix requires an exact matching "
-                    "generated struct type for a whole-payload assignment.",
-                    node=assign,
-                )
-            self.payload_reads.add(())
-            self.whole_payload_types.add(self._payload_c_type)
-            return self._render_whole_payload_assignment(
-                lhs, self._payload_c_type
-            )
         rhs = self._emit(value)
-        if (self._used_math or self._used_scalar_payload) and (
+        if self.payload_preamble:
+            if isinstance(
+                value,
+                (
+                    syside.FeatureReferenceExpression,
+                    syside.FeatureChainExpression,
+                ),
+            ):
+                target_c_type = (
+                    self._attribute_c_types.get(target.name)
+                    if base is None
+                    else self._struct_field_types.get(
+                        self._attribute_c_types.get(base, ""), {}
+                    ).get(target.name)
+                )
+                rhs_c_type = self._payload_rhs_c_type(value)
+                if target_c_type != rhs_c_type:
+                    raise CCodeGenError(
+                        f"cannot assign a payload read of type "
+                        f"{rhs_c_type!r} to {lhs!r}, which has type "
+                        f"{target_c_type!r}; statix requires an exact "
+                        "matching type for a payload-read assignment.",
+                        node=assign,
+                    )
+            lines = ["{", *(f"    {line}" for line in self.payload_preamble)]
+            lines.append(f"    {lhs} = {rhs};")
+            lines.append("}")
+            return "\n".join(lines)
+        if self._used_math and (
             base is not None or target.name not in self._real_attributes
         ):
             raise CCodeGenError(
-                "library-function and payload-read results are double; "
-                "assigning one to a non-Real attribute is unsupported by "
-                "statix yet.",
+                "library-function results are double; assigning one to a "
+                "non-Real attribute is unsupported by statix yet.",
                 node=assign,
             )
         return f"{lhs} = {rhs};"
 
-    def _render_whole_payload_assignment(
-        self, lhs: str, struct_type: str
-    ) -> str:
-        """Decode a whole-payload event straight into `lhs`.
+    def _payload_rhs_c_type(self, value: syside.Expression) -> str | None:
+        """The C type a just-rendered DIRECT payload reference resolves to.
 
-        Decodes as a multi-statement block (a local flat array, a checked read,
-        then the reconstructed nested assignment) -- never a single expression,
-        per the C99 constraint above.
+        Called only when ``value`` is itself a bare FeatureReferenceExpression
+        or FeatureChainExpression AND self.payload_preamble proves it touched
+        the payload -- never for a payload reference merely nested inside a
+        larger expression (e.g. an extern call argument), which has no
+        single "the RHS's type" to check against an assignment target.
         """
-        paths = _flatten_leaf_paths(struct_type, self._structs_by_name)
-        if not paths:
-            raise CCodeGenError(
-                f"whole-payload type {struct_type!r} has no Real leaves; "
-                "statix requires at least one.",
-                node=None,
-            )
-        nested = _reconstruct_nested_literal(
-            struct_type, self._structs_by_name, paths
-        )
-        lines = [
-            "{",
-            f"    double sc__payload[{len(paths)}];",
-            "    sc_status_t payload_status = sc_event_payload_read(",
-            "        event, sc__payload, sizeof(sc__payload));",
-            "    if (payload_status != SC_STATUS_OK) {",
-            "        return payload_status;",
-            "    }",
-            f"    {lhs} = ({struct_type}){nested};",
-            "}",
-        ]
-        return "\n".join(lines)
+        if isinstance(value, syside.FeatureReferenceExpression):
+            return self._payload_c_type
+        assert isinstance(value, syside.FeatureChainExpression)
+        target = value.target_feature
+        assert target is not None
+        chain = target.chaining_features.collect() or [target]
+        current = self._payload_c_type
+        for feature in chain:
+            assert feature.name is not None
+            if current is None:
+                return None
+            fields = self._struct_field_types.get(current)
+            current = None if fields is None else fields.get(feature.name)
+        return current
 
     def _emit(self, expr: syside.Expression, parent_precedence: int = 0) -> str:
         if isinstance(expr, syside.LiteralBoolean):
@@ -298,22 +348,9 @@ class CCodeGen:
             _c_type, rendered, _is_generated = self._enum_resolver(ref)
             return rendered
         if self._payload_feature is not None and ref == self._payload_feature:
-            if (
-                self._payload_c_type is not None
-                and self._payload_c_type in self._struct_field_types
-            ):
-                self.payload_reads.add(())
-                fields = self._struct_field_types[self._payload_c_type]
-                parts = [
-                    f".{fname} = sc_event_payload_f64(event)"
-                    for fname in fields
-                ]
-                return f"({self._payload_c_type}){{{', '.join(parts)}}}"
-            raise CCodeGenError(
-                "whole payload reference without a sub-feature is unsupported "
-                "by statix yet.",
-                node=expr,
-            )
+            self.payload_reads.add(())
+            self._ensure_payload_decoded(expr)
+            return "sc__value"
         if not self._allow_context:
             raise CCodeGenError(
                 f"reference to {ref.name!r} in a context initializer is "
@@ -380,15 +417,9 @@ class CCodeGen:
                         "payload chain has an unnamed segment", node=expr
                     )
                 names.append(feature.name)
-            if len(names) not in (1, 2):
-                raise CCodeGenError(
-                    "payload reads deeper than one composite hop (e.g. "
-                    "reading.a.b) are unsupported by statix yet.",
-                    node=expr,
-                )
             self.payload_reads.add(tuple(names))
-            self._used_scalar_payload = True
-            return "sc_event_payload_f64(event)"
+            self._ensure_payload_decoded(expr)
+            return "sc__value." + ".".join(names)
         base = self._emit(op0, 0)
         target = expr.target_feature
         if target is None:

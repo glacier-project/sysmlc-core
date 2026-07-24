@@ -67,10 +67,17 @@ class CContext:
 
 @dataclass(frozen=True)
 class CGuard:
-    """A guard id backed by a rendered C boolean expression."""
+    """A guard id backed by a rendered C boolean expression.
+
+    ``preamble`` is zero or more C statements (a payload decode block, when
+    the guard reads an event payload) emitted before ``return {expr};`` in
+    the generated switch case -- empty for a guard that never touches a
+    payload.
+    """
 
     name: str
     expr: str
+    preamble: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -89,23 +96,17 @@ class CInvariant:
 class CSend:
     """A send effect: enqueue an internal event, by event display name.
 
-    ``value_expr`` is the rendered C expression for the one marshalled Real
-    payload value (``sc_runtime_enqueue_f64``), or ``None`` for an id-only
-    send (``sc_runtime_enqueue``) -- sends of events whose payload is never
-    read stay id-only, their constructor arguments dropped unrendered.
-
-    ``payload_lines`` is set instead of ``value_expr`` for a whole-payload
-    send: the complete inner block content (a local struct value, the
-    flattened double array, and the enqueue_payload call with its own status
-    check) -- rendered by the builder since this shape (declaring two locals
-    before a differently-signatured enqueue call) fundamentally differs from
-    the single-expression scalar case. Exactly one of
-    ``value_expr``/``payload_lines`` is set for a marshalled send, or
-    neither for an id-only send.
+    ``payload_lines`` is the complete inner block content (a zero-initialized
+    local struct value, one assignment statement per payload leaf, and the
+    enqueue_payload call with its own status check) for a payload-bearing
+    send -- every payload-bearing send renders through this one mechanism
+    regardless of which subset of fields any transition actually reads, since
+    receive always decodes the whole struct. Empty for an id-only send
+    (sends of events whose payload is never read by anything stay id-only,
+    their constructor arguments dropped unrendered).
     """
 
     event: str
-    value_expr: str | None = None
     payload_lines: tuple[str, ...] = ()
 
 

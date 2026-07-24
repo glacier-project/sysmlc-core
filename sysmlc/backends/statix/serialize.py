@@ -5,7 +5,7 @@ from typing import Final
 from jinja2 import Environment, PackageLoader
 
 from sysmlc.backends.statix.builder import _c_identifier
-from sysmlc.backends.statix.payload import _flatten_leaf_paths
+from sysmlc.backends.statix.payload import _walk_payload_fields
 from sysmlc.backends.statix.program import (
     COMPLETION_EVENT,
     INTERNAL_TARGET,
@@ -250,6 +250,7 @@ def _header_view(program: CProgram) -> dict[str, object]:
             }
             for st in program.context.structs
         ],
+        "payload_struct_names": list(program.payload_struct_types),
         "context_fields": [
             {"c_type": f.c_type, "name": f.name} for f in program.context.fields
         ],
@@ -288,21 +289,10 @@ def _source_view(program: CProgram) -> dict[str, object]:
                     for line in statement.payload_lines
                 ]
                 return ["{", *(f"    {line}" for line in lines), "}"]
-            token = _event_token(program, statement.event)
-            if statement.value_expr is None:
-                call = [
-                    "    sc_status_t send_status = sc_runtime_enqueue(",
-                    f"        runtime, (sc_event_id_t){token});",
-                ]
-            else:
-                call = [
-                    "    sc_status_t send_status = sc_runtime_enqueue_f64(",
-                    f"        runtime, (sc_event_id_t){token},",
-                    f"        {statement.value_expr});",
-                ]
             return [
                 "{",
-                *call,
+                "    sc_status_t send_status = sc_runtime_enqueue(",
+                f"        runtime, (sc_event_id_t){token});",
                 "    if (send_status != SC_STATUS_OK) {",
                 "        return send_status;",
                 "    }",
@@ -366,6 +356,7 @@ def _source_view(program: CProgram) -> dict[str, object]:
                 "const": _const(p, "GUARD", g.name),
                 "expr": g.expr,
                 "name": g.name,
+                "preamble": g.preamble,
             }
             for g in program.guards
         ],
@@ -533,7 +524,7 @@ def _cmakelists_view(project: CProject) -> dict[str, object]:
         s.name: s for p in project.programs for s in p.context.structs
     }
     payload_leaf_counts = [
-        len(_flatten_leaf_paths(name, structs_by_name))
+        len(_walk_payload_fields(name, structs_by_name))
         for p in project.programs
         for name in p.payload_struct_types
     ]
