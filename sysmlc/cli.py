@@ -17,6 +17,9 @@ from sysmlc.backends import Backend, OutputOptions, discover_backends
 from sysmlc.errors import SysmlcError
 from sysmlc.logging import configure_logging
 from sysmlc.sysml.loading import load_model
+from sysmlc.sysml.metadata_import import (
+    get_external_filepath_from_metadata,
+)
 from sysmlc.sysml.queries import (
     exhibited_state_defs,
     resolve,
@@ -88,6 +91,25 @@ def _parse_python_arg(
     return python_path, _parse_external(python_path)
 
 
+def _parse_external_module_metadata(
+    model: syside.Model, backend: Backend, element_qn: str, lang: str
+) -> tuple[Path, tuple[str, frozenset[str]]] | tuple[None, None]:
+    """Resolve the module declared via @ExternalModule metadata, if any."""
+    if lang != "python":
+        raise CliError("Metadata support only python language, at the moment")
+
+    path = get_external_filepath_from_metadata(model, lang)
+    if path is None:
+        return None, None
+    if backend.name not in _PYTHON_BACKENDS:
+        raise CliError(
+            f"backend {backend.name!r} does not support python external module"
+        )
+
+    python_path = Path(path[0])
+    return python_path, _parse_external(python_path)
+
+
 def _materialize_reps(
     model: syside.Model, backend: Backend, element_qn: str
 ) -> Path | None:
@@ -138,6 +160,13 @@ def _resolve_python(
     python_path, external = _parse_python_arg(args)
     if python_path is not None and external is not None:
         return python_path, external
+
+    python_path, external = _parse_external_module_metadata(
+        model, backend, element_qn, "python"
+    )
+    if python_path is not None and external is not None:
+        return python_path, external
+
     generated = _materialize_reps(model, backend, element_qn)
     if generated is None:
         return None, None
