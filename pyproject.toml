@@ -27,6 +27,7 @@ dev = [
     "tox-uv>=1.15,<2",
     "pytest>=8.4.2,<10",
     "pytest-cov>=6.3.0,<8",
+    "sysmlc-models",
 ]
 docs = [
     "furo>=2024.8.6,<2027",
@@ -52,6 +53,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["sysmlc"]
+
+[tool.uv.sources]
+sysmlc-models = { path = "../sysmlc-models", editable = true }
 
 [tool.pyrefly]
 python-version = "3.12.0"

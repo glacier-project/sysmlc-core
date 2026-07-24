@@ -1328,6 +1328,7 @@ dev = [
     { name = "pytest-cov" },
     { name = "radon" },
     { name = "ruff" },
+    { name = "sysmlc-models" },
     { name = "tox" },
     { name = "tox-uv" },
 ]
@@ -1362,10 +1363,29 @@ requires-dist = [
     { name = "sphinx-autodoc-typehints", marker = "extra == 'docs'", specifier = ">=2.2,<4" },
     { name = "sphinx-copybutton", marker = "extra == 'docs'", specifier = ">=0.5,<1" },
     { name = "syside", specifier = ">=0.8.6" },
+    { name = "sysmlc-models", marker = "extra == 'dev'", editable = "../sysmlc-models" },
     { name = "tox", marker = "extra == 'dev'", specifier = ">=4.50.1,<5" },
     { name = "tox-uv", marker = "extra == 'dev'", specifier = ">=1.15,<2" },
 ]
 provides-extras = ["dev", "docs"]
+
+[[package]]
+name = "sysmlc-models"
+version = "0.0.0"
+source = { editable = "../sysmlc-models" }
+
+[package.metadata]
+requires-dist = [
+    { name = "build", marker = "extra == 'dev'", specifier = ">=1.3.0,<2" },
+    { name = "hatchling", marker = "extra == 'dev'", specifier = ">=1.27,<2" },
+    { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=4.5.1,<5" },
+    { name = "pyrefly", marker = "extra == 'dev'", specifier = ">=1.0.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.4.2,<10" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.15.13,<0.16" },
+    { name = "tox", marker = "extra == 'dev'", specifier = ">=4.50.1,<5" },
+    { name = "tox-uv", marker = "extra == 'dev'", specifier = ">=1.15,<2" },
+]
+provides-extras = ["dev"]
 
 [[package]]
 name = "tomli"
