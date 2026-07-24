@@ -1,25 +1,34 @@
 # sysmlc
 
-This site is built with MkDocs Material and the API reference is rendered
-directly from the Python package and its docstrings.
+`sysmlc` is a pluggable-backend compiler from SysML v2 models to simulation
+and execution artifacts. A shared front-end parses models with the Syside
+Automator and walks their behavior into paradigm-neutral facts; product-named
+backends render those facts to their targets.
+
+```{toctree}
+:maxdepth: 2
+:caption: Contents
+
+api
+```
 
 ## Development
 
-Install the development dependencies and run the documentation server locally:
+Install the documentation dependencies and run the live documentation server:
 
 ```bash
-uv sync --extra dev
-uv run mkdocs serve
+uv sync --extra dev --extra docs
+uv run sphinx-autobuild docs docs/_build/html
 ```
 
 Build the static site with:
 
 ```bash
-uv run mkdocs build --strict
+uv run tox -e docs
 ```
 
 ## API reference
 
-The `api.md` page renders the package directly through `mkdocstrings`. Keep
-your module, class, and function docstrings up to date and the published API
-documentation will follow.
+The API reference is generated directly from the core package. Keep module,
+class, and function docstrings current and the published API documentation
+will follow.

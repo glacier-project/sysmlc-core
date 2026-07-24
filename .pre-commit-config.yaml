@@ -56,7 +56,7 @@ repos:
     args:
     - --fix
   - id: ruff-format
-    files: ^((sysmlc|tests|examples)/.+)?[^/]+\.(py|pyi)$
+    files: ^((sysmlc|tests|examples|docs)/.+)?[^/]+\.(py|pyi)$
 
 
 # Global file exclusions
