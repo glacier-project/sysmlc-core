@@ -1,9 +1,9 @@
 import pytest
+from sysmlc_models.sm_examples import SM_EXAMPLES_DIR
 
 from sysmlc.errors import UnsupportedConstructError
 from sysmlc.semantics.parts.graph import part_graph
 from sysmlc.sysml.loading import load_model
-from tests.backends.test_sm_examples import SM_EXAMPLES_DIR
 
 FIX = SM_EXAMPLES_DIR / "part01-two-parts"
 

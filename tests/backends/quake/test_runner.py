@@ -3,13 +3,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
+from sysmlc_models.sm_examples import SM_EXAMPLES_DIR
 
 from sysmlc.backends.quake.coordinator import StopReason
 from sysmlc.backends.quake.runner import run_part_system, run_state_def
 from sysmlc.errors import ExecutionError
 from sysmlc.sysml.loading import load_model
 from tests import _load_inline_model
-from tests.backends.test_sm_examples import SM_EXAMPLES_DIR
 
 if TYPE_CHECKING:
     from pathlib import Path

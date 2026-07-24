@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from sismic.interpreter import Interpreter
+from sysmlc_models.sm_examples import SM_EXAMPLES_DIR
 
 from sysmlc.backends.quake import build_statechart
 from sysmlc.sysml.loading import load_model
@@ -11,7 +12,6 @@ from tests.backends.quake.conftest import (
     QUAKE_PREAMBLE_IMPORTS,
     transition_from,
 )
-from tests.backends.test_sm_examples import SM_EXAMPLES_DIR
 
 if TYPE_CHECKING:
     from pathlib import Path

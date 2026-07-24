@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import pytest
+from sysmlc_models.sm_examples import SM_EXAMPLES_DIR
 
 from sysmlc.backends.quake import build_statechart
 from sysmlc.errors import UnsupportedConstructError
 from sysmlc.sysml.loading import load_model
 from tests.backends.quake.conftest import transition_from
-from tests.backends.test_sm_examples import SM_EXAMPLES_DIR
 
 SM15_DIR = SM_EXAMPLES_DIR / "sm15-external"
 
