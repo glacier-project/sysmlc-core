@@ -40,13 +40,15 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from sysmlc_models.catalog import model_path
+
 from sysmlc import configure_logging
 from sysmlc.sysml.loading import load_model
 from sysmlc.sysml.queries import state_definitions, top_level_part_usages
 
 EXAMPLES_DIR = Path(__file__).resolve().parent
 MODELS_DIR = EXAMPLES_DIR.parent / "models"
-CORPUS_DIRS = (MODELS_DIR / "showcase", MODELS_DIR / "sm-examples")
+CORPUS_DIRS = (MODELS_DIR / "showcase", model_path("sm-examples"))
 BUILD_ROOT = EXAMPLES_DIR / "build"
 
 

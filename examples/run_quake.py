@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import syside
@@ -11,6 +10,7 @@ from sismic.clock import SimulatedClock
 from sismic.exceptions import CodeEvaluationError
 from sismic.helpers import coverage_from_trace
 from sismic.interpreter import Interpreter
+from sysmlc_models.catalog import model_path
 
 from sysmlc import configure_logging
 from sysmlc.backends.quake import build_statechart
@@ -29,9 +29,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(f"{PACKAGE_LOGGER_NAME}.run_quake")
 
-SM_EXAMPLES_DIR = (
-    Path(__file__).resolve().parent.parent / "models" / "sm-examples"
-)
+SM_EXAMPLES_DIR = model_path("sm-examples")
 
 
 def parse_args() -> argparse.Namespace:
@@ -39,7 +37,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Build and execute a sismic statechart from a SysML "
-            "state-machine example under models/sm-examples/."
+            "state-machine example in the sm-examples corpus."
         )
     )
     parser.add_argument(
@@ -65,7 +63,7 @@ def resolve_example_folder(arg: str) -> str:
         arg: The raw ``example`` argument from the command line.
 
     Returns:
-        The folder name to look up under ``models/sm-examples/``.
+        The folder name to look up in the sm-examples corpus.
 
     Raises:
         SystemExit: If a number / short prefix matches zero or multiple

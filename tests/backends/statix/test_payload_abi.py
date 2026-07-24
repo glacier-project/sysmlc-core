@@ -13,6 +13,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from sysmlc_models.catalog import model_path
+
 from sysmlc.backends.base import OutputOptions
 from sysmlc.backends.statix.backend import StatixBackend
 from sysmlc.backends.statix.builder import build_statix
@@ -24,7 +26,7 @@ _FIXTURE = Path(__file__).resolve().parent / "fixtures" / "payload_abi_host.c"
 def test_payload_abi_host_inherits_size_through_public_link(
     tmp_path: Path,
 ) -> None:
-    model = load_model("models/sm-examples/sm11-send-effect")
+    model = load_model(model_path("sm-examples/sm11-send-effect"))
     program = build_statix(model, "SM11::MachineReadablePayloadWhole")
     StatixBackend().write(program, OutputOptions(output_dir=tmp_path))
 

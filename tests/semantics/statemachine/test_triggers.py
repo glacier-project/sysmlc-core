@@ -1,6 +1,5 @@
-from pathlib import Path
-
 import syside
+from sysmlc_models.catalog import model_path
 
 from sysmlc.semantics.statemachine import transitions, triggers
 from sysmlc.semantics.statemachine.driver import StateMachineDriver
@@ -9,7 +8,7 @@ from sysmlc.sysml.loading import load_model
 from sysmlc.sysml.queries import resolve
 from tests.test_recording import RecordingBuilder
 
-SM_DIR = Path(__file__).resolve().parents[3] / "models" / "sm-examples"
+SM_DIR = model_path("sm-examples")
 
 
 def _from_idle(

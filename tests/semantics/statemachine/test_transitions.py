@@ -1,7 +1,7 @@
-from pathlib import Path
 from typing import cast
 
 import syside
+from sysmlc_models.catalog import model_path
 
 from sysmlc.semantics.statemachine import states, transitions
 from sysmlc.semantics.statemachine.facts import (
@@ -13,7 +13,7 @@ from sysmlc.semantics.statemachine.facts import (
 from sysmlc.sysml.loading import load_model
 from sysmlc.sysml.queries import resolve
 
-SM_DIR = Path(__file__).resolve().parents[3] / "models" / "sm-examples"
+SM_DIR = model_path("sm-examples")
 
 
 def _transition_from(

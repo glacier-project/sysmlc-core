@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from pathlib import Path
 
+from sysmlc_models.catalog import model_path
+
 from sysmlc.backends.base import OutputOptions
 from sysmlc.backends.statix.backend import StatixBackend
 from sysmlc.backends.statix.builder import build_statix
@@ -18,7 +20,7 @@ from sysmlc.sysml.loading import load_model
 
 
 def test_bodyless_calc_becomes_an_extern_function() -> None:
-    model = load_model("models/sm-examples/sm15-external")
+    model = load_model(model_path("sm-examples/sm15-external"))
     program = build_statix(model, "SM15::Ramp")
     assert len(program.extern_functions) == 1
     fn = program.extern_functions[0]
@@ -32,7 +34,7 @@ def test_bodyless_calc_becomes_an_extern_function() -> None:
 def test_extern_call_site_uses_the_c_name() -> None:
     from sysmlc.backends.statix.serialize import emit_source
 
-    model = load_model("models/sm-examples/sm15-external")
+    model = load_model(model_path("sm-examples/sm15-external"))
     program = build_statix(model, "SM15::Ramp")
     source = emit_source(program)
     assert "sm15_p_step(ctx->x, 0.1)" in source
@@ -41,7 +43,7 @@ def test_extern_call_site_uses_the_c_name() -> None:
 def test_bodyless_calc_with_structured_param_reuses_the_attribute_struct() -> (
     None
 ):
-    model = load_model("models/sm-examples/furuta-pendulum")
+    model = load_model(model_path("sm-examples/furuta-pendulum"))
     program = build_statix(model, "FurutaPendulum::PendulumSimulation")
     step = next(
         fn for fn in program.extern_functions if fn.name.endswith("::step")
@@ -57,7 +59,7 @@ def test_bodyless_calc_with_structured_param_reuses_the_attribute_struct() -> (
 
 
 def test_cmake_configure_fails_without_extern_impl(tmp_path: Path) -> None:
-    model = load_model("models/sm-examples/sm15-external")
+    model = load_model(model_path("sm-examples/sm15-external"))
     program = build_statix(model, "SM15::Ramp")
     StatixBackend().write(program, OutputOptions(output_dir=tmp_path))
     build = tmp_path / "build"
@@ -74,7 +76,7 @@ def test_cmake_configure_fails_without_extern_impl(tmp_path: Path) -> None:
 def test_project_without_extern_calcs_has_no_requirement(
     tmp_path: Path,
 ) -> None:
-    model = load_model("models/sm-examples/sm01-helloworld")
+    model = load_model(model_path("sm-examples/sm01-helloworld"))
     program = build_statix(model, "SM01::Machine")
     StatixBackend().write(program, OutputOptions(output_dir=tmp_path))
     assert not (tmp_path / "include" / "statix_extern.h").exists()
@@ -88,7 +90,7 @@ def test_project_without_extern_calcs_has_no_requirement(
 
 
 def test_full_build_and_link_with_a_hand_written_stub(tmp_path: Path) -> None:
-    model = load_model("models/sm-examples/sm15-external")
+    model = load_model(model_path("sm-examples/sm15-external"))
     program = build_statix(model, "SM15::Ramp")
     StatixBackend().write(program, OutputOptions(output_dir=tmp_path))
     (tmp_path / "src" / "extern_impl.c").write_text(
@@ -111,7 +113,7 @@ def test_full_build_and_link_with_a_hand_written_stub(tmp_path: Path) -> None:
 
 
 def test_regeneration_preserves_extern_impl(tmp_path: Path) -> None:
-    model = load_model("models/sm-examples/sm15-external")
+    model = load_model(model_path("sm-examples/sm15-external"))
     program = build_statix(model, "SM15::Ramp")
     StatixBackend().write(program, OutputOptions(output_dir=tmp_path))
     stub = (

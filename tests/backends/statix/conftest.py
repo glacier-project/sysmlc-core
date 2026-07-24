@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 import syside
+from sysmlc_models.catalog import model_path
 
 from sysmlc.backends.base import OutputOptions
 from sysmlc.backends.statix.backend import StatixBackend
@@ -11,7 +12,7 @@ from sysmlc.backends.statix.builder import build_statix
 from sysmlc.backends.statix.program import CProgram
 from sysmlc.sysml.loading import load_model
 
-_MODELS = Path(__file__).resolve().parents[3] / "models" / "sm-examples"
+_MODELS = model_path("sm-examples")
 
 # The sm-examples referenced across the statix backend tests. Each stem
 # names its folder explicitly.

@@ -1,6 +1,5 @@
-from pathlib import Path
-
 import syside
+from sysmlc_models.catalog import model_path
 
 from sysmlc.semantics.statemachine import attributes
 from sysmlc.semantics.statemachine.driver import StateMachineDriver
@@ -13,7 +12,7 @@ from sysmlc.sysml.queries import resolve
 from tests.backends.test_showcase import SHOWCASE_DIR
 from tests.test_recording import RecordingBuilder
 
-SM_DIR = Path(__file__).resolve().parents[3] / "models" / "sm-examples"
+SM_DIR = model_path("sm-examples")
 
 
 def _named_attr(
