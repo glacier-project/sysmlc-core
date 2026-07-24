@@ -845,11 +845,13 @@ def test_mixed_whole_and_subfield_reads_of_same_event_now_build(
     # Verify the subfield assignment in b's effect:
     b_effect = next(a for a in program.actions if "b_Measurement" in a.name)
     (b_stmt,) = b_effect.statements
+    assert isinstance(b_stmt, str)
     assert "ctx->captured = sc__value.value;" in b_stmt
 
     # Verify the whole-struct assignment in d's effect:
     d_effect = next(a for a in program.actions if "d_Measurement" in a.name)
     (d_stmt,) = d_effect.statements
+    assert isinstance(d_stmt, str)
     assert "ctx->wholeCaptured = sc__value;" in d_stmt
 
 

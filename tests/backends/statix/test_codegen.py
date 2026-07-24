@@ -313,6 +313,8 @@ def test_payload_decode_preamble_reset_between_guard_and_action(
     )
     gen = _payload_gen(t.trigger)
     (assign,) = actions.inline_actions(t.effect)
+    assert isinstance(assign, syside.ActionUsage)
+    assert hasattr(assign, "value_expression")
     gen.render_expression(
         t.guard if t.guard is not None else assign.value_expression
     )
