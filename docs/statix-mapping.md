@@ -359,26 +359,26 @@ statix **never silently drops** a construct: anything outside the supported flat
 subset raises `UnsupportedConstructError` with a clear message. Rejected in
 iteration 1:
 
-| Construct                                                                                   | Status                                                                                                   |
-| ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| a structured enumeration literal (attribute-carrying, `:>>` redefinitions)                  | rejected (mirrors quake's exact boundary, §8a)                                                           |
-| an enum definition with mixed/incompatible declared-value kinds                             | rejected (every literal must share one declared-value kind, or none may declare one, §8a)                |
-| an enum literal's declared value is a computed expression, not a bare literal               | rejected (only bare Boolean/Integer/Real/String literal defaults are supported, §8a)                     |
-| two enum definitions collide after C-identifier sanitization                                | rejected (rename one, §8a)                                                                               |
-| relational comparison (`<`,`<=`,`>`,`>=`) against a generated (String-valued or plain) enum | rejected (only `==`/`!=` are supported for symbolic enum values, §8a)                                    |
-| history states                                                                              | rejected (parallel/composite/leaf supported; direct parallel inside parallel is rejected)                |
-| `when` sourced from a composite (non-leaf) state                                            | rejected (mirrors the after/at leaf-only rule, §4b)                                                      |
-| `when` self-loop (target equals source)                                                     | rejected (a conservative guardrail, §4b)                                                                 |
-| `after`/`at` sourced from a composite (non-leaf) state                                      | rejected (state_entered_at needs one unambiguous leaf)                                                   |
-| a second `after`/`at` sourced from the same state                                           | rejected (at most one timer per leaf, §4a)                                                               |
-| a literal duration/instant out of the representable tick range                              | rejected at build time (an out-of-range attribute-driven one is never-due at runtime instead, §4a)       |
-| more than 65,533 distinct signal events in one machine                                      | rejected (the top of the 16-bit event id space is reserved for `SC_EVENT_TIMEOUT`/`SC_EVENT_COMPLETION`) |
-| a payload leaf of type String or a generated enum (anywhere in a REFERENCED event's declared type, even a field never itself read) | rejected (Real/Integer/Boolean leaves, at any nesting depth, are supported)                               |
-| an empty composite used as a referenced payload (no leaves at all)                          | rejected (a referenced payload requires at least one leaf)                                               |
-| machine-level (state def) entry/do/exit actions                                             | rejected (put on states)                                                                                 |
-| non-inline / referenced `do` activities                                                     | rejected                                                                                                 |
-| `String` / non-scalar, non-composite attributes                                             | rejected                                                                                                 |
-| non-allowlist function calls in expressions that are not bodyless external calculations     | rejected (allowlisted library calls and bodyless FFI externs supported, §6b)                             |
+| Construct                                                                                                                          | Status                                                                                                   |
+| ---------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| a structured enumeration literal (attribute-carrying, `:>>` redefinitions)                                                         | rejected (mirrors quake's exact boundary, §8a)                                                           |
+| an enum definition with mixed/incompatible declared-value kinds                                                                    | rejected (every literal must share one declared-value kind, or none may declare one, §8a)                |
+| an enum literal's declared value is a computed expression, not a bare literal                                                      | rejected (only bare Boolean/Integer/Real/String literal defaults are supported, §8a)                     |
+| two enum definitions collide after C-identifier sanitization                                                                       | rejected (rename one, §8a)                                                                               |
+| relational comparison (`<`,`<=`,`>`,`>=`) against a generated (String-valued or plain) enum                                        | rejected (only `==`/`!=` are supported for symbolic enum values, §8a)                                    |
+| history states                                                                                                                     | rejected (parallel/composite/leaf supported; direct parallel inside parallel is rejected)                |
+| `when` sourced from a composite (non-leaf) state                                                                                   | rejected (mirrors the after/at leaf-only rule, §4b)                                                      |
+| `when` self-loop (target equals source)                                                                                            | rejected (a conservative guardrail, §4b)                                                                 |
+| `after`/`at` sourced from a composite (non-leaf) state                                                                             | rejected (state_entered_at needs one unambiguous leaf)                                                   |
+| a second `after`/`at` sourced from the same state                                                                                  | rejected (at most one timer per leaf, §4a)                                                               |
+| a literal duration/instant out of the representable tick range                                                                     | rejected at build time (an out-of-range attribute-driven one is never-due at runtime instead, §4a)       |
+| more than 65,533 distinct signal events in one machine                                                                             | rejected (the top of the 16-bit event id space is reserved for `SC_EVENT_TIMEOUT`/`SC_EVENT_COMPLETION`) |
+| a payload leaf of type String or a generated enum (anywhere in a REFERENCED event's declared type, even a field never itself read) | rejected (Real/Integer/Boolean leaves, at any nesting depth, are supported)                              |
+| an empty composite used as a referenced payload (no leaves at all)                                                                 | rejected (a referenced payload requires at least one leaf)                                               |
+| machine-level (state def) entry/do/exit actions                                                                                    | rejected (put on states)                                                                                 |
+| non-inline / referenced `do` activities                                                                                            | rejected                                                                                                 |
+| `String` / non-scalar, non-composite attributes                                                                                    | rejected                                                                                                 |
+| non-allowlist function calls in expressions that are not bodyless external calculations                                            | rejected (allowlisted library calls and bodyless FFI externs supported, §6b)                             |
 
 ## 10. Forward notes (not settled)
 

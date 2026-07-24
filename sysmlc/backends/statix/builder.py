@@ -189,20 +189,27 @@ def _references_payload_feature(
     expr: syside.Expression, feature: syside.Feature
 ) -> bool:
     """Pre-pass helper: returns True if expr references the payload feature."""
-    if isinstance(expr, syside.FeatureReferenceExpression) and expr.referent == feature:
+    if (
+        isinstance(expr, syside.FeatureReferenceExpression)
+        and expr.referent == feature
+    ):
         return True
     children: list[syside.Expression] = []
     if hasattr(expr, "operands"):
         children.extend(
-            op for op in expr.operands.collect()
+            op
+            for op in expr.operands.collect()
             if isinstance(op, syside.Expression)
         )
     if hasattr(expr, "owned_elements"):
         children.extend(
-            elem for elem in expr.owned_elements.collect()
+            elem
+            for elem in expr.owned_elements.collect()
             if isinstance(elem, syside.Expression)
         )
-    return any(_references_payload_feature(child, feature) for child in children)
+    return any(
+        _references_payload_feature(child, feature) for child in children
+    )
 
 
 class StatixBuilder:
@@ -545,14 +552,18 @@ class StatixBuilder:
                 continue
             feature = trigger.payload_feature
             has_ref = False
-            if t.guard is not None and _references_payload_feature(t.guard, feature):
+            if t.guard is not None and _references_payload_feature(
+                t.guard, feature
+            ):
                 has_ref = True
             if not has_ref:
                 for a in actions.inline_actions(t.effect):
                     if (
                         isinstance(a, syside.AssignmentActionUsage)
                         and a.value_expression is not None
-                        and _references_payload_feature(a.value_expression, feature)
+                        and _references_payload_feature(
+                            a.value_expression, feature
+                        )
                     ):
                         has_ref = True
                         break
@@ -592,9 +603,6 @@ class StatixBuilder:
                     "composite payload; a referenced payload requires at "
                     "least one leaf."
                 )
-
-
-
 
     def _facts_by_name(self) -> dict[str, StateFact]:
         assert self._root is not None

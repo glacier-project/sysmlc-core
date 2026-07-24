@@ -514,7 +514,9 @@ def test_unrelated_non_double_struct_does_not_affect_sizing(
         # a whole-payload type, just an incidental extra registered struct.
     )
     text = emit_cmakelists(CProject(programs=(augmented,)))
-    assert 'set(STATIX_EVENT_PAYLOAD_SIZE "16" CACHE STRING' in text  # unaffected by bool_struct
+    assert (
+        'set(STATIX_EVENT_PAYLOAD_SIZE "16" CACHE STRING' in text
+    )  # unaffected by bool_struct
 
 
 def test_subfield_only_read_sizes_the_project_too(sm_models: dict) -> None:
@@ -553,6 +555,7 @@ def test_payload_struct_gets_a_compile_time_size_proof(sm_models: dict) -> None:
         sm_models["sm11"], "SM11::MachineReadablePayloadWhole"
     )
     from sysmlc.backends.statix.serialize import emit_header
+
     header = emit_header(program)
     c_type = "sm11_machine_readable_payload_whole_measurement_t"
     assert (
@@ -568,5 +571,6 @@ def test_non_payload_struct_gets_no_size_proof(sm_models: dict) -> None:
     # the sizing computation itself.
     program = build_statix(sm_models["sm05"], "SM05::MachineChainNested")
     from sysmlc.backends.statix.serialize import emit_header
+
     header = emit_header(program)
     assert "sc__payload_size_check_" not in header

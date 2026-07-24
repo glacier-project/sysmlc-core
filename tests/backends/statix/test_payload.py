@@ -57,7 +57,10 @@ def test_walk_payload_fields_accepts_integer_leaf() -> None:
     structs = {
         "counter_t": CStruct(
             name="counter_t",
-            fields=(CField("count", "int32_t", ""), CField("value", "double", "")),
+            fields=(
+                CField("count", "int32_t", ""),
+                CField("value", "double", ""),
+            ),
         ),
     }
     assert _walk_payload_fields("counter_t", structs) == [
@@ -79,7 +82,9 @@ def test_walk_payload_fields_accepts_boolean_leaf() -> None:
     ]
 
 
-def test_walk_payload_fields_accepts_mixed_primitive_and_padding_order() -> None:
+def test_walk_payload_fields_accepts_mixed_primitive_and_padding_order() -> (
+    None
+):
     # Proves the walker's ORDER handling, independent of sizing: declaration
     # order is preserved regardless of leaf type mix (bool, int32_t, double).
     structs = {

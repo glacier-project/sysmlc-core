@@ -154,4 +154,3 @@ int main(void)
     (void)printf("test_runtime_payload: %d failure(s)\n", g_failures);
     return 1;
 }
-
