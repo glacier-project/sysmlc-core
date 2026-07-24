@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build and run every showcase and sm-examples model through quake.
 
-Sweeps the two corpora (``models/showcase/`` and ``models/sm-examples/``)
+Sweeps the showcase and sm-examples corpora
 through the CLI and reports a per-target verdict. Unlike rosetta's
 ``models/showcase/run_all.py`` pipeline, quake's two verbs are
 independent checks: ``build`` writes the YAML and PlantUML artifacts,

@@ -1,3 +1,3 @@
-from pathlib import Path
+from sysmlc_models.catalog import model_path
 
-SHOWCASE_DIR = Path(__file__).resolve().parents[2] / "models" / "showcase"
+SHOWCASE_DIR = model_path("showcase")

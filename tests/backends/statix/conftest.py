@@ -38,7 +38,7 @@ _WANTED = {
 }
 
 
-_SHOWCASE_MODELS = Path(__file__).resolve().parents[3] / "models" / "showcase"
+_SHOWCASE_MODELS = model_path("showcase")
 
 
 @pytest.fixture(scope="session")
