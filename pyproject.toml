@@ -27,9 +27,14 @@ dev = [
     "tox-uv>=1.15,<2",
     "pytest>=8.4.2,<10",
     "pytest-cov>=6.3.0,<8",
-    "mkdocs>=1.6.1,<2",
-    "mkdocs-material>=9.6.20,<10",
-    "mkdocstrings[python]>=0.30.1,<1.1",
+]
+docs = [
+    "furo>=2024.8.6,<2027",
+    "myst-parser>=3,<5",
+    "sphinx>=7.4,<10",
+    "sphinx-autobuild>=2024.10.3,<2027",
+    "sphinx-autodoc-typehints>=2.2,<4",
+    "sphinx-copybutton>=0.5,<1",
 ]
 
 [project.scripts]
