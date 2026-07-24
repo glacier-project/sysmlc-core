@@ -4,9 +4,13 @@ import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from importlib.metadata import entry_points
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
-from sysmlc.errors import SerializationError
+from sysmlc.errors import (
+    BackendError,
+    SerializationError,
+    UnsupportedOperationError,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -16,6 +20,23 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 BACKEND_ENTRY_POINT_GROUP = "sysmlc.backends"
+
+
+class RunReport(Protocol):
+    """The result of executing a model to quiescence.
+
+    Backends return their own report type from the run operations; the CLI
+    only relies on this structural contract.
+    """
+
+    @property
+    def hit_step_cap(self) -> bool:
+        """Whether the run stopped at the ``--max-steps`` safety cap."""
+        ...
+
+    def render(self) -> str:
+        """Return a human-readable summary of the run."""
+        ...
 
 
 @dataclass(frozen=True)
@@ -76,6 +97,100 @@ class Backend(ABC):
             specific to the backend.
         """
 
+    def build_kinds(self) -> frozenset[str]:
+        """Return the optional build kinds this backend supports.
+
+        Beyond the always-available single state-definition build
+        (:meth:`build`), a backend supports a build kind by overriding the
+        matching operation: ``"model"`` (:meth:`build_model`), ``"part"``
+        (:meth:`build_part`), or ``"rig"`` (:meth:`build_composition`).
+        Support is derived from those overrides, so it cannot drift from the
+        implementation.
+        """
+        cls = type(self)
+        kinds: set[str] = set()
+        if cls.build_model is not Backend.build_model:
+            kinds.add("model")
+        if cls.build_part is not Backend.build_part:
+            kinds.add("part")
+        if cls.build_composition is not Backend.build_composition:
+            kinds.add("rig")
+        return frozenset(kinds)
+
+    def run_kinds(self) -> frozenset[str]:
+        """Return the run kinds this backend supports.
+
+        A backend supports a run kind by overriding the matching operation:
+        ``"statedef"`` (:meth:`run_state_def`) or ``"part"``
+        (:meth:`run_part_system`). Support is derived from those overrides.
+        """
+        cls = type(self)
+        kinds: set[str] = set()
+        if cls.run_state_def is not Backend.run_state_def:
+            kinds.add("statedef")
+        if cls.run_part_system is not Backend.run_part_system:
+            kinds.add("part")
+        return frozenset(kinds)
+
+    def build_model(self, model: syside.Model) -> object:
+        """Build one artifact from the whole model (no single element)."""
+        raise UnsupportedOperationError(
+            f"backend {self.name!r} does not build a whole model"
+        )
+
+    def build_part(
+        self,
+        model: syside.Model,
+        usage_qn: str,
+        *,
+        target_options: tuple[tuple[str, str], ...] = (),
+        external: tuple[str, frozenset[str]] | None = None,
+    ) -> object:
+        """Build an artifact for a top-level part usage."""
+        raise UnsupportedOperationError(
+            f"backend {self.name!r} does not build part systems"
+        )
+
+    def build_composition(
+        self,
+        model: syside.Model,
+        element_qn: str,
+        *,
+        external: tuple[str, frozenset[str]] | None = None,
+    ) -> object:
+        """Build an artifact for a two-exhibit rig composition."""
+        raise UnsupportedOperationError(
+            f"backend {self.name!r} does not build compositions"
+        )
+
+    def run_state_def(
+        self,
+        model: syside.Model,
+        element_qn: str,
+        *,
+        max_steps: int = 1000,
+        until: float | None = None,
+        external: tuple[str, frozenset[str]] | None = None,
+    ) -> RunReport:
+        """Execute a single state definition to quiescence."""
+        raise UnsupportedOperationError(
+            f"backend {self.name!r} cannot run a state definition"
+        )
+
+    def run_part_system(
+        self,
+        model: syside.Model,
+        element_qn: str,
+        *,
+        max_steps: int = 1000,
+        until: float | None = None,
+        external: tuple[str, frozenset[str]] | None = None,
+    ) -> RunReport:
+        """Execute a top-level part usage to quiescence."""
+        raise UnsupportedOperationError(
+            f"backend {self.name!r} cannot run a part system"
+        )
+
     def formats(self) -> list[str]:
         """Return the list of supported format strings for this backend."""
         return [fmt for fmt, _ in self._formats]
@@ -102,6 +217,25 @@ class Backend(ABC):
             f"{self.name}: {self.description}\n\n"
             f"Supported formats:\n{self.format_help()}"
         )
+
+    def consumes_python_support(self) -> bool:
+        """Whether the backend consumes a ``--python`` file and model reps.
+
+        A backend that emits Python (statechart guards, reactor reactions)
+        backs external calc-def calls with a Python support file and
+        materializes the model's Python textual representations. When False,
+        the CLI omits the ``--python`` flag for this backend.
+        """
+        return False
+
+    def accepts_target_options(self) -> bool:
+        """Whether the backend accepts the ``--timeout``/``--fast`` flags.
+
+        These populate target-header options (a run timeout and fast mode)
+        for the generated program. When False, the CLI omits both flags for
+        this backend.
+        """
+        return False
 
     def serialize(self, artifact: object, fmt: str) -> str:
         """Serialize a built artifact to text in the requested format."""
@@ -135,12 +269,18 @@ def discover_backends() -> dict[str, Backend]:
 
     Each entry point must name a no-argument :class:`Backend` subclass. A
     backend that fails to load is skipped with a logged warning, so a single
-    broken plugin cannot take down the whole CLI.
+    broken plugin cannot take down the whole CLI. Two backends claiming the
+    same ``name`` cannot be resolved unambiguously, so a collision is refused
+    rather than letting one silently shadow the other.
 
     Returns:
         Backend instances keyed by ``Backend.name``.
+
+    Raises:
+        BackendError: If two entry points yield backends with the same name.
     """
     backends: dict[str, Backend] = {}
+    providers: dict[str, str] = {}
     for entry_point in entry_points(group=BACKEND_ENTRY_POINT_GROUP):
         try:
             backend = entry_point.load()()
@@ -155,5 +295,13 @@ def discover_backends() -> dict[str, Backend]:
                 entry_point.name,
             )
             continue
+        if backend.name in backends:
+            raise BackendError(
+                f"duplicate backend name {backend.name!r}: provided by both "
+                f"entry points {providers[backend.name]!r} and "
+                f"{entry_point.name!r}; uninstall one of the conflicting "
+                "plugins."
+            )
         backends[backend.name] = backend
+        providers[backend.name] = entry_point.name
     return backends

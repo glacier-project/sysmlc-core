@@ -47,10 +47,21 @@ class RosettaBackend(Backend):
         """Build the Lingua Franca program for the given state definition."""
         return build_program(model, element_qn, external=external)
 
+    @override
+    def consumes_python_support(self) -> bool:
+        """Rosetta emits Python LF reactions backed by ``--python``."""
+        return True
+
+    @override
+    def accepts_target_options(self) -> bool:
+        """Rosetta emits an LF target header set by ``--timeout``/``--fast``."""
+        return True
+
+    @override
     def build_composition(
         self,
         model: syside.Model,
-        rig_qn: str,
+        element_qn: str,
         *,
         external: tuple[str, frozenset[str]] | None = None,
     ) -> LfProgram:
@@ -61,7 +72,7 @@ class RosettaBackend(Backend):
         warns about unwired inputs, then delegates to
         :func:`~sysmlc.backends.rosetta.parts.compose_exhibits`.
         """
-        rig = resolve(model, _syside.PartDefinition, rig_qn)
+        rig = resolve(model, _syside.PartDefinition, element_qn)
         (usage_a, def_a), (usage_b, def_b) = exhibited_state_defs(model, rig)
         qn_a = str(def_a.qualified_name)
         qn_b = str(def_b.qualified_name)
@@ -89,7 +100,7 @@ class RosettaBackend(Backend):
                     usage,
                     sig,
                 )
-        composite_name = rig_qn.split("::")[-1]
+        composite_name = element_qn.split("::")[-1]
         needs = PreambleNeeds()
         needs.types_module = f"{composite_name}_types"
         if external is not None:
@@ -106,6 +117,7 @@ class RosettaBackend(Backend):
         )
         return finalize(program, needs, external)
 
+    @override
     def build_part(
         self,
         model: syside.Model,

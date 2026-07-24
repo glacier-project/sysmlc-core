@@ -47,6 +47,12 @@ class QuakeBackend(Backend):
         """Build the Sismic statechart for the given state definition."""
         return build_statechart(model, element_qn, external=external)
 
+    @override
+    def consumes_python_support(self) -> bool:
+        """Quake emits Python statechart guards backed by ``--python``."""
+        return True
+
+    @override
     def build_part(
         self,
         model: syside.Model,
@@ -62,10 +68,11 @@ class QuakeBackend(Backend):
             )
         return build_part_system(model, usage_qn, external=external)
 
+    @override
     def run_state_def(
         self,
         model: syside.Model,
-        state_def_qn: str,
+        element_qn: str,
         *,
         max_steps: int = 1000,
         until: float | None = None,
@@ -74,16 +81,17 @@ class QuakeBackend(Backend):
         """Execute a state definition to quiescence."""
         return runner.run_state_def(
             model,
-            state_def_qn,
+            element_qn,
             max_steps=max_steps,
             until=until,
             external=external,
         )
 
+    @override
     def run_part_system(
         self,
         model: syside.Model,
-        usage_qn: str,
+        element_qn: str,
         *,
         max_steps: int = 1000,
         until: float | None = None,
@@ -92,7 +100,7 @@ class QuakeBackend(Backend):
         """Execute a connected part system to quiescence."""
         return runner.run_part_system(
             model,
-            usage_qn,
+            element_qn,
             max_steps=max_steps,
             until=until,
             external=external,

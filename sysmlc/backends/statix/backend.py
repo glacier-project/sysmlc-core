@@ -34,6 +34,7 @@ class StatixBackend(Backend):
         """Build the flat C statechart program for the state definition."""
         return build_statix(model, element_qn)
 
+    @override
     def build_model(self, model: syside.Model) -> CProject:
         """Build every state definition in ``model`` into one C project."""
         qns = tuple(
