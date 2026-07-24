@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import syside
+from sysmlc_models.catalog import model_path
 
 from sysmlc import configure_logging
 from sysmlc.sysml import metadata
@@ -10,7 +9,7 @@ from sysmlc.sysml.loading import load_model
 from sysmlc.sysml.queries import iter_elements
 from sysmlc.sysml.visitor import ModelVisitor
 
-MODEL_DIR = Path(__file__).resolve().parent.parent / "models" / "ice-lab"
+MODEL_DIR = model_path("ice-lab")
 QUALITY_CONTROL_QN = "EquipmentInterfaces::QualityControlEquipment"
 OPCUA_CONNECTION_QN = "OpcUaBinding::OpcUaConnection"
 
