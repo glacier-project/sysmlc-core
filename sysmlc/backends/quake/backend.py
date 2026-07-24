@@ -47,6 +47,11 @@ class QuakeBackend(Backend):
         """Build the Sismic statechart for the given state definition."""
         return build_statechart(model, element_qn, external=external)
 
+    @override
+    def consumes_python_support(self) -> bool:
+        """Quake emits Python statechart guards backed by ``--python``."""
+        return True
+
     def build_part(
         self,
         model: syside.Model,

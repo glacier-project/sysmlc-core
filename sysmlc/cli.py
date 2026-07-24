@@ -44,9 +44,6 @@ class CliError(SysmlcError):
     """A user-facing error, reported as a message without a traceback."""
 
 
-_PYTHON_BACKENDS = frozenset({"rosetta", "quake"})
-
-
 def _parse_external(python_path: Path) -> tuple[str, frozenset[str]]:
     """Parse a ``--python`` file into ``(module_stem, sync_function_names)``.
 
@@ -70,23 +67,24 @@ def _parse_external(python_path: Path) -> tuple[str, frozenset[str]]:
 
 
 def _parse_python_arg(
-    args: argparse.Namespace, backend: Backend
+    args: argparse.Namespace,
 ) -> tuple[Path, tuple[str, frozenset[str]]] | tuple[None, None]:
-    """Gate and parse a command's ``--python`` flag.
+    """Parse a command's ``--python`` flag.
+
+    The flag exists only for backends that declare
+    :meth:`Backend.consumes_python_support`, so its presence already implies
+    support and no backend check is needed here.
 
     Returns:
         The flag's path paired with its ``_parse_external`` result, or
         ``(None, None)`` when ``--python`` was not given.
 
     Raises:
-        CliError: If the backend does not support ``--python``, or if the
-            file cannot be read or is not valid Python.
+        CliError: If the file cannot be read or is not valid Python.
     """
     python_path: Path | None = getattr(args, "python", None)
     if python_path is None:
         return None, None
-    if backend.name not in _PYTHON_BACKENDS:
-        raise CliError(f"backend {backend.name!r} does not support --python")
     return python_path, _parse_external(python_path)
 
 
@@ -105,7 +103,7 @@ def _materialize_reps(
         UnsupportedConstructError: If the model's rep bodies are invalid;
             see :func:`sysmlc.sysml.textual_representation.extract_textual`.
     """
-    if backend.name not in _PYTHON_BACKENDS:
+    if not backend.consumes_python_support():
         return None
     extracted = extract_textual(model, element_qn)
     if extracted is None:
@@ -133,11 +131,11 @@ def _resolve_python(
         ``(None, None)`` when there is neither a flag nor a rep.
 
     Raises:
-        CliError: If the backend does not support ``--python``, or the
-            explicit file cannot be read or is not valid Python.
+        CliError: If the explicit ``--python`` file cannot be read or is not
+            valid Python.
         UnsupportedConstructError: If the model's rep bodies are invalid.
     """
-    python_path, external = _parse_python_arg(args, backend)
+    python_path, external = _parse_python_arg(args)
     if python_path is not None and external is not None:
         return python_path, external
     generated = _materialize_reps(model, backend, element_qn)
@@ -257,24 +255,25 @@ def _add_build_arguments(
             "mirrors qualified names (Pkg -> Def -> attribute: value)"
         ),
     )
-    build.add_argument(
-        "--python",
-        type=Path,
-        help="(rosetta/quake state definitions) a Python file whose "
-        "top-level functions back external calc-def calls; matched to SysML "
-        "functions by simple name",
-    )
-    build.add_argument(
-        "--timeout",
-        help="(rosetta part systems only) LF run timeout for the generated "
-        'main reactor\'s target header, e.g. "5 sec"',
-    )
-    build.add_argument(
-        "--fast",
-        action="store_true",
-        help="(rosetta part systems only) set `fast: true` in the generated "
-        "main reactor's target header",
-    )
+    if backend.consumes_python_support():
+        build.add_argument(
+            "--python",
+            type=Path,
+            help="a Python file whose top-level functions back external "
+            "calc-def calls; matched to SysML functions by simple name",
+        )
+    if backend.accepts_target_options():
+        build.add_argument(
+            "--timeout",
+            help="run timeout for the generated program's target header, "
+            'e.g. "5 sec" (top-level part usages only)',
+        )
+        build.add_argument(
+            "--fast",
+            action="store_true",
+            help="enable fast mode in the generated program's target header "
+            "(top-level part usages only)",
+        )
 
 
 def _select_state_def(model: syside.Model, requested: str | None) -> str:
@@ -379,19 +378,19 @@ def _select_element(
 
 
 def _target_options(
-    args: argparse.Namespace, backend: Backend
+    args: argparse.Namespace,
 ) -> tuple[tuple[str, str], ...]:
-    """Build the LF target options from ``--fast``/``--timeout`` (rosetta)."""
+    """Build the target-header options from ``--fast``/``--timeout``.
+
+    Both flags exist only for backends that declare
+    :meth:`Backend.accepts_target_options`, so absent flags yield no options.
+    """
     options: list[tuple[str, str]] = []
     if getattr(args, "fast", False):
         options.append(("fast", "true"))
     timeout = getattr(args, "timeout", None)
     if timeout is not None:
         options.append(("timeout", timeout))
-    if options and backend.name != "rosetta":
-        raise CliError(
-            f"backend {backend.name!r} does not support --timeout/--fast"
-        )
     return tuple(options)
 
 
@@ -408,22 +407,11 @@ def _cmd_build(args: argparse.Namespace) -> int:
                 f"backend {backend.name!r} whole-model builds do not support "
                 "--values yet"
             )
-        if getattr(args, "python", None) is not None:
-            raise CliError(
-                f"backend {backend.name!r} whole-model builds do not support "
-                "--python"
-            )
-        target_options = _target_options(args, backend)
-        if target_options:
-            raise CliError(
-                f"backend {backend.name!r} whole-model builds do not support "
-                "--timeout/--fast"
-            )
         artifact = build_model(model)
         return _write_artifact(args, backend, "model", artifact, None)
 
     element_qn, kind = _select_element(model, args.element)
-    target_options = _target_options(args, backend)
+    target_options = _target_options(args)
     if target_options and kind != "part":
         raise CliError(
             "--timeout/--fast only apply to a top-level part usage "

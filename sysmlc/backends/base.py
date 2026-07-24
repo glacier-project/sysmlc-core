@@ -103,6 +103,25 @@ class Backend(ABC):
             f"Supported formats:\n{self.format_help()}"
         )
 
+    def consumes_python_support(self) -> bool:
+        """Whether the backend consumes a ``--python`` file and model reps.
+
+        A backend that emits Python (statechart guards, reactor reactions)
+        backs external calc-def calls with a Python support file and
+        materializes the model's Python textual representations. When False,
+        the CLI omits the ``--python`` flag for this backend.
+        """
+        return False
+
+    def accepts_target_options(self) -> bool:
+        """Whether the backend accepts the ``--timeout``/``--fast`` flags.
+
+        These populate target-header options (a run timeout and fast mode)
+        for the generated program. When False, the CLI omits both flags for
+        this backend.
+        """
+        return False
+
     def serialize(self, artifact: object, fmt: str) -> str:
         """Serialize a built artifact to text in the requested format."""
         raise SerializationError(
