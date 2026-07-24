@@ -54,7 +54,9 @@ def target(
         ValueError: If the transition has no resolved target.
     """
     succession = trans.succession
-    targets = succession.targets.collect() if succession is not None else []
+    targets: list[syside.Feature] = (
+        succession.targets.collect() if succession is not None else []
+    )
     if not targets:
         raise ValueError(
             f"Transition in state def {state_def.qualified_name} "

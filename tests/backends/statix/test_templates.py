@@ -15,4 +15,5 @@ def test_all_templates_loadable() -> None:
         "machine.h.j2",
         "machine.c.j2",
     ):
-        assert _env.get_template(name)  # raises TemplateNotFound if missing
+        # Raises TemplateNotFound if the template is missing.
+        _env.get_template(name)

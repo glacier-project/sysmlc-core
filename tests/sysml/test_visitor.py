@@ -7,7 +7,7 @@ def test_model_visitor_dispatches_part_definitions_and_part_usages(
     model: syside.Model,
 ) -> None:
     class RecordingVisitor(ModelVisitor):
-        def __init__(self, model: syside.Model):
+        def __init__(self, model: syside.Model) -> None:
             super().__init__(model)
             self.started = False
             self.ended = False

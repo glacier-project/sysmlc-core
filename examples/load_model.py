@@ -18,7 +18,7 @@ OPCUA_CONNECTION_QN = "OpcUaBinding::OpcUaConnection"
 class PartCountingVisitor(ModelVisitor):
     """Counts part definitions and part usages encountered in the model."""
 
-    def __init__(self, model: syside.Model):
+    def __init__(self, model: syside.Model) -> None:
         super().__init__(model)
         self.definitions = 0
         self.usages = 0

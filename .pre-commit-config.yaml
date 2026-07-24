@@ -50,7 +50,7 @@ repos:
     args: ['--ignore-words-list=boardin,crate,inout,inport,nd,ser,statics,te,vise', '--skip=*.json,*.lock']
 
 - repo: https://github.com/astral-sh/ruff-pre-commit
-  rev: v0.15.6
+  rev: v0.15.22
   hooks:
   - id: ruff
     args:
@@ -64,7 +64,6 @@ exclude: |
   (?x)^(
     \.git/.*|
     .devcontainer/.*|
-    .mypy_cache/.*|
     .pytest_cache/.*|
     .ruff_cache/.*|
     .tox/.*|

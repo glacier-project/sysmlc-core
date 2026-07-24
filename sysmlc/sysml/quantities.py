@@ -128,7 +128,9 @@ def quantity_parts(
         )
     magnitude, unit = expr.operands.collect()
     referent = getattr(unit, "referent", None)
-    types = referent.types.collect() if referent is not None else []
+    types: list[syside.Type] = (
+        referent.types.collect() if referent is not None else []
+    )
     if referent is None or not types:
         raise ValuesError(f"{what} has no resolvable measurement unit")
     return (

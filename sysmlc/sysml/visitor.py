@@ -23,7 +23,7 @@ class ModelVisitor:
         element_kind: type[syside.Element] | None = None,
         include_subtypes: bool | None = None,
         considered_document_kinds: syside.DocumentKind | None = None,
-    ):
+    ) -> None:
         """Initialize the visitor.
 
         Args:
