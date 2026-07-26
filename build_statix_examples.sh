@@ -3,16 +3,25 @@
 set -u
 
 if [ "$#" -ne 1 ]; then
-  echo "Usage: $0 <models-folder>" >&2
-  echo "Example: $0 models/sm-examples" >&2
+  echo "Usage: $0 <models-folder-or-corpus-name>" >&2
+  echo "Example: $0 sm-examples" >&2
   exit 1
 fi
 
 MODEL_ROOT="$1"
 OUTPUT_ROOT="output"
 
+# A non-directory argument names a bundled corpus (e.g. sm-examples):
+# resolve it through the installed sysmlc-models package, like the CLI does.
 if [ ! -d "$MODEL_ROOT" ]; then
-  echo "error: folder does not exist: $MODEL_ROOT" >&2
+  MODEL_ROOT="$(uv run --extra dev python -c "
+from sysmlc_models.catalog import model_path
+print(model_path('$1'))
+" 2>/dev/null)" || true
+fi
+
+if [ ! -d "$MODEL_ROOT" ]; then
+  echo "error: neither a folder nor a bundled corpus: $1" >&2
   exit 1
 fi
 
