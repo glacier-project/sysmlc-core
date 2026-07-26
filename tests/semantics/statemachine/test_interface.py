@@ -1,11 +1,11 @@
 """Port-aware signal interface (drives port-based connection routing)."""
 
-from sysmlc_models.catalog import model_path
+from sysmlc_models.sm_examples import SM_EXAMPLES_DIR
 
 from sysmlc.semantics.statemachine.interface import machine_interface
 from sysmlc.sysml.loading import load_model
 
-FIX = model_path("sm-examples/part01-two-parts")
+FIX = SM_EXAMPLES_DIR / "part01-two-parts"
 
 
 def test_interface_records_accept_and_send_ports() -> None:

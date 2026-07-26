@@ -2,14 +2,12 @@ from pathlib import Path
 
 import pytest
 import syside
-from sysmlc_models.catalog import model_path
+from sysmlc_models.sm_examples import SM_EXAMPLES_DIR as SM_DIR
 
 from sysmlc.semantics.statemachine import states
 from sysmlc.semantics.statemachine.facts import StateKind
 from sysmlc.sysml.loading import load_model
 from sysmlc.sysml.queries import resolve
-
-SM_DIR = model_path("sm-examples")
 
 
 def test_parallel_root_is_parallel_kind() -> None:

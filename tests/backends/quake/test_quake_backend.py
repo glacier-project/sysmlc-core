@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 from sismic.model import Statechart
-from sysmlc_models.catalog import model_path
+from sysmlc_models.sm_examples import SM_EXAMPLES_DIR
 
 from sysmlc.backends import OutputOptions, discover_backends
 from sysmlc.backends.quake.backend import QuakeBackend
@@ -18,7 +18,6 @@ if TYPE_CHECKING:
 
     import syside
 
-SM_EXAMPLES_DIR = model_path("sm-examples")
 SM01_DIR = SM_EXAMPLES_DIR / "sm01-helloworld"
 PART01_DIR = SM_EXAMPLES_DIR / "part01-two-parts"
 MACHINE_QN = "SM01::Machine"

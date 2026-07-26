@@ -4,15 +4,14 @@ from pathlib import Path
 
 import pytest
 import syside
-from sysmlc_models.catalog import model_path
+from sysmlc_models.showcase import SHOWCASE_DIR
+from sysmlc_models.sm_examples import SM_EXAMPLES_DIR
 
 from sysmlc.backends.base import OutputOptions
 from sysmlc.backends.statix.backend import StatixBackend
 from sysmlc.backends.statix.builder import build_statix
 from sysmlc.backends.statix.program import CProgram
 from sysmlc.sysml.loading import load_model
-
-_MODELS = model_path("sm-examples")
 
 # The sm-examples referenced across the statix backend tests. Each stem
 # names its folder explicitly.
@@ -38,14 +37,12 @@ _WANTED = {
 }
 
 
-_SHOWCASE_MODELS = model_path("showcase")
-
-
 @pytest.fixture(scope="session")
 def sm_models() -> dict[str, syside.Model]:
     """Load each referenced sm-example once, keyed by folder stem (sm01…)."""
     return {
-        stem: load_model(_MODELS / folder) for stem, folder in _WANTED.items()
+        stem: load_model(SM_EXAMPLES_DIR / folder)
+        for stem, folder in _WANTED.items()
     }
 
 
@@ -53,8 +50,8 @@ def sm_models() -> dict[str, syside.Model]:
 def sm_models_showcase() -> dict[str, syside.Model]:
     """Load showcase models referenced across the statix backend tests."""
     return {
-        "microwave": load_model(_SHOWCASE_MODELS / "microwave"),
-        "furuta": load_model(_SHOWCASE_MODELS / "furuta-pendulum"),
+        "microwave": load_model(SHOWCASE_DIR / "microwave"),
+        "furuta": load_model(SHOWCASE_DIR / "furuta-pendulum"),
     }
 
 

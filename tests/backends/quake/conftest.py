@@ -3,7 +3,6 @@ from sismic.model import Statechart, Transition
 from sysmlc_models.sm_examples import (  # noqa: F401  (re-exported)
     SM_EXAMPLES,
     SM_EXAMPLES_BY_DIR,
-    SM_EXAMPLES_DIR,
     SmExample,
 )
 

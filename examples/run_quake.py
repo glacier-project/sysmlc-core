@@ -10,7 +10,7 @@ from sismic.clock import SimulatedClock
 from sismic.exceptions import CodeEvaluationError
 from sismic.helpers import coverage_from_trace
 from sismic.interpreter import Interpreter
-from sysmlc_models.catalog import model_path
+from sysmlc_models.sm_examples import SM_EXAMPLES_DIR
 
 from sysmlc import configure_logging
 from sysmlc.backends.quake import build_statechart
@@ -28,8 +28,6 @@ if TYPE_CHECKING:
     from sismic.model.steps import MacroStep
 
 logger = logging.getLogger(f"{PACKAGE_LOGGER_NAME}.run_quake")
-
-SM_EXAMPLES_DIR = model_path("sm-examples")
 
 
 def parse_args() -> argparse.Namespace:

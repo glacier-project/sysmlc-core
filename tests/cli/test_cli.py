@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 from sismic.io import import_from_yaml
-from sysmlc_models.catalog import model_path
+from sysmlc_models.sm_examples import SM_EXAMPLES_DIR
 
 from sysmlc.backends import Backend
 from sysmlc.cli import _parse_external, main
@@ -14,7 +14,6 @@ from sysmlc.cli import _parse_external, main
 if TYPE_CHECKING:
     from sysmlc.backends import OutputOptions
 
-SM_EXAMPLES_DIR = model_path("sm-examples")
 SM01_DIR = SM_EXAMPLES_DIR / "sm01-helloworld"
 
 RIG_DIR = Path(__file__).resolve().parents[1] / (
