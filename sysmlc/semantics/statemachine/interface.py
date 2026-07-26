@@ -47,8 +47,8 @@ class SignalInterfaceCollector:
     """A TargetBuilder that records signal names and nothing else.
 
     Used to learn what a peer machine accepts/sends before the real
-    build; it renders nothing, so models that the rosetta builder would
-    reject still yield their interface.
+    build; it renders nothing, so models that a backend's own builder
+    would reject still yield their interface.
     """
 
     def __init__(self) -> None:

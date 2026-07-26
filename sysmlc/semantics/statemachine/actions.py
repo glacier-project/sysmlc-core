@@ -35,9 +35,9 @@ def inline_actions(
 def require_inline_one_shot(do_action: syside.ActionUsage) -> None:
     """Reject a ``do`` action body that cannot be emitted as a one-shot.
 
-    A sismic-oriented opt-in check: sismic has no activity slot, so only an
-    inline ``assign``/``send`` ``do`` body can be modelled (as a run-once entry
-    statement).
+    An opt-in check for targets without a running-activity slot: only an
+    inline ``assign``/``send`` ``do`` body can be emitted (as a run-once
+    entry statement).
 
     Raises:
         UnsupportedConstructError: If the do action references another action (a

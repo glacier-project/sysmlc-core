@@ -8,9 +8,7 @@ readme = "README.md"
 license = "BSD-2-Clause"
 dependencies = [
     "syside>=0.8.6",
-    "sismic>=1.6.11,<2",
     "pyyaml>=6,<7",
-    "jinja2>=3.1,<4",
 ]
 
 [project.optional-dependencies]
@@ -44,12 +42,6 @@ models = [
 [project.scripts]
 sysmlc = "sysmlc.cli:main"
 
-[project.entry-points."sysmlc.backends"]
-quake = "sysmlc.backends.quake.backend:QuakeBackend"
-rosetta = "sysmlc.backends.rosetta.backend:RosettaBackend"
-frostifier = "sysmlc.backends.frostifier.backend:FrostifierBackend"
-statix = "sysmlc.backends.statix.backend:StatixBackend"
-
 [build-system]
 requires = ["hatchling>=1.27,<2"]
 build-backend = "hatchling.build"
@@ -66,7 +58,7 @@ preset = "legacy"
 check-unannotated-defs = true
 infer-return-types = "never"
 project-includes = ["sysmlc", "tests", "examples"]
-replace-imports-with-any = ["sismic", "sismic.*", "yaml"]
+replace-imports-with-any = ["yaml"]
 
 [tool.pyrefly.errors]
 implicit-any = "error"
@@ -153,10 +145,3 @@ quote-style = "double"
 indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "auto"
-
-[tool.pytest.ini_options]
-addopts = "-m 'not lf and not statix'"
-markers = [
-    "lf: compile and run generated Lingua Franca programs (requires lfc + Java)",
-    "statix: compile and run generated C statechart projects (requires a C compiler + CMake)",
-]

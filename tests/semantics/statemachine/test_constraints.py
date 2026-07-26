@@ -1,10 +1,13 @@
+from pathlib import Path
+
 from sysmlc_models.showcase import SHOWCASE_DIR
 from sysmlc_models.sm_examples import SM_EXAMPLES_BY_DIR
 
 from sysmlc.semantics.statemachine.driver import StateMachineDriver
 from sysmlc.sysml.loading import load_model
-from tests.backends.rosetta.conftest import FIXTURES_DIR
 from tests.test_recording import RecordingBuilder
+
+FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 
 
 def test_driver_pushes_asserted_constraints() -> None:

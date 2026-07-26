@@ -31,8 +31,6 @@ exclude_patterns = [
     "_build",
     "Thumbs.db",
     ".DS_Store",
-    "*-mapping.md",
-    "statix/*",
     "syside-reference.md",
     "superpowers/*",
 ]
