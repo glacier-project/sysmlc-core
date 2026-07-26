@@ -42,7 +42,8 @@ uv sync --extra dev
 
 The SysML model corpora live in the separate
 [sysmlc-models](https://github.com/glacier-project/sysmlc-models) package,
-installed automatically by `uv sync --extra dev`. Backend commands accept
+installed automatically by `uv sync --extra dev` (standalone installs opt
+in with the `models` extra: `sysmlc[models]`). Backend commands accept
 either a path to a model directory or the name of a bundled corpus model
 such as `sm-examples/sm01-helloworld`.
 

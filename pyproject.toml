@@ -37,6 +37,9 @@ docs = [
     "sphinx-autodoc-typehints>=2.2,<4",
     "sphinx-copybutton>=0.5,<1",
 ]
+models = [
+    "sysmlc-models",
+]
 
 [project.scripts]
 sysmlc = "sysmlc.cli:main"

@@ -1340,6 +1340,9 @@ docs = [
     { name = "sphinx-autodoc-typehints" },
     { name = "sphinx-copybutton" },
 ]
+models = [
+    { name = "sysmlc-models" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -1364,10 +1367,11 @@ requires-dist = [
     { name = "sphinx-copybutton", marker = "extra == 'docs'", specifier = ">=0.5,<1" },
     { name = "syside", specifier = ">=0.8.6" },
     { name = "sysmlc-models", marker = "extra == 'dev'", git = "https://github.com/glacier-project/sysmlc-models?branch=dev" },
+    { name = "sysmlc-models", marker = "extra == 'models'", git = "https://github.com/glacier-project/sysmlc-models?branch=dev" },
     { name = "tox", marker = "extra == 'dev'", specifier = ">=4.50.1,<5" },
     { name = "tox-uv", marker = "extra == 'dev'", specifier = ">=1.15,<2" },
 ]
-provides-extras = ["dev", "docs"]
+provides-extras = ["dev", "docs", "models"]
 
 [[package]]
 name = "sysmlc-models"

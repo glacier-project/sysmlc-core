@@ -229,7 +229,8 @@ def _add_build_arguments(
         type=Path,
         help=(
             "path to a SysML model directory, or the name of a bundled "
-            "corpus model (e.g. sm-examples/sm01-helloworld)"
+            "corpus model (e.g. sm-examples/sm01-helloworld; requires "
+            "the sysmlc-models package)"
         ),
     )
     build.add_argument(
@@ -320,7 +321,8 @@ def _add_run_arguments(run: argparse.ArgumentParser) -> None:
         type=Path,
         help=(
             "path to a SysML model directory, or the name of a bundled "
-            "corpus model (e.g. sm-examples/sm01-helloworld)"
+            "corpus model (e.g. sm-examples/sm01-helloworld; requires "
+            "the sysmlc-models package)"
         ),
     )
     run.add_argument(
