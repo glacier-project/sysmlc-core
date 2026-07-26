@@ -27,6 +27,7 @@ dev = [
     "tox-uv>=1.15,<2",
     "pytest>=8.4.2,<10",
     "pytest-cov>=6.3.0,<8",
+    "sysmlc-models",
 ]
 docs = [
     "furo>=2024.8.6,<2027",
@@ -35,6 +36,9 @@ docs = [
     "sphinx-autobuild>=2024.10.3,<2027",
     "sphinx-autodoc-typehints>=2.2,<4",
     "sphinx-copybutton>=0.5,<1",
+]
+models = [
+    "sysmlc-models",
 ]
 
 [project.scripts]
@@ -52,6 +56,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["sysmlc"]
+
+[tool.uv.sources]
+sysmlc-models = { git = "https://github.com/glacier-project/sysmlc-models", branch = "dev" }
 
 [tool.pyrefly]
 python-version = "3.12.0"

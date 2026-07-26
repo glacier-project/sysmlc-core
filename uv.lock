@@ -1328,6 +1328,7 @@ dev = [
     { name = "pytest-cov" },
     { name = "radon" },
     { name = "ruff" },
+    { name = "sysmlc-models" },
     { name = "tox" },
     { name = "tox-uv" },
 ]
@@ -1338,6 +1339,9 @@ docs = [
     { name = "sphinx-autobuild" },
     { name = "sphinx-autodoc-typehints" },
     { name = "sphinx-copybutton" },
+]
+models = [
+    { name = "sysmlc-models" },
 ]
 
 [package.metadata]
@@ -1362,10 +1366,17 @@ requires-dist = [
     { name = "sphinx-autodoc-typehints", marker = "extra == 'docs'", specifier = ">=2.2,<4" },
     { name = "sphinx-copybutton", marker = "extra == 'docs'", specifier = ">=0.5,<1" },
     { name = "syside", specifier = ">=0.8.6" },
+    { name = "sysmlc-models", marker = "extra == 'dev'", git = "https://github.com/glacier-project/sysmlc-models?branch=dev" },
+    { name = "sysmlc-models", marker = "extra == 'models'", git = "https://github.com/glacier-project/sysmlc-models?branch=dev" },
     { name = "tox", marker = "extra == 'dev'", specifier = ">=4.50.1,<5" },
     { name = "tox-uv", marker = "extra == 'dev'", specifier = ">=1.15,<2" },
 ]
-provides-extras = ["dev", "docs"]
+provides-extras = ["dev", "docs", "models"]
+
+[[package]]
+name = "sysmlc-models"
+version = "0.0.0"
+source = { git = "https://github.com/glacier-project/sysmlc-models?branch=dev#b486df69a967f880a8b58ce159b4b633123a6ef2" }
 
 [[package]]
 name = "tomli"

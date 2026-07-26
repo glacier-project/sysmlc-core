@@ -1,14 +1,13 @@
 import syside
 from sismic.model import Statechart, Transition
+from sysmlc_models.sm_examples import (  # noqa: F401  (re-exported)
+    SM_EXAMPLES,
+    SM_EXAMPLES_BY_DIR,
+    SmExample,
+)
 
 from sysmlc.sysml.loading import load_model
 from sysmlc.sysml.queries import iter_elements
-from tests.backends.test_sm_examples import (  # noqa: F401  (re-exported)
-    SM_EXAMPLES,
-    SM_EXAMPLES_BY_DIR,
-    SM_EXAMPLES_DIR,
-    SmExample,
-)
 
 QUAKE_PREAMBLE_IMPORTS = (
     "from math import cos as _cos, sin as _sin, tan as _tan",

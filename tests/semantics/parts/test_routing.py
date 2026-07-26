@@ -3,12 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from sysmlc_models.sm_examples import SM_EXAMPLES_DIR
 
 from sysmlc.errors import UnsupportedConstructError
 from sysmlc.semantics.parts.graph import part_graph
 from sysmlc.semantics.parts.routing import validated_routes
 from sysmlc.sysml.loading import load_model
-from tests.backends.test_sm_examples import SM_EXAMPLES_DIR
 
 FIX = SM_EXAMPLES_DIR / "part01-two-parts"
 MUX = SM_EXAMPLES_DIR / "part-mux"

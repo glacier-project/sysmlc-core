@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Build and run every showcase and sm-examples model through quake.
 
-Sweeps the two corpora (``models/showcase/`` and ``models/sm-examples/``)
+Sweeps the showcase and sm-examples corpora
 through the CLI and reports a per-target verdict. Unlike rosetta's
-``models/showcase/run_all.py`` pipeline, quake's two verbs are
+``examples/run_all_rosetta.py`` pipeline, quake's two verbs are
 independent checks: ``build`` writes the YAML and PlantUML artifacts,
 while ``run`` re-loads the model and executes it in-process, never
 reading the build's output.
@@ -40,13 +40,15 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from sysmlc_models.showcase import SHOWCASE_DIR
+from sysmlc_models.sm_examples import SM_EXAMPLES_DIR
+
 from sysmlc import configure_logging
 from sysmlc.sysml.loading import load_model
 from sysmlc.sysml.queries import state_definitions, top_level_part_usages
 
 EXAMPLES_DIR = Path(__file__).resolve().parent
-MODELS_DIR = EXAMPLES_DIR.parent / "models"
-CORPUS_DIRS = (MODELS_DIR / "showcase", MODELS_DIR / "sm-examples")
+CORPUS_DIRS = (SHOWCASE_DIR, SM_EXAMPLES_DIR)
 BUILD_ROOT = EXAMPLES_DIR / "build"
 
 
@@ -138,7 +140,7 @@ def _model_dirs(only: list[str] | None) -> list[Path]:
     chosen = []
     matched = set()
     for directory in dirs:
-        relative = directory.relative_to(MODELS_DIR).as_posix()
+        relative = f"{directory.parent.name}/{directory.name}"
         if directory.name in only or relative in only:
             chosen.append(directory)
             matched.update({directory.name, relative})
@@ -268,7 +270,7 @@ def _sweep_target(
     Returns:
         One :class:`Result` per stage, build first.
     """
-    relative = model_dir.relative_to(MODELS_DIR).as_posix()
+    relative = f"{model_dir.parent.name}/{model_dir.name}"
     label = f"{relative}::{element_qn.split('::')[-1]}"
     expected = EXPECTED_FAILURES.get(label)
     python_arguments = _python_arguments(model_dir)
@@ -348,7 +350,7 @@ def main() -> int:
 
     results: list[Result] = []
     for model_dir in _model_dirs(args.only):
-        relative = model_dir.relative_to(MODELS_DIR).as_posix()
+        relative = f"{model_dir.parent.name}/{model_dir.name}"
         try:
             element_qns = _targets(model_dir)
         except ValueError as error:

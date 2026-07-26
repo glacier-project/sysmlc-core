@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
 from sismic.model import Statechart
+from sysmlc_models.sm_examples import SM_EXAMPLES_DIR
 
 from sysmlc.backends import OutputOptions, discover_backends
 from sysmlc.backends.quake.backend import QuakeBackend
@@ -14,9 +14,10 @@ from sysmlc.errors import SerializationError
 from sysmlc.sysml.loading import load_model
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     import syside
 
-SM_EXAMPLES_DIR = Path(__file__).resolve().parents[3] / "models" / "sm-examples"
 SM01_DIR = SM_EXAMPLES_DIR / "sm01-helloworld"
 PART01_DIR = SM_EXAMPLES_DIR / "part01-two-parts"
 MACHINE_QN = "SM01::Machine"

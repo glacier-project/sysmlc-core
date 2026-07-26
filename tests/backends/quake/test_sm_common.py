@@ -25,7 +25,7 @@ def test_statechart_executes_without_evaluation_error(
     """``Interpreter(sc).execute()`` must not raise for any state def.
 
     Corpus-wide invariant: every ``state def`` in every example folder
-    under ``models/sm-examples/`` must produce a sismic ``Statechart``
+    of the sm-examples corpus must produce a sismic ``Statechart``
     whose initial-quiescence run goes through without
     ``CodeEvaluationError`` (the symptom of a name referenced in a
     guard, action, invariant or preamble that the generator forgot to

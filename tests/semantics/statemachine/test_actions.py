@@ -1,12 +1,9 @@
-from pathlib import Path
-
 import syside
+from sysmlc_models.sm_examples import SM_EXAMPLES_DIR as SM_DIR
 
 from sysmlc.semantics.statemachine import actions, states
 from sysmlc.sysml.loading import load_model
 from sysmlc.sysml.queries import resolve
-
-SM_DIR = Path(__file__).resolve().parents[3] / "models" / "sm-examples"
 
 
 def _idle_entry(model: syside.Model, qn: str) -> syside.ActionUsage | None:

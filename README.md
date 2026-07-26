@@ -40,8 +40,16 @@ uv sync --extra dev
 
 ## Usage
 
-Build and run a sismic statechart from one of the example state machines under
-`models/sm-examples/` (accepts `01`, `sm01`, or the full folder name):
+The SysML model corpora live in the separate
+[sysmlc-models](https://github.com/glacier-project/sysmlc-models) package,
+installed automatically by `uv sync --extra dev` (standalone installs opt
+in with the `models` extra: `sysmlc[models]`). Backend commands accept
+either a path to a model directory or the name of a bundled corpus model
+such as `sm-examples/sm01-helloworld`.
+
+Build and run a sismic statechart from one of the example state machines in
+the bundled sm-examples corpus (accepts `01`, `sm01`, or the full folder
+name):
 
 ```bash
 uv run python examples/run_quake.py sm01
@@ -50,17 +58,18 @@ uv run python examples/run_quake.py sm01
 Or use the API directly:
 
 ```python
-from sysmlc.loader import load_syside_model
 from sysmlc.backends.quake import build_statechart
+from sysmlc.sysml.loading import load_model
+from sysmlc_models.catalog import model_path
 
-model = load_syside_model("models/sm-examples/sm01-helloworld")
+model = load_model(model_path("sm-examples/sm01-helloworld"))
 statechart = build_statechart(model, "SM01::Machine")
 ```
 
 The `sysmlc` CLI exposes one build command per backend:
 
 ```bash
-sysmlc quake build models/sm-examples/sm01-helloworld \
+sysmlc quake build sm-examples/sm01-helloworld \
   -e SM01::Machine -o out/
 ```
 
@@ -70,18 +79,18 @@ definition runs as a single statechart; a top-level part usage runs one
 interpreter per part on a shared clock:
 
 ```bash
-sysmlc quake run models/sm-examples/part01-two-parts
+sysmlc quake run sm-examples/part01-two-parts
 ```
 
 Translate a state machine to a Lingua Franca modal-reactor program with the
-**rosetta** backend. The showcase corpus under `models/showcase/` exercises
+**rosetta** backend. The bundled showcase corpus exercises
 the supported construct set (enums, parameters, payloads, function calls,
 hierarchy, parallel regions, and asserted constraints — the full
 construct-by-construct mapping is documented in `docs/rosetta-mapping.md`,
 including the showcase case studies):
 
 ```bash
-sysmlc rosetta build models/showcase/milling-workcell \
+sysmlc rosetta build showcase/milling-workcell \
   -e MillingWorkcell::millingWorkcellSystem -o out/
 ```
 
@@ -89,24 +98,31 @@ When a model has exactly one top-level part usage, `--element` can be omitted
 and the CLI auto-selects the system target:
 
 ```bash
-sysmlc rosetta build models/showcase/milling-workcell -o out/
+sysmlc rosetta build showcase/milling-workcell -o out/
 ```
 
 To build only a bare state machine, select the state definition directly:
 
 ```bash
-sysmlc rosetta build models/showcase/milling-workcell \
+sysmlc rosetta build showcase/milling-workcell \
   -e MillingWorkcell::MillingWorkcellBehavior -o out/
 ```
 
 Attribute initial values can be overridden at build time from a hierarchical
 YAML file when building a state definition (nesting mirrors qualified names;
-works with any backend):
+works with any backend). Given a `values.yaml` like:
+
+```yaml
+Thermostat:
+  ThermostatBehavior:
+    setpoint: 23.0
+    hysteresis: 1.0
+```
 
 ```bash
-sysmlc rosetta build models/showcase/thermostat \
+sysmlc rosetta build showcase/thermostat \
   -e Thermostat::ThermostatBehavior \
-  --values models/showcase/thermostat/values.yaml -o out/
+  --values values.yaml -o out/
 ```
 
 Compile a flat SysML state machine to a self-contained, static-memory C project
@@ -116,7 +132,7 @@ The supported flat subset is the `sm01`–`sm07` examples; the full
 construct-by-construct mapping and rejection list is in `docs/statix-mapping.md`:
 
 ```bash
-sysmlc statix build models/sm-examples/sm01-helloworld -e SM01::Machine -o out/
+sysmlc statix build sm-examples/sm01-helloworld -e SM01::Machine -o out/
 # out/ is a self-contained C project:
 cmake -S out -B out/build && cmake --build out/build
 ```

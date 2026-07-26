@@ -13,7 +13,7 @@ simulation, statix targets **deployment**: the C is meant to cross-compile to a
 microcontroller.
 
 ```bash
-sysmlc statix build models/sm-examples/sm01-helloworld -e SM01::Machine -o out/
+sysmlc statix build sm-examples/sm01-helloworld -e SM01::Machine -o out/
 # out/ is a self-contained C project:
 cmake -S out -B out/build && cmake --build out/build
 ```
@@ -21,7 +21,7 @@ cmake -S out -B out/build && cmake --build out/build
 Omit `-e` to build every `state def` in the model into one project:
 
 ```bash
-sysmlc statix build models/sm-examples/sm01-helloworld -o out/
+sysmlc statix build sm-examples/sm01-helloworld -o out/
 ```
 
 ## 1. The big picture

@@ -1,15 +1,15 @@
 import shutil
 import sys
 from collections.abc import Iterator
-from pathlib import Path
 from typing import Any
 
 import pytest
 import syside
+from sysmlc_models.catalog import model_path
 
 from sysmlc.sysml.loading import load_model
 
-MODEL_DIR = Path(__file__).resolve().parent.parent / "models" / "ice-lab"
+MODEL_DIR = model_path("ice-lab")
 
 
 @pytest.fixture

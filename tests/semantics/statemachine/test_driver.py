@@ -1,11 +1,9 @@
-from pathlib import Path
+from sysmlc_models.sm_examples import SM_EXAMPLES_DIR as SM_DIR
 
 from sysmlc.semantics.statemachine.driver import StateMachineDriver
 from sysmlc.semantics.statemachine.facts import StateKind
 from sysmlc.sysml.loading import load_model
 from tests.test_recording import RecordingBuilder
-
-SM_DIR = Path(__file__).resolve().parents[3] / "models" / "sm-examples"
 
 
 def test_driver_walks_simple_machine(
