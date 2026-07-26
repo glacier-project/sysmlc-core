@@ -47,7 +47,6 @@ sysmlc = "sysmlc.cli:main"
 [project.entry-points."sysmlc.backends"]
 quake = "sysmlc.backends.quake.backend:QuakeBackend"
 rosetta = "sysmlc.backends.rosetta.backend:RosettaBackend"
-frostifier = "sysmlc.backends.frostifier.backend:FrostifierBackend"
 statix = "sysmlc.backends.statix.backend:StatixBackend"
 
 [build-system]
