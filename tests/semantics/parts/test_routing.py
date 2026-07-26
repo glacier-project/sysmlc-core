@@ -13,9 +13,7 @@ from sysmlc.sysml.loading import load_model
 FIX = SM_EXAMPLES_DIR / "part01-two-parts"
 MUX = SM_EXAMPLES_DIR / "part-mux"
 UNDECLARED_VIA = SM_EXAMPLES_DIR / "part-undeclared-via"
-FANIN = Path(__file__).resolve().parents[2] / (
-    "backends/rosetta/fixtures/part-fanin"
-)
+FANIN = Path(__file__).resolve().parent / "fixtures" / "part-fanin"
 
 
 def test_validated_routes_match_connected_send_accept_pairs() -> None:
