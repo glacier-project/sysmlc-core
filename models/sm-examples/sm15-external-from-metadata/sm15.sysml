@@ -1,9 +1,5 @@
 package SM15Rep {
-    metadata def ExternalModule {
-        attribute lang : String;
-        attribute files : String[*];
-    }
-
+    private import ExternalModuleBinding::*;
     @ExternalModule {
         lang = "python";
         files = ("models/sm-examples/sm15-external-from-metadata/ramp.py");

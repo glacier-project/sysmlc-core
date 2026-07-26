@@ -16,10 +16,10 @@ import syside
 from sysmlc.backends import Backend, OutputOptions, discover_backends
 from sysmlc.errors import SysmlcError
 from sysmlc.logging import configure_logging
-from sysmlc.sysml.loading import load_model
-from sysmlc.sysml.metadata_import import (
+from sysmlc.sysml.external_import_metadata import (
     get_external_filepath_from_metadata,
 )
+from sysmlc.sysml.loading import load_model
 from sysmlc.sysml.queries import (
     exhibited_state_defs,
     resolve,
