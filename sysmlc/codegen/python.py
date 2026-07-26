@@ -188,7 +188,7 @@ class PythonCodeGen:
     def render_expression(self, expr: syside.Expression) -> str:
         """Translate ``expr`` to a Python source string.
 
-        Public entry point for the sismic expression translator.
+        Public entry point for the Python expression translator.
 
         Args:
             expr: The expression node to translate.
@@ -444,8 +444,9 @@ class PythonCodeGen:
     ) -> str:
         """Emit a bare feature reference as the referent's name.
 
-        Sismic resolves the name against the interpreter context at
-        evaluate time, so a qualified name would be invalid Python here.
+        The executing target resolves the bare name against its own
+        evaluation context at run time, so a qualified name would be
+        invalid Python here.
 
         Args:
             expr: The feature reference to translate.

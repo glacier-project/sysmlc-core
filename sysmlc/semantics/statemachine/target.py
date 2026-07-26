@@ -14,9 +14,9 @@ class TargetBuilder(Protocol):
     """Receives neutral state-machine facts and assembles a target artifact.
 
     The generic ``StateMachineDriver`` pushes facts in. Each backend implements
-    this protocol to build its own artifact (a sismic statechart, a Lingua
-    Franca program, a Frost project, ...), rendering any carried syside nodes
-    with its own codegen.
+    this protocol to build its own artifact (a statechart, a reactor
+    program, a C project, ...), rendering any carried syside nodes with
+    its own codegen.
     """
 
     def bind_attribute(self, binding: AttributeBinding) -> None:

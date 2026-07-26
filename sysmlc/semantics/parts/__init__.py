@@ -1,7 +1,7 @@
 """Backend-neutral SysML part-graph access for the part assembler.
 
-Verified syside part/connection API (2026-06-15), fixture
-``models/sm-examples/part01-two-parts/part01.sysml``:
+Verified syside part/connection API (2026-06-15) against the bundled
+``sm-examples/part01-two-parts`` corpus model:
 
 - top-level part usage: ``PartUsage`` whose ``.owner`` is a ``Package``.
 - nested parts: ``usage.owned_features`` filtered to ``PartUsage``.
@@ -16,7 +16,7 @@ Verified syside part/connection API (2026-06-15), fixture
   ``end.owned_reference_subsetting.general.chaining_features`` ->
   ``[(PartUsage instance), (PortUsage port)]``.
 
-Port binding (spec rosetta-parts-design.md §5.3, confirmed 2026-06-15):
+Port binding (verified 2026-06-15):
 ``connect a.pa to b.pb`` routes a signal only if it is *sent via* ``pa``
 on one end and *accepted via* ``pb`` on the other. The accept-side port is
 ``Trigger.via_port`` (already captured, read from the accepter's

@@ -76,9 +76,9 @@ def target(
 def self_loop_is_unstable(transition: TransitionFact) -> bool:
     """Whether a self-loop transition has nothing to gate it.
 
-    A sismic-oriented opt-in check: a transition whose source equals its
-    target never stabilizes when nothing breaks the loop. A signal or time
-    trigger breaks it. For eventless and change-triggered loops, both a gate
+    An opt-in check for run-to-completion targets: a transition whose
+    source equals its target never stabilizes when nothing breaks the
+    loop. A signal or time trigger breaks it. For eventless and change-triggered loops, both a gate
     and an effect are needed to make quiescence possible; a change trigger's
     condition counts as a gate.
     """

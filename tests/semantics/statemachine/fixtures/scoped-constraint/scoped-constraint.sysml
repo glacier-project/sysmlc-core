@@ -1,8 +1,8 @@
 package ScopedConstraint {
     private import ScalarValues::*;
 
-    // The asserted constraint lives inside a state: rosetta rejects it
-    // (substate reactors cannot see the machine's attributes).
+    // The asserted constraint lives inside a state, so the pushed fact
+    // must carry the state's scope path.
     state def Machine {
         attribute level : Real := 1.0;
         entry;

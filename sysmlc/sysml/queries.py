@@ -161,7 +161,7 @@ def exhibited_state_defs(
         pairs.append((member.name, declared[0]))
     if len(pairs) != 2:
         raise ValueError(
-            f"rig {rig.name!r} exhibits {len(pairs)} machines; rosetta "
+            f"rig {rig.name!r} exhibits {len(pairs)} machines; a rig "
             "composes exactly two"
         )
     if pairs[0][0] == pairs[1][0]:
