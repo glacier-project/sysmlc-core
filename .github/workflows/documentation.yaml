@@ -32,6 +32,7 @@ jobs:
     - uses: ./.github/actions/setup-python-uv
       with:
         python-version: ${{ env.PYTHON_VERSION }}
+        git-repos-token: ${{ secrets.GH_REPOS_READ_TOKEN }}
     - name: Build documentation
       run: uv run --locked --extra dev --extra docs tox run -e docs
     - name: Upload documentation artifact

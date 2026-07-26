@@ -40,6 +40,7 @@ jobs:
     - uses: ./.github/actions/setup-python-uv
       with:
         python-version: ${{ matrix.python-version }}
+        git-repos-token: ${{ secrets.GH_REPOS_READ_TOKEN }}
     - name: Run unit tests
       run: uv run --locked --extra dev tox run -e ${{ matrix.tox-env }}
 
@@ -54,6 +55,7 @@ jobs:
     - uses: ./.github/actions/setup-python-uv
       with:
         python-version: ${{ env.PYTHON_VERSION }}
+        git-repos-token: ${{ secrets.GH_REPOS_READ_TOKEN }}
     - name: Run coverage
       run: uv run --locked --extra dev tox run -e coverage
     - name: Upload coverage report

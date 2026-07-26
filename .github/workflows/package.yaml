@@ -30,6 +30,7 @@ jobs:
     - uses: ./.github/actions/setup-python-uv
       with:
         python-version: ${{ env.PYTHON_VERSION }}
+        git-repos-token: ${{ secrets.GH_REPOS_READ_TOKEN }}
     - name: Build and verify package artifacts
       run: uv run --locked --extra dev tox run -e build
     - name: Upload package artifacts
