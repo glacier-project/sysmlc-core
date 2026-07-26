@@ -8,7 +8,6 @@ readme = "README.md"
 license = "BSD-2-Clause"
 dependencies = [
     "syside>=0.8.6",
-    "sismic>=1.6.11,<2",
     "pyyaml>=6,<7",
 ]
 
@@ -43,9 +42,6 @@ models = [
 [project.scripts]
 sysmlc = "sysmlc.cli:main"
 
-[project.entry-points."sysmlc.backends"]
-quake = "sysmlc.backends.quake.backend:QuakeBackend"
-
 [build-system]
 requires = ["hatchling>=1.27,<2"]
 build-backend = "hatchling.build"
@@ -62,7 +58,7 @@ preset = "legacy"
 check-unannotated-defs = true
 infer-return-types = "never"
 project-includes = ["sysmlc", "tests", "examples"]
-replace-imports-with-any = ["sismic", "sismic.*", "yaml"]
+replace-imports-with-any = ["yaml"]
 
 [tool.pyrefly.errors]
 implicit-any = "error"
