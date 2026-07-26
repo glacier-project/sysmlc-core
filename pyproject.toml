@@ -55,7 +55,7 @@ build-backend = "hatchling.build"
 packages = ["sysmlc"]
 
 [tool.uv.sources]
-sysmlc-models = { path = "../sysmlc-models", editable = true }
+sysmlc-models = { git = "https://github.com/glacier-project/sysmlc-models", branch = "dev" }
 
 [tool.pyrefly]
 python-version = "3.12.0"
