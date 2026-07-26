@@ -59,8 +59,8 @@ Limitation callout. **Not yet**: not implemented.
   Beta 4 and [SysML v2](https://www.omg.org/spec/SysML/) v2.0 Part 1.
 
 Every rule is a real **SysML input → emitted YAML output** pair, drawn from the
-`models/sm-examples/` corpus and its generated `output/sismic/` artifacts.
-Generate a statechart's YAML/PlantUML with `sysmlc quake build models/sm-examples/<example> -e <StateDef> -o output/sismic/<example>` (omit `-e` when the example declares a single state def).
+sm-examples corpus and its generated `output/sismic/` artifacts.
+Generate a statechart's YAML/PlantUML with `sysmlc quake build sm-examples/<example> -e <StateDef> -o output/sismic/<example>` (omit `-e` when the example declares a single state def).
 
 ## The statechart at a glance
 
@@ -218,7 +218,7 @@ Section 4), and it can carry a body and a `then` together.
 
 ### 1.3 `first start then X;` → the root's `initial`
 
-*Corpus: [`sm01-helloworld`](../models/sm-examples/sm01-helloworld/sm01.sysml)*
+*Corpus: `sm01-helloworld`*
 
 *Spec: SysML 7.18.1, 7.18.2 (entry action and target succession); KerML 9.2.11.1
 (state performances)*
