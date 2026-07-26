@@ -225,7 +225,12 @@ def _add_build_arguments(
 ) -> None:
     """Add the shared build inputs, plus ``-f`` when the backend has formats."""
     build.add_argument(
-        "model", type=Path, help="path to a SysML model directory"
+        "model",
+        type=Path,
+        help=(
+            "path to a SysML model directory, or the name of a bundled "
+            "corpus model (e.g. sm-examples/sm01-helloworld)"
+        ),
     )
     build.add_argument(
         "-o",
@@ -310,7 +315,14 @@ def _select_state_def(model: syside.Model, requested: str | None) -> str:
 
 def _add_run_arguments(run: argparse.ArgumentParser) -> None:
     """Add the inputs for a ``run`` command."""
-    run.add_argument("model", type=Path, help="path to a SysML model directory")
+    run.add_argument(
+        "model",
+        type=Path,
+        help=(
+            "path to a SysML model directory, or the name of a bundled "
+            "corpus model (e.g. sm-examples/sm01-helloworld)"
+        ),
+    )
     run.add_argument(
         "-e",
         "--element",
@@ -394,10 +406,47 @@ def _target_options(
     return tuple(options)
 
 
+def _resolve_model_dir(model: Path) -> Path:
+    """Resolve the ``model`` argument to a model directory on disk.
+
+    An existing directory is returned as-is. Otherwise the argument is
+    treated as the name of a bundled corpus model (for example
+    ``sm-examples/sm01-helloworld``) and resolved through the optional
+    ``sysmlc-models`` package.
+
+    Args:
+        model: The raw ``model`` command-line argument.
+
+    Returns:
+        The directory holding the model's SysML sources.
+
+    Raises:
+        CliError: If the argument is neither an existing directory nor
+            the name of a bundled corpus model.
+    """
+    if model.is_dir():
+        return model
+    try:
+        from sysmlc_models.catalog import model_path
+    except ImportError:
+        raise CliError(
+            f"model directory {str(model)!r} does not exist (install "
+            "sysmlc-models to reference bundled corpus models by name)"
+        ) from None
+    try:
+        return model_path(model.as_posix())
+    except FileNotFoundError:
+        raise CliError(
+            f"{str(model)!r} is neither an existing directory nor the "
+            "name of a bundled corpus model (such as "
+            "'sm-examples/sm01-helloworld')"
+        ) from None
+
+
 def _cmd_build(args: argparse.Namespace) -> int:
     """Run a ``<backend> build`` command."""
     backend: Backend = args._backend
-    model = load_model(args.model)
+    model = load_model(_resolve_model_dir(args.model))
     if (
         getattr(args, "element", None) is None
         and "model" in backend.build_kinds()
@@ -517,7 +566,7 @@ def _write_artifact(
 def _cmd_run(args: argparse.Namespace) -> int:
     """Run a ``<backend> run`` command: execute the model to quiescence."""
     backend: Backend = args._backend
-    model = load_model(args.model)
+    model = load_model(_resolve_model_dir(args.model))
     element_qn, kind = _select_element(model, args.element)
     if kind not in backend.run_kinds():
         raise CliError(f"backend {backend.name!r} cannot run a {kind!r}")

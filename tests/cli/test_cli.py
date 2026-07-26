@@ -163,6 +163,32 @@ def test_build_selects_state_def_by_element(
     assert fake.build_calls == ["SM01::Machine"]
 
 
+def test_build_resolves_bundled_model_name(
+    fake: _FakeBackend, tmp_path: Path
+) -> None:
+    exit_code = main(
+        [
+            "fake",
+            "build",
+            "sm-examples/sm01-helloworld",
+            "-e",
+            "SM01::Machine",
+            "-o",
+            str(tmp_path),
+        ]
+    )
+    assert exit_code == 0
+    assert fake.build_calls == ["SM01::Machine"]
+
+
+def test_build_rejects_unknown_model_reference(
+    fake: _FakeBackend, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    exit_code = main(["fake", "build", "no-such-model", "-o", str(tmp_path)])
+    assert exit_code == 1
+    assert "no-such-model" in capsys.readouterr().err
+
+
 def test_unknown_backend_is_rejected_by_argparse(
     fake: _FakeBackend, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
