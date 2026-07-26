@@ -19,7 +19,9 @@ MUX = SM_EXAMPLES_DIR / "part-mux"
 MULTI = SM_EXAMPLES_DIR / "part-multi-exhibit"
 UNDECLARED_VIA = SM_EXAMPLES_DIR / "part-undeclared-via"
 EXTERNAL = SM_EXAMPLES_DIR / "part-external"
-FANIN = Path(__file__).resolve().parents[1] / ("rosetta/fixtures/part-fanin")
+FANIN = Path(__file__).resolve().parents[2] / (
+    "semantics/parts/fixtures/part-fanin"
+)
 
 
 def test_build_part_system_composes_two_parts() -> None:

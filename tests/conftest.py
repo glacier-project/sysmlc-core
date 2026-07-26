@@ -1,4 +1,3 @@
-import shutil
 import sys
 from collections.abc import Iterator
 from typing import Any
@@ -26,25 +25,6 @@ def fresh_external_modules() -> Iterator[None]:
     yield
     for stem in ("ramp", "bump"):
         sys.modules.pop(stem, None)
-
-
-def pytest_collection_modifyitems(
-    config: pytest.Config, items: list[pytest.Item]
-) -> None:
-    """Skip toolchain-gated tests when their tools are absent.
-
-    The ``lf`` marker means "compile and run a generated Lingua Franca
-    program" (needs ``lfc``). Enforcing the skip here (rather than per
-    module) keeps the marker self-sufficient: a new test cannot
-    accidentally hard-fail CI by omitting its own guard.
-    """
-    skip_lf = pytest.mark.skip(reason="lfc is not on PATH")
-    for item in items:
-        if (
-            item.get_closest_marker("lf") is not None
-            and shutil.which("lfc") is None
-        ):
-            item.add_marker(skip_lf)
 
 
 @pytest.fixture(scope="module")
