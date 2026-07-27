@@ -606,38 +606,25 @@ def _cmd_run(args: argparse.Namespace) -> int:
         raise CliError(f"backend {backend.name!r} cannot run a {kind!r}")
 
     python_path, external = _resolve_python(args, backend, model, element_qn)
-    load_external = (
-        partial(_load_external_module, python_path)
-        if python_path is not None
-        else None
-    )
-    deferred_loader = (
-        load_external if backend.defers_python_support_loading() else None
-    )
-    if load_external is not None and deferred_loader is None:
-        load_external()
+    load_external = None
+    if python_path is not None:
+        if backend.defers_python_support_loading():
+            load_external = partial(_load_external_module, python_path)
+        else:
+            _load_external_module(python_path)
 
     if kind == "statedef":
         run = backend.run_state_def
     else:
         run = backend.run_part_system
-    if deferred_loader is None:
-        report = run(
-            model,
-            element_qn,
-            max_steps=args.max_steps,
-            until=args.until,
-            external=external,
-        )
-    else:
-        report = run(
-            model,
-            element_qn,
-            max_steps=args.max_steps,
-            until=args.until,
-            external=external,
-            load_external=deferred_loader,
-        )
+    report = run(
+        model,
+        element_qn,
+        max_steps=args.max_steps,
+        until=args.until,
+        external=external,
+        load_external=load_external,
+    )
     print(f"Ran {element_qn}:")
     print(report.render())
     if report.hit_step_cap:
