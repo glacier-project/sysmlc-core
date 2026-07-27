@@ -1,0 +1,4 @@
+package Absent {
+    package P {
+    }
+}
