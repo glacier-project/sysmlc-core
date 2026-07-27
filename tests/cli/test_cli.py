@@ -6,9 +6,10 @@ import pytest
 from sysmlc_models.sm_examples import SM_EXAMPLES_DIR
 
 from sysmlc.backends import Backend
-from sysmlc.cli import _parse_external, main
+from sysmlc.cli import CliError, _copy_python_support, _parse_external, main
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
     from sysmlc.backends import OutputOptions
@@ -57,8 +58,15 @@ class _FakeBackend(Backend):
         self.build_calls: list[str] = []
         self.built_models: list[object] = []
         self.write_calls: list[OutputOptions] = []
+        self.run_events: list[str] = []
 
-    def build(self, model: object, element_qn: str) -> object:
+    def build(
+        self,
+        model: object,
+        element_qn: str,
+        *,
+        external: tuple[str, frozenset[str]] | None = None,
+    ) -> object:
         self.build_calls.append(element_qn)
         self.built_models.append(model)
         return f"artifact:{element_qn}"
@@ -72,6 +80,35 @@ class _FakeBackend(Backend):
 
     def summary(self, artifact: object) -> str:
         return f"fake {artifact}"
+
+    def consumes_python_support(self) -> bool:
+        return True
+
+    def defers_python_support_loading(self) -> bool:
+        return True
+
+    def run_state_def(
+        self,
+        model: object,
+        element_qn: str,
+        *,
+        max_steps: int = 1000,
+        until: float | None = None,
+        external: tuple[str, frozenset[str]] | None = None,
+        load_external: Callable[[], None] | None = None,
+    ) -> _FakeRunReport:
+        self.run_events.append("prepared")
+        if load_external is not None:
+            load_external()
+            self.run_events.append("loaded")
+        return _FakeRunReport()
+
+
+class _FakeRunReport:
+    hit_step_cap = False
+
+    def render(self) -> str:
+        return "complete"
 
 
 @pytest.fixture
@@ -332,3 +369,103 @@ def test_parse_external_collects_sync_functions(tmp_path: Path) -> None:
     module, names = _parse_external(py)
     assert module == "phys"
     assert names == frozenset({"step"})
+
+
+def test_build_copies_python_support_beside_artifact(
+    fake: _FakeBackend, tmp_path: Path
+) -> None:
+    support = tmp_path / "support.py"
+    support.write_text("def step(): ...\n")
+    out = tmp_path / "out"
+
+    exit_code = main(
+        [
+            "fake",
+            "build",
+            str(SM01_DIR),
+            "-e",
+            "SM01::Machine",
+            "--python",
+            str(support),
+            "-o",
+            str(out),
+        ]
+    )
+
+    assert exit_code == 0
+    assert (out / "support.py").read_text() == support.read_text()
+
+
+def test_python_support_is_loaded_when_backend_is_ready(
+    fake: _FakeBackend,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    support = tmp_path / "support.py"
+    support.write_text("def step(): ...\n")
+
+    def record_load(path: Path) -> None:
+        assert path == support
+        fake.run_events.append("load")
+
+    monkeypatch.setattr("sysmlc.cli._load_external_module", record_load)
+
+    exit_code = main(
+        [
+            "fake",
+            "run",
+            str(SM01_DIR),
+            "-e",
+            "SM01::Machine",
+            "--python",
+            str(support),
+        ]
+    )
+
+    assert exit_code == 0
+    assert fake.run_events == ["prepared", "load", "loaded"]
+
+
+def test_python_support_loading_remains_eager_without_opt_in(
+    fake: _FakeBackend,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    support = tmp_path / "support.py"
+    support.write_text("def step(): ...\n")
+    monkeypatch.setattr(fake, "defers_python_support_loading", lambda: False)
+
+    def record_load(path: Path) -> None:
+        assert path == support
+        fake.run_events.append("load")
+
+    monkeypatch.setattr("sysmlc.cli._load_external_module", record_load)
+
+    exit_code = main(
+        [
+            "fake",
+            "run",
+            str(SM01_DIR),
+            "-e",
+            "SM01::Machine",
+            "--python",
+            str(support),
+        ]
+    )
+
+    assert exit_code == 0
+    assert fake.run_events == ["load", "prepared"]
+
+
+def test_copy_python_support_rejects_generated_path_collision(
+    tmp_path: Path,
+) -> None:
+    support = tmp_path / "source" / "support.py"
+    support.parent.mkdir()
+    support.write_text("def step(): ...\n")
+    generated = tmp_path / "out" / "support.py"
+    generated.parent.mkdir()
+    generated.write_text("generated = True\n")
+
+    with pytest.raises(CliError, match="conflicts with generated artifact"):
+        _copy_python_support(support, [generated])

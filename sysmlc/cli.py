@@ -7,6 +7,7 @@ import logging
 import shutil
 import sys
 import tempfile
+from functools import partial
 from importlib.metadata import version
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -551,18 +552,49 @@ def _write_artifact(
     written = backend.write(artifact, options)
 
     if python_path is not None:
-        # Place the backing Python module (user-supplied or rep-generated)
-        # beside the .lf so its `files:` entry (a bare filename, resolved by
-        # lfc relative to the .lf) reaches src-gen. The generated companion
-        # types module is written by backend.write.
-        for path in written:
-            if path.suffix == ".lf":
-                shutil.copy(python_path, path.parent / python_path.name)
+        written.extend(_copy_python_support(python_path, written))
 
     for path in written:
         logger.info("Wrote %s", path)
     logger.info("Built %s: %s", element_qn, backend.summary(artifact))
     return 0
+
+
+def _copy_python_support(python_path: Path, written: list[Path]) -> list[Path]:
+    """Copy a Python support module beside each generated artifact group.
+
+    Backend artifacts may be flat or use one or more nested directories.
+    A single copy per unique parent directory keeps imports relative to the
+    generated files resolvable without duplicating work.
+
+    Args:
+        python_path: User-supplied or textual-representation module.
+        written: Paths returned by the backend's ``write`` operation.
+
+    Returns:
+        The newly copied paths.
+
+    Raises:
+        CliError: If the support filename collides with a different generated
+            artifact.
+    """
+    source = python_path.resolve()
+    artifact_paths = {path.resolve() for path in written}
+    directories = sorted({path.parent.resolve() for path in written}, key=str)
+    copied: list[Path] = []
+    for directory in directories:
+        destination = directory / python_path.name
+        resolved_destination = destination.resolve()
+        if resolved_destination == source:
+            continue
+        if resolved_destination in artifact_paths:
+            raise CliError(
+                f"Python support file {python_path.name!r} conflicts with "
+                f"generated artifact {destination}"
+            )
+        shutil.copy2(python_path, destination)
+        copied.append(destination)
+    return copied
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
@@ -574,20 +606,38 @@ def _cmd_run(args: argparse.Namespace) -> int:
         raise CliError(f"backend {backend.name!r} cannot run a {kind!r}")
 
     python_path, external = _resolve_python(args, backend, model, element_qn)
-    if python_path is not None:
-        _load_external_module(python_path)
+    load_external = (
+        partial(_load_external_module, python_path)
+        if python_path is not None
+        else None
+    )
+    deferred_loader = (
+        load_external if backend.defers_python_support_loading() else None
+    )
+    if load_external is not None and deferred_loader is None:
+        load_external()
 
     if kind == "statedef":
         run = backend.run_state_def
     else:
         run = backend.run_part_system
-    report = run(
-        model,
-        element_qn,
-        max_steps=args.max_steps,
-        until=args.until,
-        external=external,
-    )
+    if deferred_loader is None:
+        report = run(
+            model,
+            element_qn,
+            max_steps=args.max_steps,
+            until=args.until,
+            external=external,
+        )
+    else:
+        report = run(
+            model,
+            element_qn,
+            max_steps=args.max_steps,
+            until=args.until,
+            external=external,
+            load_external=deferred_loader,
+        )
     print(f"Ran {element_qn}:")
     print(report.render())
     if report.hit_step_cap:
