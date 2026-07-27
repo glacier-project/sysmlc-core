@@ -1,0 +1,367 @@
+from __future__ import annotations
+
+import ast
+import re
+import sys
+from dataclasses import dataclass
+from types import ModuleType
+from typing import TYPE_CHECKING, Final
+
+import syside
+
+from sysmlc.errors import UnsupportedConstructError
+from sysmlc.semantics.statemachine.attributes import is_scalar_quantity
+from sysmlc.sysml.queries import feature_value
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from pathlib import Path
+
+_SCALAR_PY: Final[dict[str, str]] = {
+    "Real": "float",
+    "Rational": "float",
+    "Integer": "int",
+    "Natural": "int",
+    "Boolean": "bool",
+    "String": "str",
+}
+
+# Marker attribute stamped on installed generated modules; carries the
+# exact source so reinstalling can distinguish "same module again"
+# (idempotent) from "different module wants this name" (refused).
+_SOURCE_KEY = "__sysmlc_generated_source__"
+
+
+def types_module_name(qualified_name: str) -> str:
+    """Return a Python-safe generated-types module name for a SysML name.
+
+    Args:
+        qualified_name: The qualified name of the element the module is
+            generated for.
+
+    Returns:
+        The sanitized name suffixed with ``_types``, e.g.
+        ``FurutaPendulum_furutaSystem_types``.
+
+    Raises:
+        ValueError: If the name contains no identifier characters.
+    """
+    stem = re.sub(r"\W+", "_", qualified_name).strip("_")
+    if not stem:
+        raise ValueError("qualified name has no identifier characters")
+    if stem[0].isdigit():
+        stem = f"_{stem}"
+    return f"{stem}_types"
+
+
+@dataclass(frozen=True)
+class GeneratedPythonModule:
+    """A generated Python support module owned by a build artifact."""
+
+    name: str
+    lines: tuple[str, ...]
+
+    @property
+    def source(self) -> str:
+        """Return the complete newline-terminated module source."""
+        return "\n".join(self.lines) + "\n"
+
+    def install(self) -> ModuleType:
+        """Install the module in ``sys.modules`` for in-process execution.
+
+        Reinstalling identical generated source is idempotent. Reusing the
+        same module name for different source fails rather than silently
+        replacing classes that installed consumers may still reference.
+
+        Returns:
+            The installed module.
+
+        Raises:
+            UnsupportedConstructError: If the module name is already
+                occupied by different source.
+        """
+        existing = sys.modules.get(self.name)
+        if existing is not None:
+            if existing.__dict__.get(_SOURCE_KEY) == self.source:
+                return existing
+            raise UnsupportedConstructError(
+                f"generated types module {self.name!r} is already installed "
+                "with different content"
+            )
+
+        code = compile(self.source, f"<generated {self.name}>", "exec")
+        module = ModuleType(self.name)
+        module.__dict__[_SOURCE_KEY] = self.source
+        sys.modules[self.name] = module
+        try:
+            exec(code, module.__dict__)
+        except Exception:
+            if sys.modules.get(self.name) is module:
+                del sys.modules[self.name]
+            raise
+        return module
+
+    def write(self, directory: Path) -> Path:
+        """Write the module into ``directory`` and return its path."""
+        path = directory / f"{self.name}.py"
+        path.write_text(self.source)
+        return path
+
+
+def py_type(attribute: syside.AttributeUsage) -> str:
+    """Map an attribute's declared SysML type to a Python annotation.
+
+    A scalar quantity value collapses to ``float`` (its SI magnitude);
+    SysML scalars map to Python builtins; a structured definition maps to
+    its generated dataclass name; anything unmapped falls back to
+    ``object``.
+
+    Raises:
+        ValueError: If a structured attribute definition has no name.
+    """
+    if is_scalar_quantity(attribute):
+        return "float"
+    for definition in attribute.attribute_definitions.collect():
+        if definition.name in _SCALAR_PY:
+            return _SCALAR_PY[definition.name]
+        if (
+            isinstance(definition, syside.Definition)
+            and definition.owned_attributes.collect()
+        ):
+            if definition.name is None:
+                raise ValueError("structured attribute definition has no name")
+            return definition.name
+    return "object"
+
+
+def structured_definition(
+    attribute: syside.AttributeUsage,
+) -> syside.Definition | None:
+    """Return the structured definition typing ``attribute``, if any.
+
+    A scalar quantity value is not structured: it collapses to one number,
+    so its definition's attributes never become dataclass fields.
+    """
+    if is_scalar_quantity(attribute):
+        return None
+    for definition in attribute.attribute_definitions.collect():
+        if (
+            isinstance(definition, syside.Definition)
+            and definition.owned_attributes.collect()
+        ):
+            return definition
+    return None
+
+
+def constructed_payload_definition(
+    action: syside.SendActionUsage, *, include_empty: bool
+) -> syside.Definition | None:
+    """Return the definition a send's ``new <Type>(...)`` payload constructs.
+
+    Args:
+        action: The send action to inspect.
+        include_empty: Whether a definition without owned attributes
+            qualifies. Backends that transport payloads as class instances
+            need every constructed type; backends that transport payloads
+            by event name only need the types whose fields carry data.
+
+    Returns:
+        The constructed definition, or ``None`` when the payload is not a
+        constructor expression, does not resolve to a definition, or has
+        no owned attributes while ``include_empty`` is false.
+    """
+    payload = action.payload_argument
+    if not isinstance(payload, syside.ConstructorExpression):
+        return None
+    definition = payload.instantiated_type
+    if not isinstance(definition, syside.Definition):
+        return None
+    if not include_empty and not definition.owned_attributes.collect():
+        return None
+    return definition
+
+
+class DataclassRegistry:
+    """Rendered dataclass blocks keyed by simple name, collision-checked.
+
+    Registration is idempotent for the same qualified origin and fails
+    loud when two different structured definitions want the same simple
+    Python name, since a generated companion module has one flat
+    namespace.
+    """
+
+    def __init__(self) -> None:
+        self._blocks: dict[str, tuple[str, ...]] = {}
+        self._origins: dict[str, str] = {}
+
+    def __bool__(self) -> bool:
+        """Whether any dataclass was registered."""
+        return bool(self._blocks)
+
+    def register(self, name: str, origin: str, lines: tuple[str, ...]) -> None:
+        """Register one rendered dataclass block.
+
+        Args:
+            name: The generated class's simple Python name.
+            origin: The qualified name of the structured definition the
+                block was rendered from.
+            lines: The rendered ``@dataclass`` block.
+
+        Raises:
+            UnsupportedConstructError: If ``name`` is already taken by a
+                different origin, or the same origin produced a different
+                block.
+        """
+        known_origin = self._origins.get(name)
+        if known_origin is not None and known_origin != origin:
+            raise UnsupportedConstructError(
+                f"two structured types share the simple name {name!r}: "
+                f"{known_origin!r} and {origin!r}; rename one"
+            )
+        known = self._blocks.get(name)
+        if known is not None and known != lines:
+            raise UnsupportedConstructError(
+                f"structured type {origin!r} produced conflicting "
+                "Python definitions"
+            )
+        self._origins[name] = origin
+        self._blocks[name] = lines
+
+    def is_registered(self, name: str, origin: str) -> bool:
+        """Whether this exact structured definition is already registered.
+
+        Raises:
+            UnsupportedConstructError: If ``name`` belongs to a different
+                qualified structured definition.
+        """
+        known_origin = self._origins.get(name)
+        if known_origin is None:
+            return False
+        if known_origin != origin:
+            raise UnsupportedConstructError(
+                f"two structured types share the simple name {name!r}: "
+                f"{known_origin!r} and {origin!r}; rename one"
+            )
+        return True
+
+    def names(self) -> list[str]:
+        """Return the registered class names, sorted."""
+        return sorted(self._blocks)
+
+    def class_blocks(self) -> list[str]:
+        """Return every block, sorted by name, blank-line separated."""
+        lines: list[str] = []
+        for name in self.names():
+            lines.extend(self._blocks[name])
+            lines.append("")
+        if lines:
+            lines.pop()
+        return lines
+
+
+def register_dataclass(
+    definition: syside.Definition,
+    registry: DataclassRegistry,
+    render_default: Callable[[syside.Expression], str],
+) -> None:
+    """Render ``definition`` as a dataclass and register it, recursively.
+
+    A field typed by another structured definition registers that
+    definition first, so the companion module is self-contained. A field
+    default comes from the model's declared default when it renders to a
+    Python literal (``bool``, ``int``, ``float``, or ``str``); any other
+    default, and any field without one, falls back to ``None`` so the
+    emitted class never embeds expressions that reference names outside
+    the companion module.
+
+    Args:
+        definition: The structured (item or composite attribute)
+            definition to render.
+        registry: The registry the rendered block lands in.
+        render_default: Renders a default-value expression to Python
+            source; typically the owning backend's expression renderer.
+
+    Raises:
+        UnsupportedConstructError: If the definition or one of its fields
+            is unnamed or not a Python identifier, the definition is
+            recursive, or its simple name collides with a different
+            definition already registered.
+    """
+    _register_dataclass(definition, registry, render_default, set())
+
+
+def _register_dataclass(
+    definition: syside.Definition,
+    registry: DataclassRegistry,
+    render_default: Callable[[syside.Expression], str],
+    in_progress: set[str],
+) -> None:
+    """Recursive worker for :func:`register_dataclass`."""
+    name = definition.name
+    if name is None:
+        raise UnsupportedConstructError(
+            "structured type has no resolved name", node=definition
+        )
+    if not name.isidentifier():
+        raise UnsupportedConstructError(
+            f"structured type name {name!r} is not a Python identifier",
+            node=definition,
+        )
+    origin = str(definition.qualified_name or name)
+    if registry.is_registered(name, origin):
+        return
+    if origin in in_progress:
+        raise UnsupportedConstructError(
+            f"structured type {origin!r} is recursive; generated Python "
+            "dataclasses do not support recursive SysML value types",
+            node=definition,
+        )
+    in_progress.add(origin)
+    try:
+        fields = definition.owned_attributes.collect()
+        for attribute in fields:
+            nested = structured_definition(attribute)
+            if nested is not None:
+                _register_dataclass(
+                    nested, registry, render_default, in_progress
+                )
+
+        lines = ["@dataclass", f"class {name}:"]
+        if not fields:
+            lines.append("    pass")
+        for attribute in fields:
+            field_name = attribute.name
+            if field_name is None:
+                raise UnsupportedConstructError(
+                    f"structured type {name!r} has an unnamed field",
+                    node=attribute,
+                )
+            if not field_name.isidentifier():
+                raise UnsupportedConstructError(
+                    f"structured field name {field_name!r} is not a "
+                    "Python identifier",
+                    node=attribute,
+                )
+            default = _field_default(attribute, render_default)
+            lines.append(f"    {field_name}: {py_type(attribute)} = {default}")
+        registry.register(name, origin, tuple(lines))
+    finally:
+        in_progress.remove(origin)
+
+
+def _field_default(
+    attribute: syside.AttributeUsage,
+    render_default: Callable[[syside.Expression], str],
+) -> str:
+    """Render a field's default, or ``None`` when it is not a literal."""
+    default_expression = feature_value(attribute)
+    if default_expression is None:
+        return "None"
+    try:
+        rendered = render_default(default_expression)
+        literal = ast.literal_eval(rendered)
+    except (SyntaxError, ValueError, UnsupportedConstructError):
+        return "None"
+    if isinstance(literal, (bool, int, float, str)):
+        return rendered
+    return "None"
