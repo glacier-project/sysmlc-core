@@ -8,6 +8,7 @@ import pytest
 from sysmlc.codegen.structured import (
     DataclassRegistry,
     GeneratedPythonModule,
+    types_import_lines,
     types_module_name,
 )
 from sysmlc.errors import UnsupportedConstructError
@@ -46,8 +47,7 @@ def test_registry_rejects_two_origins_for_one_name() -> None:
     registry.register("Reading", "Pkg::Reading", BLOCK_A)
     with pytest.raises(UnsupportedConstructError, match="share the simple"):
         registry.register("Reading", "Other::Reading", BLOCK_A)
-    with pytest.raises(UnsupportedConstructError, match="share the simple"):
-        registry.is_registered("Reading", "Other::Reading")
+    assert not registry.is_registered("Reading", "Other::Reading")
 
 
 def test_registry_rejects_conflicting_blocks_for_one_origin() -> None:
@@ -75,6 +75,42 @@ def test_empty_registry_is_falsy_with_no_blocks() -> None:
     registry = DataclassRegistry()
     assert not registry
     assert registry.class_blocks() == []
+    assert registry.module_lines() == []
+    assert registry.module_lines(preceding_lines=["X = 1"]) == ["X = 1"]
+
+
+def test_module_lines_wraps_blocks_with_headers() -> None:
+    registry = DataclassRegistry()
+    registry.register("Pt", "P::Pt", ("@dataclass", "class Pt:"))
+    assert registry.module_lines() == [
+        "from __future__ import annotations",
+        "",
+        "from dataclasses import dataclass",
+        "",
+        "@dataclass",
+        "class Pt:",
+    ]
+    assert registry.module_lines(preceding_lines=["class E:", "    pass"]) == [
+        "from __future__ import annotations",
+        "",
+        "class E:",
+        "    pass",
+        "",
+        "from dataclasses import dataclass",
+        "",
+        "@dataclass",
+        "class Pt:",
+    ]
+
+
+def test_types_import_lines_renders_one_guarded_line() -> None:
+    assert types_import_lines("M_types", []) == []
+    assert types_import_lines(None, []) == []
+    assert types_import_lines("M_types", ["A", "B"]) == [
+        "from M_types import A, B"
+    ]
+    with pytest.raises(ValueError, match="types module name"):
+        types_import_lines(None, ["A"])
 
 
 def test_generated_module_source_and_write(tmp_path: Path) -> None:

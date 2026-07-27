@@ -11,6 +11,7 @@ from sysmlc.codegen.structured import (
     py_type,
     register_dataclass,
     structured_definition,
+    types_import_lines,
     types_module_name,
 )
 
@@ -25,5 +26,6 @@ __all__ = [
     "py_type",
     "register_dataclass",
     "structured_definition",
+    "types_import_lines",
     "types_module_name",
 ]

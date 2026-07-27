@@ -12,9 +12,10 @@ import syside
 from sysmlc.errors import UnsupportedConstructError
 from sysmlc.semantics.statemachine.attributes import is_scalar_quantity
 from sysmlc.sysml.queries import feature_value
+from sysmlc.sysml.textual_representation import write_module
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
     from pathlib import Path
 
 _SCALAR_PY: Final[dict[str, str]] = {
@@ -103,35 +104,45 @@ class GeneratedPythonModule:
 
     def write(self, directory: Path) -> Path:
         """Write the module into ``directory`` and return its path."""
-        path = directory / f"{self.name}.py"
-        path.write_text(self.source)
-        return path
+        return write_module(self.lines, directory, self.name)
 
 
-def py_type(attribute: syside.AttributeUsage) -> str:
-    """Map an attribute's declared SysML type to a Python annotation.
+def _resolve_field_type(
+    attribute: syside.AttributeUsage,
+) -> tuple[str, syside.Definition | None]:
+    """Return an attribute's Python annotation and structured definition.
 
     A scalar quantity value collapses to ``float`` (its SI magnitude);
     SysML scalars map to Python builtins; a structured definition maps to
-    its generated dataclass name; anything unmapped falls back to
-    ``object``.
+    its generated dataclass name and is returned alongside; anything
+    unmapped falls back to ``object``.
 
     Raises:
         ValueError: If a structured attribute definition has no name.
     """
     if is_scalar_quantity(attribute):
-        return "float"
+        return "float", None
     for definition in attribute.attribute_definitions.collect():
         if definition.name in _SCALAR_PY:
-            return _SCALAR_PY[definition.name]
+            return _SCALAR_PY[definition.name], None
         if (
             isinstance(definition, syside.Definition)
             and definition.owned_attributes.collect()
         ):
             if definition.name is None:
                 raise ValueError("structured attribute definition has no name")
-            return definition.name
-    return "object"
+            return definition.name, definition
+    return "object", None
+
+
+def py_type(attribute: syside.AttributeUsage) -> str:
+    """Map an attribute's declared SysML type to a Python annotation.
+
+    Raises:
+        ValueError: If a structured attribute definition has no name.
+    """
+    annotation, _ = _resolve_field_type(attribute)
+    return annotation
 
 
 def structured_definition(
@@ -142,41 +153,24 @@ def structured_definition(
     A scalar quantity value is not structured: it collapses to one number,
     so its definition's attributes never become dataclass fields.
     """
-    if is_scalar_quantity(attribute):
-        return None
-    for definition in attribute.attribute_definitions.collect():
-        if (
-            isinstance(definition, syside.Definition)
-            and definition.owned_attributes.collect()
-        ):
-            return definition
-    return None
+    _, definition = _resolve_field_type(attribute)
+    return definition
 
 
 def constructed_payload_definition(
-    action: syside.SendActionUsage, *, include_empty: bool
+    action: syside.SendActionUsage,
 ) -> syside.Definition | None:
     """Return the definition a send's ``new <Type>(...)`` payload constructs.
 
-    Args:
-        action: The send action to inspect.
-        include_empty: Whether a definition without owned attributes
-            qualifies. Backends that transport payloads as class instances
-            need every constructed type; backends that transport payloads
-            by event name only need the types whose fields carry data.
-
     Returns:
         The constructed definition, or ``None`` when the payload is not a
-        constructor expression, does not resolve to a definition, or has
-        no owned attributes while ``include_empty`` is false.
+        constructor expression or does not resolve to a definition.
     """
     payload = action.payload_argument
     if not isinstance(payload, syside.ConstructorExpression):
         return None
     definition = payload.instantiated_type
     if not isinstance(definition, syside.Definition):
-        return None
-    if not include_empty and not definition.owned_attributes.collect():
         return None
     return definition
 
@@ -230,19 +224,10 @@ class DataclassRegistry:
     def is_registered(self, name: str, origin: str) -> bool:
         """Whether this exact structured definition is already registered.
 
-        Raises:
-            UnsupportedConstructError: If ``name`` belongs to a different
-                qualified structured definition.
+        A same-named registration from a different origin reports False;
+        :meth:`register` is the single authority that rejects it.
         """
-        known_origin = self._origins.get(name)
-        if known_origin is None:
-            return False
-        if known_origin != origin:
-            raise UnsupportedConstructError(
-                f"two structured types share the simple name {name!r}: "
-                f"{known_origin!r} and {origin!r}; rename one"
-            )
-        return True
+        return self._origins.get(name) == origin
 
     def names(self) -> list[str]:
         """Return the registered class names, sorted."""
@@ -257,6 +242,58 @@ class DataclassRegistry:
         if lines:
             lines.pop()
         return lines
+
+    def module_lines(self, *, preceding_lines: Sequence[str] = ()) -> list[str]:
+        """Render a complete generated-types module around the blocks.
+
+        Deferred annotations open the module: blocks are emitted sorted by
+        name, so a field typed by another generated class may precede that
+        class's definition.
+
+        Args:
+            preceding_lines: Lines placed between the deferred-annotations
+                header and the dataclass section, for a backend's extra
+                type definitions (e.g. enum classes).
+
+        Returns:
+            The full module body, or just ``preceding_lines`` when no
+            dataclass is registered, or no lines at all when there is
+            nothing to render.
+        """
+        if not self._blocks:
+            return list(preceding_lines)
+        lines = ["from __future__ import annotations", ""]
+        lines.extend(preceding_lines)
+        if preceding_lines:
+            lines.append("")
+        lines.append("from dataclasses import dataclass")
+        lines.append("")
+        lines.extend(self.class_blocks())
+        return lines
+
+
+def types_import_lines(
+    module_name: str | None, names: Sequence[str]
+) -> list[str]:
+    """Render the ``from <module> import <names>`` line for generated types.
+
+    Args:
+        module_name: The generated module's name.
+        names: The type names to import, in the order to emit.
+
+    Returns:
+        One import line, or no lines when ``names`` is empty.
+
+    Raises:
+        ValueError: If ``names`` is non-empty but ``module_name`` is None.
+    """
+    if not names:
+        return []
+    if module_name is None:
+        raise ValueError(
+            "types module name must be set before preamble assembly"
+        )
+    return [f"from {module_name} import {', '.join(names)}"]
 
 
 def register_dataclass(
@@ -319,13 +356,6 @@ def _register_dataclass(
     in_progress.add(origin)
     try:
         fields = definition.owned_attributes.collect()
-        for attribute in fields:
-            nested = structured_definition(attribute)
-            if nested is not None:
-                _register_dataclass(
-                    nested, registry, render_default, in_progress
-                )
-
         lines = ["@dataclass", f"class {name}:"]
         if not fields:
             lines.append("    pass")
@@ -342,8 +372,13 @@ def _register_dataclass(
                     "Python identifier",
                     node=attribute,
                 )
+            annotation, nested = _resolve_field_type(attribute)
+            if nested is not None:
+                _register_dataclass(
+                    nested, registry, render_default, in_progress
+                )
             default = _field_default(attribute, render_default)
-            lines.append(f"    {field_name}: {py_type(attribute)} = {default}")
+            lines.append(f"    {field_name}: {annotation} = {default}")
         registry.register(name, origin, tuple(lines))
     finally:
         in_progress.remove(origin)
