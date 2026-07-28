@@ -10,7 +10,6 @@ from sysmlc.codegen.structured import (
     constructed_payload_definition,
     py_type,
     register_dataclass,
-    structured_definition,
     types_import_lines,
     types_module_name,
 )
@@ -25,7 +24,6 @@ __all__ = [
     "join_statements",
     "py_type",
     "register_dataclass",
-    "structured_definition",
     "types_import_lines",
     "types_module_name",
 ]

@@ -116,7 +116,10 @@ def _resolve_field_type(
     A scalar quantity value collapses to ``float`` (its SI magnitude);
     SysML scalars map to Python builtins; a structured definition maps to
     its generated dataclass name and is returned alongside; anything
-    unmapped falls back to ``object``.
+    unmapped falls back to ``object`` deliberately: an untyped or
+    unrecognized attribute is valid SysML, and the annotation is only a
+    hint on a working field, unlike the unnamed/keyword cases below that
+    could not emit importable code and therefore raise.
 
     Raises:
         ValueError: If a structured attribute definition has no name.
@@ -144,18 +147,6 @@ def py_type(attribute: syside.AttributeUsage) -> str:
     """
     annotation, _ = _resolve_field_type(attribute)
     return annotation
-
-
-def structured_definition(
-    attribute: syside.AttributeUsage,
-) -> syside.Definition | None:
-    """Return the structured definition typing ``attribute``, if any.
-
-    A scalar quantity value is not structured: it collapses to one number,
-    so its definition's attributes never become dataclass fields.
-    """
-    _, definition = _resolve_field_type(attribute)
-    return definition
 
 
 def constructed_payload_definition(
