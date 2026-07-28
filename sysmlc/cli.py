@@ -565,7 +565,10 @@ def _copy_python_support(python_path: Path, written: list[Path]) -> list[Path]:
 
     Backend artifacts may be flat or use one or more nested directories.
     A single copy per unique parent directory keeps imports relative to the
-    generated files resolvable without duplicating work.
+    generated files resolvable without duplicating work. Like every other
+    build output, the copy overwrites a same-named file left by a previous
+    build, so rebuilding into the same directory stays idempotent; only a
+    collision with an artifact of the current build is refused.
 
     Args:
         python_path: User-supplied or textual-representation module.
