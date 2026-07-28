@@ -583,7 +583,7 @@ def _copy_python_support(python_path: Path, written: list[Path]) -> list[Path]:
     """
     source = python_path.resolve()
     artifact_paths = {path.resolve() for path in written}
-    directories = sorted({path.parent.resolve() for path in written}, key=str)
+    directories = sorted({path.parent.resolve() for path in written})
     copied: list[Path] = []
     for directory in directories:
         destination = directory / python_path.name
