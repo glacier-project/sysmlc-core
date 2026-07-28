@@ -11,29 +11,24 @@ from sysmlc.semantics.statemachine.facts import (
     AttributeValue,
     CompositeValue,
 )
-from sysmlc.sysml.queries import feature_value as feature_value
+from sysmlc.sysml.queries import (
+    definitions_of,
+)
+from sysmlc.sysml.queries import (
+    feature_value as feature_value,
+)
+from sysmlc.sysml.queries import (
+    is_scalar_quantity as is_scalar_quantity,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
-
 
 _DIRECTIONS: Final[dict[syside.FeatureDirectionKind, AttributeDirection]] = {
     syside.FeatureDirectionKind.In: AttributeDirection.IN,
     syside.FeatureDirectionKind.Out: AttributeDirection.OUT,
     syside.FeatureDirectionKind.Inout: AttributeDirection.INOUT,
 }
-
-
-def _definitions_of(
-    attr: syside.AttributeUsage | syside.ItemUsage,
-) -> Iterator[syside.Classifier]:
-    """Yield ``attr``'s type definitions regardless of usage kind.
-
-    ``AttributeUsage`` exposes ``attribute_definitions``; ``ItemUsage`` has no
-    such accessor and falls back to the generic ``definitions``.
-    """
-    defs_iter = getattr(attr, "attribute_definitions", None) or attr.definitions
-    yield from defs_iter.collect()
 
 
 def direction_of(
@@ -59,7 +54,7 @@ def nested_attributes(
     redefinitions win over the type's defaults.
     """
     nested: list[syside.AttributeUsage] = []
-    for definition in _definitions_of(attr):
+    for definition in definitions_of(attr):
         if isinstance(definition, syside.Definition):
             nested.extend(definition.owned_attributes.collect())
     if not nested:
@@ -75,21 +70,6 @@ def nested_attributes(
         local.get(field.name, field) if field.name else field
         for field in nested
     ]
-
-
-def is_scalar_quantity(attr: syside.AttributeUsage | syside.ItemUsage) -> bool:
-    """Whether ``attr``'s type is a scalar quantity value.
-
-    A scalar quantity value (like ``DurationValue``) is a subtype of
-    ``Quantities::ScalarQuantityValue``: it carries a unit and reduces to one
-    number once that unit is normalized to SI base units.
-    """
-    for definition in _definitions_of(attr):
-        if isinstance(
-            definition, syside.AttributeDefinition
-        ) and definition.specializes(("Quantities", "ScalarQuantityValue")):
-            return True
-    return False
 
 
 def scope_attributes(

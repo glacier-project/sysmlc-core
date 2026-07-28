@@ -11,8 +11,7 @@ from typing import TYPE_CHECKING, Final
 import syside
 
 from sysmlc.errors import UnsupportedConstructError
-from sysmlc.semantics.statemachine.attributes import is_scalar_quantity
-from sysmlc.sysml.queries import feature_value
+from sysmlc.sysml.queries import feature_value, is_scalar_quantity
 from sysmlc.sysml.textual_representation import write_module
 
 if TYPE_CHECKING:
@@ -107,6 +106,21 @@ class GeneratedPythonModule:
         """Write the module into ``directory`` and return its path."""
         return write_module(self.lines, directory, self.name)
 
+    @classmethod
+    def from_registry(
+        cls, name: str, registry: DataclassRegistry
+    ) -> GeneratedPythonModule | None:
+        """Create the companion module for ``registry``'s dataclasses.
+
+        Returns:
+            The rendered module, or ``None`` when no dataclass was
+            registered and no companion is needed.
+        """
+        lines = registry.module_lines()
+        if not lines:
+            return None
+        return cls(name, tuple(lines))
+
 
 def _resolve_field_type(
     attribute: syside.AttributeUsage,
@@ -139,16 +153,6 @@ def _resolve_field_type(
     return "object", None
 
 
-def py_type(attribute: syside.AttributeUsage) -> str:
-    """Map an attribute's declared SysML type to a Python annotation.
-
-    Raises:
-        ValueError: If a structured attribute definition has no name.
-    """
-    annotation, _ = _resolve_field_type(attribute)
-    return annotation
-
-
 def constructed_payload_definition(
     action: syside.SendActionUsage,
 ) -> syside.Definition | None:
@@ -177,12 +181,12 @@ class DataclassRegistry:
     """
 
     def __init__(self) -> None:
-        self._blocks: dict[str, tuple[str, ...]] = {}
-        self._origins: dict[str, str] = {}
+        # One entry per generated class name: (origin qualified name, block).
+        self._entries: dict[str, tuple[str, tuple[str, ...]]] = {}
 
     def __bool__(self) -> bool:
         """Whether any dataclass was registered."""
-        return bool(self._blocks)
+        return bool(self._entries)
 
     def register(self, name: str, origin: str, lines: tuple[str, ...]) -> None:
         """Register one rendered dataclass block.
@@ -198,20 +202,21 @@ class DataclassRegistry:
                 different origin, or the same origin produced a different
                 block.
         """
-        known_origin = self._origins.get(name)
-        if known_origin is not None and known_origin != origin:
-            raise UnsupportedConstructError(
-                f"two structured types share the simple name {name!r}: "
-                f"{known_origin!r} and {origin!r}; rename one"
-            )
-        known = self._blocks.get(name)
-        if known is not None and known != lines:
-            raise UnsupportedConstructError(
-                f"structured type {origin!r} produced conflicting "
-                "Python definitions"
-            )
-        self._origins[name] = origin
-        self._blocks[name] = lines
+        known = self._entries.get(name)
+        if known is not None:
+            known_origin, known_lines = known
+            if known_origin != origin:
+                raise UnsupportedConstructError(
+                    f"two structured types share the simple name {name!r}: "
+                    f"{known_origin!r} and {origin!r}; rename one"
+                )
+            if known_lines != lines:
+                raise UnsupportedConstructError(
+                    f"structured type {origin!r} produced conflicting "
+                    "Python definitions"
+                )
+            return
+        self._entries[name] = (origin, lines)
 
     def is_registered(self, name: str, origin: str) -> bool:
         """Whether this exact structured definition is already registered.
@@ -219,17 +224,18 @@ class DataclassRegistry:
         A same-named registration from a different origin reports False;
         :meth:`register` is the single authority that rejects it.
         """
-        return self._origins.get(name) == origin
+        known = self._entries.get(name)
+        return known is not None and known[0] == origin
 
     def names(self) -> list[str]:
         """Return the registered class names, sorted."""
-        return sorted(self._blocks)
+        return sorted(self._entries)
 
     def class_blocks(self) -> list[str]:
         """Return every block, sorted by name, blank-line separated."""
         lines: list[str] = []
         for name in self.names():
-            lines.extend(self._blocks[name])
+            lines.extend(self._entries[name][1])
             lines.append("")
         if lines:
             lines.pop()
@@ -252,7 +258,7 @@ class DataclassRegistry:
             dataclass is registered, or no lines at all when there is
             nothing to render.
         """
-        if not self._blocks:
+        if not self._entries:
             return list(preceding_lines)
         lines = ["from __future__ import annotations", ""]
         lines.extend(preceding_lines)
