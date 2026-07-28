@@ -4,14 +4,18 @@ import sys
 from typing import TYPE_CHECKING
 
 import pytest
+import syside
 
 from sysmlc.codegen.structured import (
     DataclassRegistry,
     GeneratedPythonModule,
+    register_dataclass,
     types_import_lines,
     types_module_name,
 )
 from sysmlc.errors import UnsupportedConstructError
+from sysmlc.sysml.queries import resolve
+from tests import _load_inline_model
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -32,6 +36,40 @@ def test_types_module_name_guards_leading_digit() -> None:
 def test_types_module_name_rejects_empty_stem() -> None:
     with pytest.raises(ValueError, match="no identifier characters"):
         types_module_name("::")
+
+
+@pytest.mark.parametrize(
+    ("definition_source", "definition_name", "invalid_name"),
+    [
+        ("attribute def 'class';", "class", "class"),
+        (
+            "attribute def Data { attribute 'for'; }",
+            "Data",
+            "for",
+        ),
+    ],
+)
+def test_register_dataclass_rejects_python_keywords(
+    tmp_path: Path,
+    definition_source: str,
+    definition_name: str,
+    invalid_name: str,
+) -> None:
+    model = _load_inline_model(
+        tmp_path,
+        f"package KeywordNames {{ {definition_source} }}",
+    )
+    definition = resolve(
+        model,
+        syside.AttributeDefinition,
+        f"KeywordNames::{definition_name}",
+    )
+
+    with pytest.raises(
+        UnsupportedConstructError,
+        match=rf"{invalid_name!r} is not a valid Python identifier",
+    ):
+        register_dataclass(definition, DataclassRegistry(), lambda _: "None")
 
 
 def test_registry_is_idempotent_for_the_same_origin() -> None:

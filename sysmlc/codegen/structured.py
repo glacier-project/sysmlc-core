@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import keyword
 import re
 import sys
 from dataclasses import dataclass
@@ -339,9 +340,9 @@ def _register_dataclass(
         raise UnsupportedConstructError(
             "structured type has no resolved name", node=definition
         )
-    if not name.isidentifier():
+    if not name.isidentifier() or keyword.iskeyword(name):
         raise UnsupportedConstructError(
-            f"structured type name {name!r} is not a Python identifier",
+            f"structured type name {name!r} is not a valid Python identifier",
             node=definition,
         )
     origin = str(definition.qualified_name or name)
@@ -366,10 +367,10 @@ def _register_dataclass(
                     f"structured type {name!r} has an unnamed field",
                     node=attribute,
                 )
-            if not field_name.isidentifier():
+            if not field_name.isidentifier() or keyword.iskeyword(field_name):
                 raise UnsupportedConstructError(
                     f"structured field name {field_name!r} is not a "
-                    "Python identifier",
+                    "valid Python identifier",
                     node=attribute,
                 )
             annotation, nested = _resolve_field_type(attribute)
