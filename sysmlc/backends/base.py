@@ -13,6 +13,7 @@ from sysmlc.errors import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
     import syside
@@ -171,8 +172,23 @@ class Backend(ABC):
         max_steps: int = 1000,
         until: float | None = None,
         external: tuple[str, frozenset[str]] | None = None,
+        load_external: Callable[[], None] | None = None,
     ) -> RunReport:
-        """Execute a single state definition to quiescence."""
+        """Execute a single state definition to quiescence.
+
+        Args:
+            model: The loaded SysML model.
+            element_qn: Qualified name of the state definition to execute.
+            max_steps: Safety cap on runtime macro steps.
+            until: Optional simulated-time upper bound.
+            external: Python module name and functions backing external calls.
+            load_external: Callback that imports that module. Backends with
+                generated Python runtime dependencies call it after preparing
+                those dependencies and before starting execution.
+
+        Returns:
+            The backend-specific run report.
+        """
         raise UnsupportedOperationError(
             f"backend {self.name!r} cannot run a state definition"
         )
@@ -185,8 +201,23 @@ class Backend(ABC):
         max_steps: int = 1000,
         until: float | None = None,
         external: tuple[str, frozenset[str]] | None = None,
+        load_external: Callable[[], None] | None = None,
     ) -> RunReport:
-        """Execute a top-level part usage to quiescence."""
+        """Execute a top-level part usage to quiescence.
+
+        Args:
+            model: The loaded SysML model.
+            element_qn: Qualified name of the part usage to execute.
+            max_steps: Safety cap on runtime macro steps.
+            until: Optional simulated-time upper bound.
+            external: Python module name and functions backing external calls.
+            load_external: Callback that imports that module. Backends with
+                generated Python runtime dependencies call it after preparing
+                those dependencies and before starting execution.
+
+        Returns:
+            The backend-specific run report.
+        """
         raise UnsupportedOperationError(
             f"backend {self.name!r} cannot run a part system"
         )
@@ -225,6 +256,16 @@ class Backend(ABC):
         backs external calc-def calls with a Python support file and
         materializes the model's Python textual representations. When False,
         the CLI omits the ``--python`` flag for this backend.
+        """
+        return False
+
+    def defers_python_support_loading(self) -> bool:
+        """Whether the backend controls when Python support is imported.
+
+        Backends that generate Python modules needed by the support file
+        return True, then invoke the ``load_external`` callback accepted by
+        their run operation after those generated modules are ready. The
+        default preserves eager CLI loading for existing backends.
         """
         return False
 

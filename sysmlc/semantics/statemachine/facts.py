@@ -157,6 +157,15 @@ class StateFact:
     do_action: syside.ActionUsage | None
     exit_action: syside.ActionUsage | None
 
+    def executable_actions(self) -> tuple[syside.ActionUsage | None, ...]:
+        """Return this state's executable action slots, in slot order.
+
+        Backends that scan every action a state may run (for example to
+        collect constructed send payloads) iterate this accessor instead
+        of naming the slot fields, so a future slot is added here once.
+        """
+        return (self.entry_action, self.do_action, self.exit_action)
+
 
 @dataclass(frozen=True)
 class TransitionFact:

@@ -43,3 +43,7 @@ def test_discover_backends_rejects_duplicate_name(
     )
     with pytest.raises(BackendError, match="duplicate backend name 'quake'"):
         discover_backends()
+
+
+def test_python_support_loading_is_eager_by_default() -> None:
+    assert not _StubBackend("stub").defers_python_support_loading()
