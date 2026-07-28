@@ -60,11 +60,11 @@ def _parse_external(python_path: Path) -> tuple[str, frozenset[str]]:
         names = module_function_names(python_path)
     except OSError as error:
         raise CliError(
-            f"cannot read --python file {python_path}: {error}"
+            f"cannot read python file {python_path}: {error}"
         ) from error
     except SyntaxError as error:
         raise CliError(
-            f"--python file {python_path} is not valid Python: {error}"
+            f"python file {python_path} is not valid Python: {error}"
         ) from error
     return python_path.stem, names
 
@@ -92,21 +92,18 @@ def _parse_python_arg(
 
 
 def _parse_external_module_metadata(
-    model: syside.Model, backend: Backend, element_qn: str, lang: str
+    model: syside.Model, model_dir: Path, lang: str
 ) -> tuple[Path, tuple[str, frozenset[str]]] | tuple[None, None]:
     """Resolve the module declared via @ExternalModule metadata, if any."""
     if lang != "python":
         raise CliError("Metadata support only python language, at the moment")
 
-    path = get_external_filepath_from_metadata(model, lang)
-    if path is None:
+    paths = get_external_filepath_from_metadata(model, lang)
+    if paths is None:
         return None, None
-    if backend.name not in _PYTHON_BACKENDS:
-        raise CliError(
-            f"backend {backend.name!r} does not support python external module"
-        )
 
-    python_path = Path(path[0])
+    raw_path = Path(paths[0])
+    python_path = raw_path if raw_path.is_absolute() else model_dir / raw_path
     return python_path, _parse_external(python_path)
 
 
@@ -140,6 +137,7 @@ def _resolve_python(
     args: argparse.Namespace,
     backend: Backend,
     model: syside.Model,
+    model_dir: Path,
     element_qn: str,
 ) -> tuple[Path, tuple[str, frozenset[str]]] | tuple[None, None]:
     """Resolve the backing Python module: ``--python`` flag or model reps.
@@ -162,7 +160,7 @@ def _resolve_python(
         return python_path, external
 
     python_path, external = _parse_external_module_metadata(
-        model, backend, element_qn, "python"
+        model, model_dir, "python"
     )
     if python_path is not None and external is not None:
         return python_path, external
@@ -477,7 +475,8 @@ def _resolve_model_dir(model: Path) -> Path:
 def _cmd_build(args: argparse.Namespace) -> int:
     """Run a ``<backend> build`` command."""
     backend: Backend = args._backend
-    model = load_model(_resolve_model_dir(args.model))
+    model_dir = _resolve_model_dir(args.model)
+    model = load_model(model_dir)
     if (
         getattr(args, "element", None) is None
         and "model" in backend.build_kinds()
@@ -500,7 +499,9 @@ def _cmd_build(args: argparse.Namespace) -> int:
         )
 
     if kind == "part":
-        return _build_part(args, backend, model, element_qn, target_options)
+        return _build_part(
+            args, backend, model, model_dir, element_qn, target_options
+        )
 
     is_rig = kind == "rig"
     if is_rig and "rig" not in backend.build_kinds():
@@ -527,7 +528,9 @@ def _cmd_build(args: argparse.Namespace) -> int:
             overrides = select_values(tree, target_qn)
             model = configure_model(model, target_qn, overrides)
 
-    python_path, external = _resolve_python(args, backend, model, element_qn)
+    python_path, external = _resolve_python(
+        args, backend, model, model_dir, element_qn
+    )
 
     build_kwargs: dict[str, tuple[str, frozenset[str]]] = (
         {"external": external} if external is not None else {}
@@ -543,6 +546,7 @@ def _build_part(
     args: argparse.Namespace,
     backend: Backend,
     model: syside.Model,
+    model_dir: Path,
     usage_qn: str,
     target_options: tuple[tuple[str, str], ...],
 ) -> int:
@@ -552,7 +556,9 @@ def _build_part(
     if getattr(args, "values", None) is not None:
         raise CliError("--values is not supported with part systems yet")
 
-    python_path, external = _resolve_python(args, backend, model, usage_qn)
+    python_path, external = _resolve_python(
+        args, backend, model, model_dir, usage_qn
+    )
 
     build_kwargs: dict[str, tuple[str, frozenset[str]]] = (
         {"external": external} if external is not None else {}
@@ -597,12 +603,15 @@ def _write_artifact(
 def _cmd_run(args: argparse.Namespace) -> int:
     """Run a ``<backend> run`` command: execute the model to quiescence."""
     backend: Backend = args._backend
-    model = load_model(_resolve_model_dir(args.model))
+    model_dir = _resolve_model_dir(args.model)
+    model = load_model(model_dir)
     element_qn, kind = _select_element(model, args.element)
     if kind not in backend.run_kinds():
         raise CliError(f"backend {backend.name!r} cannot run a {kind!r}")
 
-    python_path, external = _resolve_python(args, backend, model, element_qn)
+    python_path, external = _resolve_python(
+        args, backend, model, model_dir, element_qn
+    )
     if python_path is not None:
         _load_external_module(python_path)
 
