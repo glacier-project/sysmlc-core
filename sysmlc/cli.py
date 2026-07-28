@@ -620,14 +620,26 @@ def _cmd_run(args: argparse.Namespace) -> int:
         run = backend.run_state_def
     else:
         run = backend.run_part_system
-    report = run(
-        model,
-        element_qn,
-        max_steps=args.max_steps,
-        until=args.until,
-        external=external,
-        load_external=load_external,
-    )
+    if load_external is None:
+        # The kwarg is omitted on the eager path so a backend released
+        # before the load_external contract keeps running; only backends
+        # that declare deferral (and thus implement the parameter) see it.
+        report = run(
+            model,
+            element_qn,
+            max_steps=args.max_steps,
+            until=args.until,
+            external=external,
+        )
+    else:
+        report = run(
+            model,
+            element_qn,
+            max_steps=args.max_steps,
+            until=args.until,
+            external=external,
+            load_external=load_external,
+        )
     print(f"Ran {element_qn}:")
     print(report.render())
     if report.hit_step_cap:

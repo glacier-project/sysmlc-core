@@ -457,6 +457,31 @@ def test_python_support_loading_remains_eager_without_opt_in(
     assert fake.run_events == ["load", "prepared"]
 
 
+def test_run_still_drives_backends_predating_load_external(
+    fake: _FakeBackend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A backend released before the load_external contract: its run hook
+    # does not accept the kwarg, and it does not defer loading.
+    def legacy_run_state_def(
+        model: object,
+        element_qn: str,
+        *,
+        max_steps: int = 1000,
+        until: float | None = None,
+        external: tuple[str, frozenset[str]] | None = None,
+    ) -> _FakeRunReport:
+        fake.run_events.append("legacy-ran")
+        return _FakeRunReport()
+
+    monkeypatch.setattr(fake, "run_state_def", legacy_run_state_def)
+    monkeypatch.setattr(fake, "defers_python_support_loading", lambda: False)
+
+    exit_code = main(["fake", "run", str(SM01_DIR), "-e", "SM01::Machine"])
+
+    assert exit_code == 0
+    assert fake.run_events == ["legacy-ran"]
+
+
 def test_copy_python_support_rejects_generated_path_collision(
     tmp_path: Path,
 ) -> None:
