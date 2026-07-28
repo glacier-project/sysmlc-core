@@ -19,16 +19,14 @@ from __future__ import annotations
 import syside
 
 from sysmlc.errors import ValuesError
-from sysmlc.semantics.statemachine.attributes import (
-    is_scalar_quantity,
-    nested_attributes,
-)
+from sysmlc.semantics.statemachine.attributes import nested_attributes
 from sysmlc.semantics.statemachine.triggers import evaluate_to_number
 from sysmlc.sysml.quantities import (
     LITERAL_NODE_TYPES,
     QuantityProbe,
     quantity_parts,
 )
+from sysmlc.sysml.queries import is_scalar_quantity
 
 type ValueScalar = bool | int | float | str
 # A leaf scalar, or a nested mapping overriding a composite's fields.

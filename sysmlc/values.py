@@ -20,7 +20,6 @@ import syside
 import yaml
 
 from sysmlc.errors import ValuesError as ValuesError
-from sysmlc.semantics.statemachine.attributes import is_scalar_quantity
 from sysmlc.sysml.editing import (
     ValueNode as ValueNode,
 )
@@ -32,7 +31,7 @@ from sysmlc.sysml.editing import (
     revalidate,
 )
 from sysmlc.sysml.quantities import QuantityProbe
-from sysmlc.sysml.queries import resolve
+from sysmlc.sysml.queries import is_scalar_quantity, resolve
 
 if TYPE_CHECKING:
     from pathlib import Path

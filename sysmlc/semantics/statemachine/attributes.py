@@ -13,12 +13,8 @@ from sysmlc.semantics.statemachine.facts import (
 )
 from sysmlc.sysml.queries import (
     definitions_of,
-)
-from sysmlc.sysml.queries import (
-    feature_value as feature_value,
-)
-from sysmlc.sysml.queries import (
-    is_scalar_quantity as is_scalar_quantity,
+    feature_value,
+    is_scalar_quantity,
 )
 
 if TYPE_CHECKING:
