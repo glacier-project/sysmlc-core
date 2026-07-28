@@ -184,3 +184,46 @@ def test_generated_module_install_cleans_up_on_broken_source() -> None:
         assert name not in sys.modules
     finally:
         sys.modules.pop(name, None)
+
+
+def test_registered_fields_map_declared_types_to_annotations(
+    tmp_path: Path,
+) -> None:
+    model = _load_inline_model(
+        tmp_path,
+        "package P {\n"
+        "  private import ScalarValues::*;\n"
+        "  attribute def D {\n"
+        "    attribute a : Real;\n"
+        "    attribute b : Integer;\n"
+        "    attribute c : Boolean;\n"
+        "    attribute d : String;\n"
+        "    attribute e;\n"
+        "  }\n"
+        "}\n",
+    )
+    definition = resolve(model, syside.AttributeDefinition, "P::D")
+    registry = DataclassRegistry()
+
+    register_dataclass(definition, registry, lambda _: "None")
+
+    assert registry.class_blocks() == [
+        "@dataclass",
+        "class D:",
+        "    a: float = None",
+        "    b: int = None",
+        "    c: bool = None",
+        "    d: str = None",
+        "    e: object = None",
+    ]
+
+
+def test_from_registry_returns_module_or_none() -> None:
+    empty = DataclassRegistry()
+    assert GeneratedPythonModule.from_registry("Empty_types", empty) is None
+    registry = DataclassRegistry()
+    registry.register("Pt", "P::Pt", ("@dataclass", "class Pt:"))
+    module = GeneratedPythonModule.from_registry("M_types", registry)
+    assert module is not None
+    assert module.name == "M_types"
+    assert module.lines[0] == "from __future__ import annotations"
