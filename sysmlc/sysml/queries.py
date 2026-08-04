@@ -13,6 +13,33 @@ from sysmlc.sysml.names import QualifiedName, normalize_qualified_name
 logger = logging.getLogger(__name__)
 
 
+def definitions_of(
+    attr: syside.AttributeUsage | syside.ItemUsage,
+) -> list[syside.Classifier]:
+    """Return ``attr``'s type definitions regardless of usage kind.
+
+    ``AttributeUsage`` exposes ``attribute_definitions``; ``ItemUsage`` has
+    no such accessor and falls back to the generic ``definitions``.
+    """
+    defs_iter = getattr(attr, "attribute_definitions", None) or attr.definitions
+    return defs_iter.collect()
+
+
+def is_scalar_quantity(attr: syside.AttributeUsage | syside.ItemUsage) -> bool:
+    """Whether ``attr``'s type is a scalar quantity value.
+
+    A scalar quantity value (like ``DurationValue``) is a subtype of
+    ``Quantities::ScalarQuantityValue``: it carries a unit and reduces to one
+    number once that unit is normalized to SI base units.
+    """
+    for definition in definitions_of(attr):
+        if isinstance(
+            definition, syside.AttributeDefinition
+        ) and definition.specializes(("Quantities", "ScalarQuantityValue")):
+            return True
+    return False
+
+
 def resolve[TElement: syside.Element](
     model: syside.Model,
     kind: type[TElement],
