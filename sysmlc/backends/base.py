@@ -18,6 +18,8 @@ if TYPE_CHECKING:
 
     import syside
 
+    from sysmlc.sysml.foreign_artifact.base import ForeignArtifact
+
 logger = logging.getLogger(__name__)
 
 BACKEND_ENTRY_POINT_GROUP = "sysmlc.backends"
@@ -145,7 +147,7 @@ class Backend(ABC):
         usage_qn: str,
         *,
         target_options: tuple[tuple[str, str], ...] = (),
-        external: tuple[str, frozenset[str]] | None = None,
+        externals: list[ForeignArtifact] | None = None,
     ) -> object:
         """Build an artifact for a top-level part usage."""
         raise UnsupportedOperationError(
@@ -157,7 +159,7 @@ class Backend(ABC):
         model: syside.Model,
         element_qn: str,
         *,
-        external: tuple[str, frozenset[str]] | None = None,
+        external: list[ForeignArtifact] | None = None,
     ) -> object:
         """Build an artifact for a two-exhibit rig composition."""
         raise UnsupportedOperationError(
@@ -171,7 +173,7 @@ class Backend(ABC):
         *,
         max_steps: int = 1000,
         until: float | None = None,
-        external: tuple[str, frozenset[str]] | None = None,
+        external: list[ForeignArtifact] | None = None,
         load_external: Callable[[], None] | None = None,
     ) -> RunReport:
         """Execute a single state definition to quiescence.
@@ -200,7 +202,7 @@ class Backend(ABC):
         *,
         max_steps: int = 1000,
         until: float | None = None,
-        external: tuple[str, frozenset[str]] | None = None,
+        external: list[ForeignArtifact] | None = None,
         load_external: Callable[[], None] | None = None,
     ) -> RunReport:
         """Execute a top-level part usage to quiescence.

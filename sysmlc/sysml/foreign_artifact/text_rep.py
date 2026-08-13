@@ -197,7 +197,7 @@ def _collect_code(model: syside.Model) -> list[str]:
     return code
 
 
-def extract_textual(
+def extract_text_rep(
     model: syside.Model,
     scope_qn: str,
     *,
@@ -252,7 +252,7 @@ def extract_textual(
     return stem, full_lines
 
 
-def write_module(
+def write_file(
     src_lines: list[str] | tuple[str, ...],
     out_dir: Path,
     module_name: str,
@@ -262,19 +262,3 @@ def write_module(
     path = out_dir / f"{module_name}.py"
     path.write_text("\n".join(src_lines) + "\n")
     return path
-
-
-def module_function_names(module_path: Path) -> frozenset[str]:
-    """Names of the module's top-level synchronous function defs.
-
-    These are the names a backing module offers to calc-def call sites;
-    an ``async def`` cannot back a synchronous call, so it is excluded.
-
-    Raises:
-        OSError: If the file cannot be read.
-        SyntaxError: If the file is not valid Python.
-    """
-    tree = ast.parse(module_path.read_text(), filename=str(module_path))
-    return frozenset(
-        node.name for node in tree.body if isinstance(node, ast.FunctionDef)
-    )

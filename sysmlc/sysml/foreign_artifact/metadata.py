@@ -5,20 +5,20 @@ import syside
 from sysmlc.errors import UnsupportedConstructError
 from sysmlc.sysml import metadata
 
-EXTERNAL_MODULE_QN = "ExternalModuleBinding::ExternalModule"
+FOREIGN_ARTIFACT_METADTA_QN = "ForeignArtifactBinding::ForeignArtifact"
 
 
-def external_module_definition(
+def foreign_artifact_definition(
     model: syside.Model,
 ) -> syside.MetadataDefinition | None:
-    """Resolve the bundled ``ExternalModule`` metadata def, or None if absent.
+    """Resolve the bundled ``ForeignArtifact`` metadata def, or None if absent.
 
     The definition ships as a bundled library, so it is present in every
     model loaded through :func:`sysmlc.sysml.loading.load_model`; ``None``
     covers models assembled through other paths.
     """
     try:
-        return metadata.resolve_metadata_definition(model, EXTERNAL_MODULE_QN)
+        return metadata.resolve_metadata_definition(model, FOREIGN_ARTIFACT_METADTA_QN)
     except ValueError:
         return None
 
@@ -77,21 +77,21 @@ def _validate_single_file_constraint(
         )
     )
     raise UnsupportedConstructError(
-        f"The @ExternalModule metadata on element {element_qn!r} "
+        f"The @ForeignArtifact metadata on element {element_qn!r} "
         f"specifies {len(file_paths)} files: {file_paths!r}. "
         "Currently, only a single file per module is supported.",
         node=element,
     )
 
 
-def get_external_filepath_from_metadata(
+def get_foreign_artifact_filepath_from_metadata(
     model: syside.Model,
     target_lang: str = "python",
 ) -> tuple[str, ...] | None:
-    """Locate @ExternalModule metadata in the model and return its file paths.
+    """Locate @ForeignArtifact metadata in the model and return its file paths.
 
-    ``ExternalModule`` ships as a bundled library metadata definition
-    model apply it with ``@ExternalModule { ... }``
+    ``ForeignArtifact`` ships as a bundled library metadata definition
+    model apply it with ``@ForeignArtifact { ... }``
     without declaring or importing it.
 
     Args:
@@ -102,11 +102,11 @@ def get_external_filepath_from_metadata(
         A tuple of relative file paths, or None if no matching metadata was found.
 
     Raises:
-        UnsupportedConstructError: If more than one @ExternalModule
+        UnsupportedConstructError: If more than one @ForeignArtifact
             application matches `target_lang` in the model, or if a single
             application lists more than one file (single-file restriction).
     """
-    definition = external_module_definition(model)
+    definition = foreign_artifact_definition(model)
     if definition is None:
         return None
 
@@ -135,9 +135,9 @@ def get_external_filepath_from_metadata(
             for e in source_elements
         ]
         raise UnsupportedConstructError(
-            f"Found {len(source_elements)} @ExternalModule declarations "
+            f"Found {len(source_elements)} @ForeignArtifact declarations "
             f"across model elements: {qualified_names}. "
-            "Currently, only one global @ExternalModule per model is supported."
+            "Currently, only one global @ForeignArtifact per model is supported."
         )
 
     return tuple(found_paths)

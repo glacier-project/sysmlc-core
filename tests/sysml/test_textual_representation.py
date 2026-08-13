@@ -6,15 +6,15 @@ import pytest
 
 from sysmlc.cli import _parse_external
 from sysmlc.errors import UnsupportedConstructError
+from sysmlc.sysml.foreign_artifact.text_rep import extract_text_rep, write_file
 from sysmlc.sysml.loading import load_model
-from sysmlc.sysml.textual_representation import extract_textual, write_module
 
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 
 
 def test_starred_unpacking_line_survives_verbatim() -> None:
     model = load_model(FIXTURES_DIR / "rep-star")
-    result = extract_textual(model, "StarProof::unpack_last")
+    result = extract_text_rep(model, "StarProof::unpack_last")
     assert result is not None
     _stem, lines = result
     assert "    *head, tail = values" in lines
@@ -22,7 +22,7 @@ def test_starred_unpacking_line_survives_verbatim() -> None:
 
 def test_package_rep_collected_as_module_scaffolding() -> None:
     model = load_model(FIXTURES_DIR / "rep-package-scaffolding")
-    result = extract_textual(model, "Scaffold::quadruple")
+    result = extract_text_rep(model, "Scaffold::quadruple")
     assert result is not None
     _stem, lines = result
     assert "FACTOR = 2.0" in lines
@@ -34,13 +34,13 @@ def test_package_rep_collected_as_module_scaffolding() -> None:
 def test_python_rep_outside_package_or_calc_def_is_rejected() -> None:
     model = load_model(FIXTURES_DIR / "rep-on-action")
     with pytest.raises(UnsupportedConstructError, match="logIt"):
-        extract_textual(model, "RepOnAction::logIt")
+        extract_text_rep(model, "RepOnAction::logIt")
 
 
 def test_invalid_python_in_a_rep_body_names_the_calc_def() -> None:
     model = load_model(FIXTURES_DIR / "rep-bad-syntax")
     with pytest.raises(UnsupportedConstructError, match="BadSyntax::broken"):
-        extract_textual(model, "BadSyntax::broken")
+        extract_text_rep(model, "BadSyntax::broken")
 
 
 def test_generated_module_feeds_parse_external(tmp_path: Path) -> None:
@@ -48,10 +48,10 @@ def test_generated_module_feeds_parse_external(tmp_path: Path) -> None:
     # user-supplied --python file: every top-level def is importable,
     # scaffolding helpers included.
     model = load_model(FIXTURES_DIR / "rep-package-scaffolding")
-    result = extract_textual(model, "Scaffold::quadruple")
+    result = extract_text_rep(model, "Scaffold::quadruple")
     assert result is not None
     stem, lines = result
-    module_path = write_module(lines, tmp_path, stem)
+    module_path = write_file(lines, tmp_path, stem)
     parsed_stem, names = _parse_external(module_path)
     assert parsed_stem == "quadruple_impl"
     assert names == frozenset({"quadruple", "_twice"})
@@ -60,7 +60,7 @@ def test_generated_module_feeds_parse_external(tmp_path: Path) -> None:
 def test_two_python_reps_on_one_calc_def_are_rejected() -> None:
     model = load_model(FIXTURES_DIR / "rep-two-bodies")
     with pytest.raises(UnsupportedConstructError, match="more than one Python"):
-        extract_textual(model, "TwoBodies::double")
+        extract_text_rep(model, "TwoBodies::double")
 
 
 def test_def_name_mismatch_names_both_sides() -> None:
@@ -69,7 +69,7 @@ def test_def_name_mismatch_names_both_sides() -> None:
         UnsupportedConstructError,
         match="defines 'restrictAngle' but the calc def is named",
     ):
-        extract_textual(model, "NameMismatch::restrict_angle")
+        extract_text_rep(model, "NameMismatch::restrict_angle")
 
 
 def test_conflicting_defs_across_packages_are_rejected() -> None:
@@ -77,7 +77,7 @@ def test_conflicting_defs_across_packages_are_rejected() -> None:
     with pytest.raises(
         UnsupportedConstructError, match="different implementations"
     ):
-        extract_textual(model, "Collision::step")
+        extract_text_rep(model, "Collision::step")
 
 
 def test_scaffolding_def_shadowing_a_calc_def_is_rejected() -> None:
@@ -85,10 +85,10 @@ def test_scaffolding_def_shadowing_a_calc_def_is_rejected() -> None:
     with pytest.raises(
         UnsupportedConstructError, match="different implementations"
     ):
-        extract_textual(model, "Shadow::gain")
+        extract_text_rep(model, "Shadow::gain")
 
 
 def test_identical_duplicate_helpers_stay_allowed() -> None:
     model = load_model(FIXTURES_DIR / "rep-duplicate-identical")
-    result = extract_textual(model, "DupA::use_sign")
+    result = extract_text_rep(model, "DupA::use_sign")
     assert result is not None
