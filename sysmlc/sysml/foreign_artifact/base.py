@@ -55,7 +55,7 @@ def resolve_foreign_artifact(
     model: syside.Model,
     element_qn: str,
     lang: str = "python",
-) -> list[ForeignArtifact] | None:
+) -> list[ForeignArtifact]:
     """Collect every Foreign Artifact present in the model."""
     # check if is a supported lang
     if lang not in SUPPORTED_LANG:
@@ -63,12 +63,13 @@ def resolve_foreign_artifact(
             f"foreign artifact of language {lang} not supported"
         )
 
-    external: list[ForeignArtifact] = None
+    external: list[ForeignArtifact] = []
 
     # Searching in metadatas for foreign artifact
     external.extend(parse_metadata(model_dir, model, lang))
     # Seraching textual rep
-    external.extend(parse_text_rep(model, element_qn, lang))
+    if text_rep := parse_text_rep(model, element_qn, lang):
+        external.append(text_rep)
 
     return external
 
@@ -79,11 +80,12 @@ def parse_metadata(
     model: syside.Model,
     lang: str,
 ) -> list[ForeignArtifact]:
-    """Parse a Metadata of Foreign Artifact into a ``ForeignArtifact``."""
-    external: list[ForeignArtifact] = None
+    """Parse a Metadata of Foreign Artifact into a ``ForeignArtifact`` if any."""
+    external: list[ForeignArtifact] = []
     for raw_path in get_foreign_artifact_filepath_from_metadata(model, lang):
+        raw_path = Path(raw_path)
         path = raw_path if raw_path.is_absolute() else model_dir / raw_path
-        external.extend(ForeignArtifact(
+        external.append(ForeignArtifact(
             path, lang
         ))
     return external
@@ -93,13 +95,17 @@ def parse_text_rep(
     model: syside.Model,
     element_qn: str,
     lang: str,
-) -> ForeignArtifact:
-    """Parse a TextRep into ``ForeignArtifact``.
+) -> ForeignArtifact | None:
+    """Parse a TextRep into ``ForeignArtifact`` if any.
 
     Parse all the Textual Representation found in a model
     into a new file and parse the file into ``ForeignArtifact``.
     """
-    file_name, source_lines = extract_text_rep(model, element_qn)
+    text_rep = extract_text_rep(model, element_qn)
+    if not text_rep:
+        return None
+    
+    file_name, source_lines = text_rep
     out_dir = Path(tempfile.mkdtemp(prefix="sysmlc-reps-"))
     atexit.register(shutil.rmtree, out_dir, ignore_errors=True)
     file_path = write_file(source_lines, out_dir, file_name)

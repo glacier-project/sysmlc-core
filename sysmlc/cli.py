@@ -51,7 +51,7 @@ def _resolve_foreign_python(
 ) -> list[ForeignArtifact]:
     lang: str = "python"
 
-    external: list[ForeignArtifact] = None
+    external: list[ForeignArtifact] = []
 
     python_path: Path | None = getattr(args, lang, None)
     if python_path:
