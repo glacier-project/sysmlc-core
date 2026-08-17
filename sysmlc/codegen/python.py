@@ -422,8 +422,7 @@ class PythonCodeGen:
             self._used_external.setdefault(artifact, set()).add(function_name)
 
             args = ", ".join(
-                self._emit(argument, 0)
-                for argument in expr.arguments.collect()
+                self._emit(argument, 0) for argument in expr.arguments.collect()
             )
             return f"{function_name}({args})"
 

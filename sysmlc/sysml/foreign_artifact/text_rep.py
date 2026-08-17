@@ -200,7 +200,7 @@ def _collect_code(model: syside.Model) -> list[str]:
 def extract_text_rep(
     model: syside.Model,
     scope_qn: str,
-    lang:str = "python",
+    lang: str = "python",
     *,
     module_name: str | None = None,
 ) -> tuple[str, tuple[str, ...]] | None:
@@ -258,7 +258,7 @@ def write_file(
     src_lines: list[str] | tuple[str, ...],
     out_dir: Path,
     module_name: str,
-    lang:str = "python",
+    lang: str = "python",
 ) -> Path:
     """Write the Python file."""
     out_dir.mkdir(parents=True, exist_ok=True)

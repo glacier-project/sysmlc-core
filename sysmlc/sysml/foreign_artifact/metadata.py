@@ -18,7 +18,9 @@ def foreign_artifact_definition(
     covers models assembled through other paths.
     """
     try:
-        return metadata.resolve_metadata_definition(model, FOREIGN_ARTIFACT_METADTA_QN)
+        return metadata.resolve_metadata_definition(
+            model, FOREIGN_ARTIFACT_METADTA_QN
+        )
     except ValueError:
         return None
 

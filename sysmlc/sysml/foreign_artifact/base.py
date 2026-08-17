@@ -10,6 +10,7 @@ this file is parse into an object with structure of:
 - file name
 - all the names of the functions declered in the file
 """
+
 import ast
 import atexit
 import shutil
@@ -27,6 +28,7 @@ from sysmlc.sysml.foreign_artifact.text_rep import extract_text_rep, write_file
 SUPPORTED_LANG = [
     "python",
 ]
+
 
 class ForeignArtifact:
     """An external file bounded to a sysml model in a specific language."""
@@ -93,10 +95,9 @@ def parse_metadata(
     for raw_path in get_foreign_artifact_filepath_from_metadata(model, lang):
         raw_path = Path(raw_path)
         path = raw_path if raw_path.is_absolute() else model_dir / raw_path
-        external.append(ForeignArtifact(
-            path, lang
-        ))
+        external.append(ForeignArtifact(path, lang))
     return external
+
 
 # FA from TextRep
 def parse_text_rep(
@@ -134,6 +135,7 @@ def parse_raw_file(
         lang,
     )
 
+
 def parse_artifact(
     file_path: Path,
     lang: str = "python",
@@ -156,6 +158,7 @@ def parse_artifact(
 
     return file_path.stem, names
 
+
 def get_functions_names(
     module_path: Path,
     lang: str = "python",
@@ -175,4 +178,6 @@ def get_functions_names(
         return frozenset(
             node.name for node in tree.body if isinstance(node, ast.FunctionDef)
         )
-    raise ForeignArtifactError(f"{lang} not supported yet for foreign artifact.")
+    raise ForeignArtifactError(
+        f"{lang} not supported yet for foreign artifact."
+    )

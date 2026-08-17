@@ -63,9 +63,11 @@ def _resolve_foreign_python(
             model,
             element_qn,
             lang,
-    ))
+        )
+    )
 
     return external
+
 
 def _load_external_module(python_path: Path) -> None:
     """Import a ``--python`` file under its stem so preamble imports resolve.
