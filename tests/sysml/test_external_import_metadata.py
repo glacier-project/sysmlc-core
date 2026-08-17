@@ -49,6 +49,6 @@ def test_two_declarations_across_model_are_rejected() -> None:
     model = load_model(FIXTURES_DIR / "external-module-multi-declaration")
     with pytest.raises(
         UnsupportedConstructError,
-        match="only one global @ExternalModule per model",
+        match="only one global @ForeignArtifact per model",
     ):
         get_foreign_artifact_filepath_from_metadata(model, "python")

@@ -4,13 +4,19 @@ import pytest
 
 from sysmlc.backends.base import Backend, OutputOptions, discover_backends
 from sysmlc.errors import BackendError
+from sysmlc.sysml.foreign_artifact.base import ForeignArtifact
 
 
 class _StubBackend(Backend):
     def __init__(self, name: str) -> None:
         super().__init__(name, f"{name} backend")
 
-    def build(self, model: object, element_qn: str) -> object:
+    def build(
+        self,
+        model: object,
+        element_qn: str,
+        external: list[ForeignArtifact] | None = None,
+    ) -> object:
         return object()
 
     def write(self, artifact: object, options: OutputOptions) -> list:

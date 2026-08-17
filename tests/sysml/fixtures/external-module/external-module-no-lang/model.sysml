@@ -1,6 +1,6 @@
 package NoLang {
-    private import ExternalModuleBinding::*;
-    @ExternalModule {
+    private import ForeignArtifactBinding::*;
+    @ForeignArtifact {
         files = ("generic.py");
     }
 }

@@ -6,13 +6,15 @@ import pytest
 from sysmlc_models.sm_examples import SM_EXAMPLES_DIR
 
 from sysmlc.backends import Backend
-from sysmlc.cli import CliError, _copy_python_support, _parse_external, main
+from sysmlc.cli import CliError, _copy_python_support, main
+from sysmlc.sysml.foreign_artifact.base import parse_artifact
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
     from sysmlc.backends import OutputOptions
+    from sysmlc.sysml.foreign_artifact.base import ForeignArtifact
 
 SM01_DIR = SM_EXAMPLES_DIR / "sm01-helloworld"
 
@@ -64,8 +66,7 @@ class _FakeBackend(Backend):
         self,
         model: object,
         element_qn: str,
-        *,
-        external: tuple[str, frozenset[str]] | None = None,
+        external: list[ForeignArtifact] | None = None,
     ) -> object:
         self.build_calls.append(element_qn)
         self.built_models.append(model)
@@ -94,7 +95,7 @@ class _FakeBackend(Backend):
         *,
         max_steps: int = 1000,
         until: float | None = None,
-        external: tuple[str, frozenset[str]] | None = None,
+        external: list[ForeignArtifact] | None = None,
         load_external: Callable[[], None] | None = None,
     ) -> _FakeRunReport:
         self.run_events.append("prepared")
@@ -366,7 +367,7 @@ def test_build_rejects_unknown_value_override(
 def test_parse_external_collects_sync_functions(tmp_path: Path) -> None:
     py = tmp_path / "phys.py"
     py.write_text("def step(): ...\nasync def nope(): ...\nx = 1\n")
-    module, names = _parse_external(py)
+    module, names = parse_artifact(py)
     assert module == "phys"
     assert names == frozenset({"step"})
 

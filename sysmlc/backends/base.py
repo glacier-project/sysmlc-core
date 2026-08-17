@@ -88,12 +88,19 @@ class Backend(ABC):
         self._formats = formats or ()
 
     @abstractmethod
-    def build(self, model: syside.Model, element_qn: str) -> object:
+    def build(
+        self,
+        model: syside.Model,
+        element_qn: str,
+        external: list[ForeignArtifact] | None = None,
+    ) -> object:
         """Build the artifact for the ``element_qn`` in the given model.
 
         Args:
             model: The loaded SysML model containing the state definition.
             element_qn: The qualified name of the state definition to build.
+            external: The Foreign Artifacts available to back external
+                calc-def calls, or None when none were provided.
 
         Returns:
             An artifact object representing the built target, whose type is
@@ -147,9 +154,18 @@ class Backend(ABC):
         usage_qn: str,
         *,
         target_options: tuple[tuple[str, str], ...] = (),
-        externals: list[ForeignArtifact] | None = None,
+        external: list[ForeignArtifact] | None = None,
     ) -> object:
-        """Build an artifact for a top-level part usage."""
+        """Build an artifact for a top-level part usage.
+
+        Args:
+            model: The loaded SysML model containing the part usage.
+            usage_qn: Qualified name of the top-level part usage to build.
+            target_options: Target-header options (run timeout, fast mode)
+                for backends that declare :meth:`accepts_target_options`.
+            external: The Foreign Artifacts available to back external
+                calc-def calls, or None when none were provided.
+        """
         raise UnsupportedOperationError(
             f"backend {self.name!r} does not build part systems"
         )
@@ -161,7 +177,14 @@ class Backend(ABC):
         *,
         external: list[ForeignArtifact] | None = None,
     ) -> object:
-        """Build an artifact for a two-exhibit rig composition."""
+        """Build an artifact for a two-exhibit rig composition.
+
+        Args:
+            model: The loaded SysML model containing the rig composition.
+            element_qn: Qualified name of the rig definition to build.
+            external: The Foreign Artifacts available to back external
+                calc-def calls, or None when none were provided.
+        """
         raise UnsupportedOperationError(
             f"backend {self.name!r} does not build compositions"
         )
@@ -183,7 +206,8 @@ class Backend(ABC):
             element_qn: Qualified name of the state definition to execute.
             max_steps: Safety cap on runtime macro steps.
             until: Optional simulated-time upper bound.
-            external: Python module name and functions backing external calls.
+            external: The Foreign Artifacts available to back external
+                calc-def calls, or None when none were provided.
             load_external: Callback that imports that module. Backends with
                 generated Python runtime dependencies call it after preparing
                 those dependencies and before starting execution.
@@ -212,7 +236,8 @@ class Backend(ABC):
             element_qn: Qualified name of the part usage to execute.
             max_steps: Safety cap on runtime macro steps.
             until: Optional simulated-time upper bound.
-            external: Python module name and functions backing external calls.
+            external: The Foreign Artifacts available to back external
+                calc-def calls, or None when none were provided.
             load_external: Callback that imports that module. Backends with
                 generated Python runtime dependencies call it after preparing
                 those dependencies and before starting execution.

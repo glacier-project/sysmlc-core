@@ -43,19 +43,22 @@ class CliError(SysmlcError):
     """A user-facing error, reported as a message without a traceback."""
 
 
-def _resolve_foreign_python(
+def _resolve_foreign(
+    backend: Backend,
     args: argparse.Namespace,
     model_dir: Path,
     model: syside.Model,
     element_qn: str,
 ) -> list[ForeignArtifact]:
     lang: str = "python"
+    if not backend.consumes_python_support():
+        return []
 
     external: list[ForeignArtifact] = []
 
     python_path: Path | None = getattr(args, lang, None)
     if python_path:
-        external.extend(parse_raw_file(python_path, lang))
+        external.append(parse_raw_file(python_path, lang))
 
     external.extend(
         resolve_foreign_artifact(
@@ -95,6 +98,12 @@ def _load_external_module(python_path: Path) -> None:
         raise CliError(
             f"--python file {python_path} failed to execute: {error}"
         ) from error
+
+
+def _load_external_modules(external: list[ForeignArtifact]) -> None:
+    """Import every external artifact's file under its own module stem."""
+    for artifact in external:
+        _load_external_module(artifact.path)
 
 
 def _build_parser(backends: dict[str, Backend]) -> argparse.ArgumentParser:
@@ -385,7 +394,7 @@ def _cmd_build(args: argparse.Namespace) -> int:
                 "--values yet"
             )
         artifact = backend.build_model(model)
-        return _write_artifact(args, backend, "model", artifact, None)
+        return _write_artifact(args, backend, "model", artifact, [])
 
     element_qn, kind = _select_element(model, args.element)
     target_options = _target_options(args)
@@ -426,19 +435,17 @@ def _cmd_build(args: argparse.Namespace) -> int:
             overrides = select_values(tree, target_qn)
             model = configure_model(model, target_qn, overrides)
 
-    if backend.consumes_python_support:
-        fa_python = _resolve_foreign_python(args, model_dir, model, element_qn)
-    python_path = fa_python[0].path
-    external = (fa_python[0].file_name, fa_python[0].funct_names)
-
-    build_kwargs: dict[str, tuple[str, frozenset[str]]] = (
-        {"external": external} if external is not None else {}
+    external: list[ForeignArtifact] = _resolve_foreign(
+        backend, args, model_dir, model, element_qn
     )
+
     if is_rig:
-        artifact = backend.build_composition(model, element_qn, **build_kwargs)
+        artifact = backend.build_composition(
+            model, element_qn, external=external
+        )
     else:
-        artifact = backend.build(model, element_qn, **build_kwargs)
-    return _write_artifact(args, backend, element_qn, artifact, python_path)
+        artifact = backend.build(model, element_qn, external=external)
+    return _write_artifact(args, backend, element_qn, artifact, external)
 
 
 def _build_part(
@@ -455,18 +462,14 @@ def _build_part(
     if getattr(args, "values", None) is not None:
         raise CliError("--values is not supported with part systems yet")
 
-    if backend.consumes_python_support:
-        fa_python = _resolve_foreign_python(args, model_dir, model, usage_qn)
-    python_path = fa_python[0].path
-    external = (fa_python[0].file_name, fa_python[0].funct_names)
+    external: list[ForeignArtifact] = _resolve_foreign(
+        backend, args, model_dir, model, usage_qn
+    )
 
-    build_kwargs: dict[str, tuple[str, frozenset[str]]] = (
-        {"external": external} if external is not None else {}
-    )
     artifact = backend.build_part(
-        model, usage_qn, target_options=target_options, **build_kwargs
+        model, usage_qn, target_options=target_options, external=external
     )
-    return _write_artifact(args, backend, usage_qn, artifact, python_path)
+    return _write_artifact(args, backend, usage_qn, artifact, external)
 
 
 def _write_artifact(
@@ -474,7 +477,7 @@ def _write_artifact(
     backend: Backend,
     element_qn: str,
     artifact: object,
-    python_path: Path | None,
+    external: list[ForeignArtifact],
 ) -> int:
     """Write the built artifact and report what was produced."""
     selected = getattr(args, "format", None)
@@ -485,8 +488,8 @@ def _write_artifact(
     )
     written = backend.write(artifact, options)
 
-    if python_path is not None:
-        written.extend(_copy_python_support(python_path, written))
+    for fa in external:
+        written.extend(_copy_python_support(fa.path, written))
 
     for path in written:
         logger.info("Wrote %s", path)
@@ -543,17 +546,16 @@ def _cmd_run(args: argparse.Namespace) -> int:
     if kind not in backend.run_kinds():
         raise CliError(f"backend {backend.name!r} cannot run a {kind!r}")
 
-    if backend.consumes_python_support:
-        fa_python = _resolve_foreign_python(args, model_dir, model, element_qn)
-    python_path = fa_python[0].path
-    external = (fa_python[0].file_name, fa_python[0].funct_names)
+    external: list[ForeignArtifact] = _resolve_foreign(
+        backend, args, model_dir, model, element_qn
+    )
 
     load_external = None
-    if python_path is not None:
+    if external:
         if backend.defers_python_support_loading():
-            load_external = partial(_load_external_module, python_path)
+            load_external = partial(_load_external_modules, external)
         else:
-            _load_external_module(python_path)
+            _load_external_modules(external)
 
     if kind == "statedef":
         run = backend.run_state_def

@@ -32,8 +32,9 @@ API reference to render. -->
 .. automodule:: sysmlc.sysml.editing
 .. automodule:: sysmlc.sysml.quantities
 .. automodule:: sysmlc.sysml.names
-.. automodule:: sysmlc.sysml.metadata
-.. automodule:: sysmlc.sysml.textual_representation
+.. automodule:: sysmlc.sysml.foreign_artifact.base
+.. automodule:: sysmlc.sysml.foreign_artifact.metadata
+.. automodule:: sysmlc.sysml.foreign_artifact.text_rep
 ```
 
 ## State-machine semantics

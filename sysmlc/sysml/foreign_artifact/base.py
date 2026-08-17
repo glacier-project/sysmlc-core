@@ -1,4 +1,4 @@
-"""A code written in a non SysMLv2 langauge.
+"""A code written in a non SysMLv2 language.
 
 A Foreign Artifact could be:
 - an external file passed by CLI.
@@ -8,7 +8,7 @@ this file is parse into an object with structure of:
 - language which is written the file
 - path
 - file name
-- all the names of the functions declered in the file
+- all the names of the functions declared in the file
 """
 
 import ast
@@ -42,7 +42,7 @@ class ForeignArtifact:
         self,
         path: Path,
         lang: str,
-    ):
+    ) -> None:
         self.path = path
         self.lang = lang
         self.file_name, self.funct_names = parse_artifact(path, lang)
@@ -77,7 +77,7 @@ def resolve_foreign_artifact(
 
     # Searching in metadatas for foreign artifact
     external.extend(parse_metadata(model_dir, model, lang))
-    # Seraching textual rep
+    # Searching textual rep
     if text_rep := parse_text_rep(model, element_qn, lang):
         external.append(text_rep)
 
@@ -92,7 +92,9 @@ def parse_metadata(
 ) -> list[ForeignArtifact]:
     """Parse a Metadata of Foreign Artifact into a ``ForeignArtifact`` if any."""
     external: list[ForeignArtifact] = []
-    for raw_path in get_foreign_artifact_filepath_from_metadata(model, lang):
+    for raw_path in (
+        get_foreign_artifact_filepath_from_metadata(model, lang) or []
+    ):
         raw_path = Path(raw_path)
         path = raw_path if raw_path.is_absolute() else model_dir / raw_path
         external.append(ForeignArtifact(path, lang))

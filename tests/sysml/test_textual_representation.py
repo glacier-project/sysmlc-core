@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from sysmlc.cli import _parse_external
 from sysmlc.errors import UnsupportedConstructError
+from sysmlc.sysml.foreign_artifact.base import parse_artifact
 from sysmlc.sysml.foreign_artifact.text_rep import extract_text_rep, write_file
 from sysmlc.sysml.loading import load_model
 
@@ -52,7 +52,7 @@ def test_generated_module_feeds_parse_external(tmp_path: Path) -> None:
     assert result is not None
     stem, lines = result
     module_path = write_file(lines, tmp_path, stem)
-    parsed_stem, names = _parse_external(module_path)
+    parsed_stem, names = parse_artifact(module_path)
     assert parsed_stem == "quadruple_impl"
     assert names == frozenset({"quadruple", "_twice"})
 

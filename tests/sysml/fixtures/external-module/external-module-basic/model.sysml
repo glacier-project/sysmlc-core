@@ -1,6 +1,6 @@
 package Basic {
-    private import ExternalModuleBinding::*;
-    @ExternalModule {
+    private import ForeignArtifactBinding::*;
+    @ForeignArtifact {
         lang = "python";
         files = ("basic_impl.py");
     }

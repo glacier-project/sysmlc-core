@@ -1,13 +1,13 @@
 package MultiDeclaration {
-    private import ExternalModuleBinding::*;
+    private import ForeignArtifactBinding::*;
     package A {
-        @ExternalModule {
+        @ForeignArtifact {
             lang = "python";
             files = ("a.py");
         }
     }
     package B {
-        @ExternalModule {
+        @ForeignArtifact {
             lang = "python";
             files = ("b.py");
         }

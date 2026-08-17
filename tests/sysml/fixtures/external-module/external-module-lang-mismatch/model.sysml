@@ -1,6 +1,6 @@
 package LangMismatch {
-    private import ExternalModuleBinding::*;
-    @ExternalModule {
+    private import ForeignArtifactBinding::*;
+    @ForeignArtifact {
         lang = "cpp";
         files = ("impl.cpp");
     }
