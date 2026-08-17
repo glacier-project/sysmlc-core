@@ -45,6 +45,14 @@ class ForeignArtifact:
         self.lang = lang
         self.file_name, self.funct_names = parse_artifact(path, lang)
 
+    def __hash__(self) -> int:
+        return hash((self.path, self.lang))
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, ForeignArtifact):
+            return NotImplemented
+        return self.path == other.path and self.lang == other.lang
+
 
 class ForeignArtifactError(SysmlcError):
     """A user-facing error, reported as a message without a traceback."""
@@ -104,7 +112,7 @@ def parse_text_rep(
     text_rep = extract_text_rep(model, element_qn)
     if not text_rep:
         return None
-    
+
     file_name, source_lines = text_rep
     out_dir = Path(tempfile.mkdtemp(prefix="sysmlc-reps-"))
     atexit.register(shutil.rmtree, out_dir, ignore_errors=True)
@@ -112,7 +120,7 @@ def parse_text_rep(
 
     return ForeignArtifact(
         file_path,
-        str,
+        lang,
     )
 
 

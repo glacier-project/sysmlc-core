@@ -200,6 +200,7 @@ def _collect_code(model: syside.Model) -> list[str]:
 def extract_text_rep(
     model: syside.Model,
     scope_qn: str,
+    lang:str = "python",
     *,
     module_name: str | None = None,
 ) -> tuple[str, tuple[str, ...]] | None:
@@ -215,6 +216,7 @@ def extract_text_rep(
         model: Loaded syside model to collect rep bodies from.
         scope_qn: Qualified name of the element being built; its simple
             name defaults the module stem to ``<name>_impl``.
+        lang: language selection for textual rep
         module_name: Explicit module stem overriding the default.
 
     Returns:
@@ -256,6 +258,7 @@ def write_file(
     src_lines: list[str] | tuple[str, ...],
     out_dir: Path,
     module_name: str,
+    lang:str = "python",
 ) -> Path:
     """Write the Python file."""
     out_dir.mkdir(parents=True, exist_ok=True)
