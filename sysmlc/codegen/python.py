@@ -337,14 +337,10 @@ class PythonCodeGen:
         raise ValueError(f"unsupported expression node: {type(expr).__name__}")
 
     def _emit_invocation(self, expr: syside.InvocationExpression) -> str:
-        """Emit a supported library or external calc-def call; reject anything else."""
+        """Emit a supported library call; reject anything else."""
         library_call = self._emit_library_invocation(expr)
         if library_call is not None:
             return library_call[0]
-
-        external_call = self._emit_external_calculation_invocation(expr)
-        if external_call is not None:
-            return external_call
 
         func = expr.function
         qn = None if func is None else func.qualified_name
@@ -383,6 +379,9 @@ class PythonCodeGen:
     def _emit_external_calculation_invocation(
         self,
         expr: syside.InvocationExpression,
+        *,
+        external: list[ForeignArtifact],
+        used_external: dict[ForeignArtifact, set[str]],
     ) -> str | None:
         """Emit a simple-name-backed external calc-def call, if applicable.
 
@@ -391,9 +390,6 @@ class PythonCodeGen:
         to the first match. Records the match in ``used_external`` so a
         caller can later tell which artifacts/functions were actually
         exercised.
-
-        Args:
-            expr: The invocation expression to translate.
 
         Returns:
             Python source for the call when the invoked function resolves
@@ -415,18 +411,18 @@ class PythonCodeGen:
             return None
 
         function_name = func.name
-        for artifact in self._external:
+        for artifact in external:
             if function_name not in artifact.funct_names:
                 continue
 
-            self._used_external.setdefault(artifact, set()).add(function_name)
+            used_external.setdefault(artifact, set()).add(function_name)
 
             args = ", ".join(
                 self._emit(argument, 0) for argument in expr.arguments.collect()
             )
             return f"{function_name}({args})"
 
-        if self._external:
+        if external:
             raise UnsupportedConstructError(
                 f"calc def {function_name!r} has no backing function in "
                 "any of the provided external Python artifacts.",
