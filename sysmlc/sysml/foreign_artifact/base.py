@@ -11,7 +11,6 @@ this file is parse into an object with structure of:
 - all the names of the functions declared in the file
 """
 
-import ast
 import atexit
 import shutil
 import tempfile
@@ -19,15 +18,15 @@ from pathlib import Path
 
 import syside
 
-from sysmlc.errors import SysmlcError
+from sysmlc.errors import SysmlcError, UnsupportedConstructError
+from sysmlc.sysml.foreign_artifact.languages import get_language
 from sysmlc.sysml.foreign_artifact.metadata import (
     get_foreign_artifact_filepath_from_metadata,
 )
-from sysmlc.sysml.foreign_artifact.text_rep import extract_text_rep, write_file
-
-SUPPORTED_LANG = [
-    "python",
-]
+from sysmlc.sysml.foreign_artifact.text_rep import (
+    extract_text_rep,
+    write_file,
+)
 
 
 class ForeignArtifact:
@@ -68,10 +67,12 @@ def resolve_foreign_artifact(
 ) -> list[ForeignArtifact]:
     """Collect every Foreign Artifact present in the model."""
     # check if is a supported lang
-    if lang not in SUPPORTED_LANG:
+    try:
+        _ = get_language(lang)
+    except UnsupportedConstructError:
         raise ForeignArtifactError(
             f"foreign artifact of language {lang} not supported"
-        )
+        ) from None
 
     external: list[ForeignArtifact] = []
 
@@ -112,7 +113,7 @@ def parse_text_rep(
     Parse all the Textual Representation found in a model
     into a new file and parse the file into ``ForeignArtifact``.
     """
-    text_rep = extract_text_rep(model, element_qn)
+    text_rep = extract_text_rep(model, element_qn, lang)
     if not text_rep:
         return None
 
@@ -175,11 +176,7 @@ def get_functions_names(
         SyntaxError: If the file is not valid Python.
         ForeignArtifactError: If requested a language not supported
     """
-    if lang == "python":
-        tree = ast.parse(module_path.read_text(), filename=str(module_path))
-        return frozenset(
-            node.name for node in tree.body if isinstance(node, ast.FunctionDef)
-        )
-    raise ForeignArtifactError(
-        f"{lang} not supported yet for foreign artifact."
-    )
+    try:
+        return get_language(lang).function_names(module_path.read_text())
+    except (OSError, SyntaxError, UnsupportedConstructError) as error:
+        raise ForeignArtifactError(str(error)) from error

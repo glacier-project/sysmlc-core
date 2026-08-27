@@ -92,3 +92,19 @@ def test_identical_duplicate_helpers_stay_allowed() -> None:
     model = load_model(FIXTURES_DIR / "rep-duplicate-identical")
     result = extract_text_rep(model, "DupA::use_sign")
     assert result is not None
+
+
+def test_c_rep_is_written_and_function_names_are_harvested(
+    tmp_path: Path,
+) -> None:
+    model = load_model(FIXTURES_DIR / "rep-c")
+    result = extract_text_rep(model, "CRep::increment", "c")
+    assert result is not None
+    stem, lines = result
+    module_path = write_file(lines, tmp_path, stem, "c")
+
+    assert module_path.suffix == ".c"
+    assert parse_artifact(module_path, "c") == (
+        "increment_impl",
+        frozenset({"increment"}),
+    )
