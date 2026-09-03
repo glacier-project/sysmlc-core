@@ -13,7 +13,7 @@ from sysmlc.errors import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterable
     from pathlib import Path
 
     import syside
@@ -76,16 +76,22 @@ class Backend(ABC):
     name: str
     description: str
     _formats: tuple[tuple[str, str], ...]
+    _foreign_artifact_languages: frozenset[str]
 
     def __init__(
         self,
         name: str,
         description: str,
         formats: tuple[tuple[str, str], ...] | None = None,
+        foreign_artifact_languages: Iterable[str] | None = None,
     ) -> None:
         self.name = name
         self.description = description
         self._formats = formats or ()
+        self._foreign_artifact_languages = frozenset(
+            language.strip().lower()
+            for language in (foreign_artifact_languages or ())
+        )
 
     @abstractmethod
     def build(
@@ -285,6 +291,28 @@ class Backend(ABC):
         the CLI omits the ``--python`` flag for this backend.
         """
         return False
+
+    def supported_foreign_artifact_languages(self) -> frozenset[str]:
+        """Return the foreign artifact languages consumed by this backend.
+
+        A backend declares its language support once through the constructor
+        or by overriding this method. The Python hook is retained as a
+        compatibility fallback for existing backend implementations.
+        """
+        languages = set(self._foreign_artifact_languages)
+        if self.consumes_python_support():
+            languages.add("python")
+        return frozenset(languages)
+
+    def consumes_foreign_artifact_support(self, lang: str) -> bool:
+        """Whether the backend consumes support in ``lang``.
+
+        Deprecated compatibility wrapper around
+        :meth:`supported_foreign_artifact_languages`.
+        """
+        return (
+            lang.strip().lower() in self.supported_foreign_artifact_languages()
+        )
 
     def defers_python_support_loading(self) -> bool:
         """Whether the backend controls when Python support is imported.

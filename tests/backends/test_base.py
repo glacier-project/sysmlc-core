@@ -8,8 +8,14 @@ from sysmlc.sysml.foreign_artifact.base import ForeignArtifact
 
 
 class _StubBackend(Backend):
-    def __init__(self, name: str) -> None:
-        super().__init__(name, f"{name} backend")
+    def __init__(
+        self, name: str, foreign_artifact_languages: tuple[str, ...] = ()
+    ) -> None:
+        super().__init__(
+            name,
+            f"{name} backend",
+            foreign_artifact_languages=foreign_artifact_languages,
+        )
 
     def build(
         self,
@@ -53,3 +59,10 @@ def test_discover_backends_rejects_duplicate_name(
 
 def test_python_support_loading_is_eager_by_default() -> None:
     assert not _StubBackend("stub").defers_python_support_loading()
+
+
+def test_backend_declares_supported_foreign_artifact_languages() -> None:
+    backend = _StubBackend("c-backend", ("C",))
+
+    assert backend.supported_foreign_artifact_languages() == frozenset({"c"})
+    assert backend.consumes_foreign_artifact_support(" C ")

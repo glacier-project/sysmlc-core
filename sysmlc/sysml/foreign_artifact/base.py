@@ -120,7 +120,7 @@ def parse_text_rep(
     file_name, source_lines = text_rep
     out_dir = Path(tempfile.mkdtemp(prefix="sysmlc-reps-"))
     atexit.register(shutil.rmtree, out_dir, ignore_errors=True)
-    file_path = write_file(source_lines, out_dir, file_name)
+    file_path = write_file(source_lines, out_dir, file_name, lang)
 
     return ForeignArtifact(
         file_path,

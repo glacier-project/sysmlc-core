@@ -219,7 +219,7 @@ def extract_text_rep(
 
     Collects every requested-language ``TextualRepresentation`` body in the model
     (package reps first within each element, in model order) into the
-    source lines of one flat Python module. The caller writes the module
+    source lines of one flat foreign artifact. The caller writes the artifact
     to disk and derives the backing function names from the written file,
     exactly as for a user-supplied backing module.
 

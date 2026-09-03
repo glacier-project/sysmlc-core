@@ -5,8 +5,11 @@ from pathlib import Path
 import pytest
 
 from sysmlc.errors import UnsupportedConstructError
-from sysmlc.sysml.foreign_artifact.base import parse_artifact
-from sysmlc.sysml.foreign_artifact.text_rep import extract_text_rep, write_file
+from sysmlc.sysml.foreign_artifact.base import parse_artifact, parse_text_rep
+from sysmlc.sysml.foreign_artifact.text_rep import (
+    extract_text_rep,
+    write_file,
+)
 from sysmlc.sysml.loading import load_model
 
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
@@ -108,3 +111,11 @@ def test_c_rep_is_written_and_function_names_are_harvested(
         "increment_impl",
         frozenset({"increment"}),
     )
+
+
+def test_c_text_rep_uses_c_extension_when_resolved() -> None:
+    model = load_model(FIXTURES_DIR / "rep-c")
+    artifact = parse_text_rep(model, "CRep::increment", "c")
+    assert artifact is not None
+    assert artifact.path.suffix == ".c"
+    assert artifact.funct_names == frozenset({"increment"})

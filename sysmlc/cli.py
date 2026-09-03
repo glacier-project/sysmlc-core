@@ -20,6 +20,7 @@ from sysmlc.sysml.foreign_artifact.base import (
     parse_raw_file,
     resolve_foreign_artifact,
 )
+from sysmlc.sysml.foreign_artifact.languages import SUPPORTED_LANG
 from sysmlc.sysml.loading import load_model
 from sysmlc.sysml.queries import (
     exhibited_state_defs,
@@ -50,24 +51,22 @@ def _resolve_foreign(
     model: syside.Model,
     element_qn: str,
 ) -> list[ForeignArtifact]:
-    lang: str = "python"
-    if not backend.consumes_python_support():
-        return []
-
     external: list[ForeignArtifact] = []
-
-    python_path: Path | None = getattr(args, lang, None)
-    if python_path:
-        external.append(parse_raw_file(python_path, lang))
-
-    external.extend(
-        resolve_foreign_artifact(
-            model_dir,
-            model,
-            element_qn,
-            lang,
+    supported = backend.supported_foreign_artifact_languages()
+    for lang in SUPPORTED_LANG:
+        if lang not in supported:
+            continue
+        path: Path | None = getattr(args, lang, None)
+        if path:
+            external.append(parse_raw_file(path, lang))
+        external.extend(
+            resolve_foreign_artifact(
+                model_dir,
+                model,
+                element_qn,
+                lang,
+            )
         )
-    )
 
     return external
 
@@ -101,9 +100,10 @@ def _load_external_module(python_path: Path) -> None:
 
 
 def _load_external_modules(external: list[ForeignArtifact]) -> None:
-    """Import every external artifact's file under its own module stem."""
+    """Import every Python external artifact under its own module stem."""
     for artifact in external:
-        _load_external_module(artifact.path)
+        if artifact.lang == "python":
+            _load_external_module(artifact.path)
 
 
 def _build_parser(backends: dict[str, Backend]) -> argparse.ArgumentParser:
@@ -149,7 +149,7 @@ def _build_parser(backends: dict[str, Backend]) -> argparse.ArgumentParser:
             "run",
             help=f"execute a {backend.name} model to quiescence",
         )
-        _add_run_arguments(run)
+        _add_run_arguments(run, backend)
         run.set_defaults(_backend=backend)
     return parser
 
@@ -195,13 +195,7 @@ def _add_build_arguments(
             "mirrors qualified names (Pkg -> Def -> attribute: value)"
         ),
     )
-    if backend.consumes_python_support():
-        build.add_argument(
-            "--python",
-            type=Path,
-            help="a Python file whose top-level functions back external "
-            "calc-def calls; matched to SysML functions by simple name",
-        )
+    _add_foreign_arguments(build, backend)
     if backend.accepts_target_options():
         build.add_argument(
             "--timeout",
@@ -248,7 +242,25 @@ def _select_state_def(model: syside.Model, requested: str | None) -> str:
     return requested
 
 
-def _add_run_arguments(run: argparse.ArgumentParser) -> None:
+def _add_foreign_arguments(
+    parser: argparse.ArgumentParser, backend: Backend
+) -> None:
+    """Add one path option for each foreign language consumed by a backend."""
+    for lang in SUPPORTED_LANG:
+        if lang not in backend.supported_foreign_artifact_languages():
+            continue
+        parser.add_argument(
+            f"--{lang}",
+            type=Path,
+            help=(
+                f"a {lang.upper() if lang == 'c' else lang.capitalize()} "
+                "file whose top-level functions back external calc-def "
+                "calls; matched to SysML functions by simple name"
+            ),
+        )
+
+
+def _add_run_arguments(run: argparse.ArgumentParser, backend: Backend) -> None:
     """Add the inputs for a ``run`` command."""
     run.add_argument(
         "model",
@@ -276,12 +288,7 @@ def _add_run_arguments(run: argparse.ArgumentParser) -> None:
         help="stop at this simulated time in seconds, keeping the trace up "
         "to it (default: run to quiescence)",
     )
-    run.add_argument(
-        "--python",
-        type=Path,
-        help="a Python file whose top-level functions back external calc-def "
-        "calls; matched to SysML functions by simple name",
-    )
+    _add_foreign_arguments(run, backend)
 
 
 def _select_element(
@@ -489,7 +496,7 @@ def _write_artifact(
     written = backend.write(artifact, options)
 
     for fa in external:
-        written.extend(_copy_python_support(fa.path, written))
+        written.extend(_copy_external_support(fa.path, written))
 
     for path in written:
         logger.info("Wrote %s", path)
@@ -500,6 +507,16 @@ def _write_artifact(
 def _copy_python_support(python_path: Path, written: list[Path]) -> list[Path]:
     """Copy a Python support module beside each generated artifact group.
 
+    Kept as a compatibility wrapper for callers of the former helper.
+    """
+    return _copy_external_support(python_path, written)
+
+
+def _copy_external_support(
+    support_path: Path, written: list[Path]
+) -> list[Path]:
+    """Copy an external support file beside each generated artifact group.
+
     Backend artifacts may be flat or use one or more nested directories.
     A single copy per unique parent directory keeps imports relative to the
     generated files resolvable without duplicating work. Like every other
@@ -508,7 +525,7 @@ def _copy_python_support(python_path: Path, written: list[Path]) -> list[Path]:
     collision with an artifact of the current build is refused.
 
     Args:
-        python_path: User-supplied or textual-representation module.
+        support_path: User-supplied or textual-representation artifact.
         written: Paths returned by the backend's ``write`` operation.
 
     Returns:
@@ -518,21 +535,21 @@ def _copy_python_support(python_path: Path, written: list[Path]) -> list[Path]:
         CliError: If the support filename collides with a different generated
             artifact.
     """
-    source = python_path.resolve()
+    source = support_path.resolve()
     artifact_paths = {path.resolve() for path in written}
     directories = sorted({path.parent.resolve() for path in written})
     copied: list[Path] = []
     for directory in directories:
-        destination = directory / python_path.name
+        destination = directory / support_path.name
         resolved_destination = destination.resolve()
         if resolved_destination == source:
             continue
         if resolved_destination in artifact_paths:
             raise CliError(
-                f"Python support file {python_path.name!r} conflicts with "
+                f"External support file {support_path.name!r} conflicts with "
                 f"generated artifact {destination}"
             )
-        shutil.copy2(python_path, destination)
+        shutil.copy2(support_path, destination)
         copied.append(destination)
     return copied
 
