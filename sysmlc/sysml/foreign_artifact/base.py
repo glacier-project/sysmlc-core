@@ -12,6 +12,7 @@ this file is parse into an object with structure of:
 """
 
 import atexit
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -19,7 +20,10 @@ from pathlib import Path
 import syside
 
 from sysmlc.errors import SysmlcError, UnsupportedConstructError
-from sysmlc.sysml.foreign_artifact.languages import get_language
+from sysmlc.sysml.foreign_artifact.languages import (
+    c_function_declarations,
+    get_language,
+)
 from sysmlc.sysml.foreign_artifact.metadata import (
     get_foreign_artifact_filepath_from_metadata,
 )
@@ -79,8 +83,7 @@ def resolve_foreign_artifact(
     # Searching in metadatas for foreign artifact
     external.extend(parse_metadata(model_dir, model, lang))
     # Searching textual rep
-    if text_rep := parse_text_rep(model, element_qn, lang):
-        external.append(text_rep)
+    external.extend(parse_text_rep(model, element_qn, lang))
 
     return external
 
@@ -107,25 +110,54 @@ def parse_text_rep(
     model: syside.Model,
     element_qn: str,
     lang: str,
-) -> ForeignArtifact | None:
-    """Parse a TextRep into ``ForeignArtifact`` if any.
+) -> list[ForeignArtifact]:
+    """Parse a TextRep into ``ForeignArtifact``(s), or ``[]`` if none.
 
-    Parse all the Textual Representation found in a model
-    into a new file and parse the file into ``ForeignArtifact``.
+    Parses all the Textual Representation bodies found in a model into a
+    new file and parses that file into a ``ForeignArtifact``.
+
+    A ``"c"`` rep also gets a synthesized companion header, returned as a
+    second, ``"c_h"`` artifact: unlike a metadata- or CLI-supplied file,
+    there is no user-authored header to provide one here, and sysmlc
+    already knows every function the extracted body defines -- a backend
+    that requires a declared companion for a backed extern (see
+    ``sysmlc_statix``) would otherwise reject this path outright.
     """
     text_rep = extract_text_rep(model, element_qn, lang)
     if not text_rep:
-        return None
+        return []
 
     file_name, source_lines = text_rep
     out_dir = Path(tempfile.mkdtemp(prefix="sysmlc-reps-"))
     atexit.register(shutil.rmtree, out_dir, ignore_errors=True)
     file_path = write_file(source_lines, out_dir, file_name, lang)
+    artifacts = [ForeignArtifact(file_path, lang)]
 
-    return ForeignArtifact(
-        file_path,
-        lang,
-    )
+    if lang.strip().lower() == "c":
+        declarations = c_function_declarations("\n".join(source_lines))
+        if declarations:
+            header_path = write_file(
+                _c_header_lines(file_name, declarations),
+                out_dir,
+                file_name,
+                "c_h",
+            )
+            artifacts.append(ForeignArtifact(header_path, "c_h"))
+
+    return artifacts
+
+
+def _c_header_lines(file_name: str, declarations: tuple[str, ...]) -> list[str]:
+    """Assemble a minimal, include-guarded C header from declarations."""
+    guard = re.sub(r"[^0-9A-Za-z]", "_", file_name).upper() + "_H"
+    return [
+        f"#ifndef {guard}",
+        f"#define {guard}",
+        "",
+        *declarations,
+        "",
+        f"#endif /* {guard} */",
+    ]
 
 
 def parse_raw_file(

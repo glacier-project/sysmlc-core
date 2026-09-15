@@ -115,7 +115,24 @@ def test_c_rep_is_written_and_function_names_are_harvested(
 
 def test_c_text_rep_uses_c_extension_when_resolved() -> None:
     model = load_model(FIXTURES_DIR / "rep-c")
-    artifact = parse_text_rep(model, "CRep::increment", "c")
-    assert artifact is not None
-    assert artifact.path.suffix == ".c"
-    assert artifact.funct_names == frozenset({"increment"})
+    artifacts = parse_text_rep(model, "CRep::increment", "c")
+    source = artifacts[0]
+    assert source.path.suffix == ".c"
+    assert source.funct_names == frozenset({"increment"})
+
+
+def test_c_text_rep_also_synthesizes_a_companion_header() -> None:
+    # There is no user-authored header for a rep body -- sysmlc has to
+    # supply one itself, since it already knows the signature it just
+    # extracted.
+    model = load_model(FIXTURES_DIR / "rep-c")
+    artifacts = parse_text_rep(model, "CRep::increment", "c")
+    assert [a.lang for a in artifacts] == ["c", "c_h"]
+    header = artifacts[1]
+    assert header.path.suffix == ".h"
+    assert header.path.parent == artifacts[0].path.parent
+    text = header.path.read_text()
+    assert "#ifndef" in text and "#define" in text and "#endif" in text
+    assert "increment(" in text
+    assert ";" in text
+    assert "{" not in text  # a declaration, never a definition

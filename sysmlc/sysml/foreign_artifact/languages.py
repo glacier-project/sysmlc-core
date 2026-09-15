@@ -5,9 +5,16 @@ from __future__ import annotations
 import ast
 import re
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Final, Protocol
 
 from sysmlc.errors import UnsupportedConstructError
+
+_C_FUNCTION_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"(?m)^\s*(?:[A-Za-z_]\w*\s+)+([A-Za-z_]\w*)\s*\([^;{}]*\)\s*\{"
+)
+_C_DECLARATION_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"(?m)^\s*(?:[A-Za-z_]\w*\s+)+([A-Za-z_]\w*)\s*\([^;{}]*\)\s*;"
+)
 
 
 class ForeignArtifactLanguage(Protocol):
@@ -59,10 +66,6 @@ class CLanguage:
     name: str = "c"
     extension: str = "c"
     comment: str = "//"
-    _function_pattern: re.Pattern[str] = re.compile(
-        r"(?m)^\s*(?:[A-Za-z_]\w*\s+)+([A-Za-z_]\w*)\s*"
-        r"\([^;{}]*\)\s*\{"
-    )
 
     def validate(self, source: str) -> None:
         """Accept C source as opaque text."""
@@ -70,22 +73,40 @@ class CLanguage:
     def function_names(self, source: str) -> frozenset[str]:
         """Return names of C function definitions."""
         return frozenset(
-            match.group(1) for match in self._function_pattern.finditer(source)
+            match.group(1) for match in _C_FUNCTION_PATTERN.finditer(source)
         )
+
+
+def c_function_declarations(source: str) -> tuple[str, ...]:
+    """Return one prototype declaration per top-level C function definition.
+
+    Each line is the function's own signature with the body dropped and a
+    ``;`` in its place, in source order. Used to synthesize a companion
+    header for C extracted from a ``TextualRepresentation`` body, where
+    there is no user-authored file to carry one (see
+    ``sysmlc.sysml.foreign_artifact.text_rep``).
+    """
+    declarations: list[str] = []
+    for match in _C_FUNCTION_PATTERN.finditer(source):
+        signature = match.group(0)
+        signature = signature[: signature.rindex("{")].rstrip()
+        declarations.append(f"{signature};")
+    return tuple(declarations)
 
 
 @dataclass(frozen=True)
 class CHeaderLanguage:
     """Handle C header foreign artifacts.
 
-    A header is a companion file (declarations, macros, types), never a
-    match target for a calc-def call: it exposes no function names, even
-    when it happens to contain an inline definition. A backend that wants
-    a calc def backed by a ``.c``/``.h`` pair declares both, one as
-    ``"c"`` and one as ``"c_h"``, and tells them apart by ``lang`` to
-    place each correctly (e.g. a compiled source vs. an include-path-only
-    header) -- see ``sysmlc_statix`` for the backend that actually needs
-    the distinction.
+    A header is a companion file (declarations, macros, types): it never
+    *defines* a callable, so it is never itself the match target that
+    backs a calc-def call -- a backend must check a ``"c"`` artifact for
+    that. ``function_names`` here means "names this header *declares*",
+    used instead to check that a backed calc def has a companion
+    declaration available at all (a backend wanting a calc def backed by
+    a ``.c``/``.h`` pair declares both, one as ``"c"`` and one as
+    ``"c_h"``, and tells them apart by ``lang`` -- see ``sysmlc_statix``,
+    the backend that actually needs the distinction).
     """
 
     name: str = "c_h"
@@ -96,8 +117,10 @@ class CHeaderLanguage:
         """Accept C header source as opaque text."""
 
     def function_names(self, source: str) -> frozenset[str]:
-        """A header backs no calc-def match; always empty."""
-        return frozenset()
+        """Return names of C function prototypes declared in this header."""
+        return frozenset(
+            match.group(1) for match in _C_DECLARATION_PATTERN.finditer(source)
+        )
 
 
 _LANGUAGES: dict[str, ForeignArtifactLanguage] = {
