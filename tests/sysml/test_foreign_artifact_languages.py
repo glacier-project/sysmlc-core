@@ -1,4 +1,4 @@
-from __future__ import annotations
+uvfrom __future__ import annotations
 
 from sysmlc.sysml.foreign_artifact.languages import SUPPORTED_LANG, get_language
 
