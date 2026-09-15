@@ -37,12 +37,29 @@ def test_missing_lang_matches_any_target() -> None:
     assert result == ("generic.py",)
 
 
-def test_multiple_files_on_one_application_are_rejected() -> None:
+def test_multiple_files_on_one_application_are_all_returned() -> None:
     model = load_model(FIXTURES_DIR / "external-module-multi-file")
-    with pytest.raises(
-        UnsupportedConstructError, match="only a single file per module"
-    ):
-        get_foreign_artifact_filepath_from_metadata(model, "python")
+    result = get_foreign_artifact_filepath_from_metadata(model, "python")
+    assert result == ("a.py", "b.py")
+
+
+def test_two_languages_on_the_same_element_are_both_found() -> None:
+    """A single element can carry one @ForeignArtifact per language.
+
+    Regression test: the underlying element query used to return only the
+    first metadata application per element (see
+    sysmlc.sysml.metadata.find_applied_metadata), so a second application
+    of the same metadata definition -- here, a second language -- was
+    invisible.
+    """
+    model = load_model(FIXTURES_DIR / "external-module-multi-lang")
+    assert get_foreign_artifact_filepath_from_metadata(model, "python") == (
+        "impl.py",
+    )
+    assert get_foreign_artifact_filepath_from_metadata(model, "c") == (
+        "impl.c",
+        "impl.h",
+    )
 
 
 def test_two_declarations_across_model_are_rejected() -> None:

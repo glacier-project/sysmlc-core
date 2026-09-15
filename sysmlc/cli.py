@@ -56,8 +56,8 @@ def _resolve_foreign(
     for lang in SUPPORTED_LANG:
         if lang not in supported:
             continue
-        path: Path | None = getattr(args, lang, None)
-        if path:
+        paths: list[Path] | None = getattr(args, lang, None)
+        for path in paths or ():
             external.append(parse_raw_file(path, lang))
         external.extend(
             resolve_foreign_artifact(
@@ -252,10 +252,13 @@ def _add_foreign_arguments(
         parser.add_argument(
             f"--{lang}",
             type=Path,
+            action="append",
             help=(
                 f"a {lang.upper() if lang == 'c' else lang.capitalize()} "
                 "file whose top-level functions back external calc-def "
-                "calls; matched to SysML functions by simple name"
+                "calls, matched to SysML functions by simple name; repeat "
+                "to also carry along companion files (e.g. a header) that "
+                "define no calc-def function themselves"
             ),
         )
 
@@ -495,8 +498,9 @@ def _write_artifact(
     )
     written = backend.write(artifact, options)
 
-    for fa in external:
-        written.extend(_copy_external_support(fa.path, written))
+    if not backend.owns_external_delivery():
+        for fa in external:
+            written.extend(_copy_external_support(fa.path, written))
 
     for path in written:
         logger.info("Wrote %s", path)

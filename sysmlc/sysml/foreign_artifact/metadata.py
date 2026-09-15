@@ -62,30 +62,6 @@ def _extract_files_and_lang(
     return file_paths, extracted_lang
 
 
-def _validate_single_file_constraint(
-    file_paths: list[str],
-    element: syside.Element,
-) -> None:
-    """Reject metadata that declares more than one file.
-
-    TODO: lift this restriction once multi-file modules are supported.
-    """
-    if len(file_paths) <= 1:
-        return
-
-    element_qn = str(
-        getattr(
-            element, "qualified_name", getattr(element, "name", "<anonymous>")
-        )
-    )
-    raise UnsupportedConstructError(
-        f"The @ForeignArtifact metadata on element {element_qn!r} "
-        f"specifies {len(file_paths)} files: {file_paths!r}. "
-        "Currently, only a single file per module is supported.",
-        node=element,
-    )
-
-
 def get_foreign_artifact_filepath_from_metadata(
     model: syside.Model,
     target_lang: str = "python",
@@ -96,6 +72,12 @@ def get_foreign_artifact_filepath_from_metadata(
     model apply it with ``@ForeignArtifact { ... }``
     without declaring or importing it.
 
+    A ``files`` list with more than one entry carries them all along
+    together (e.g. a C implementation plus the header it includes); only
+    the entries whose language's ``function_names`` extraction actually
+    finds a callable back a calc-def call, but every entry is still
+    delivered into the build output.
+
     Args:
         model: The loaded syside Model instance.
         target_lang: The target language filter (default: "python").
@@ -105,8 +87,7 @@ def get_foreign_artifact_filepath_from_metadata(
 
     Raises:
         UnsupportedConstructError: If more than one @ForeignArtifact
-            application matches `target_lang` in the model, or if a single
-            application lists more than one file (single-file restriction).
+            application matches `target_lang` in the model.
     """
     definition = foreign_artifact_definition(model)
     if definition is None:
@@ -124,7 +105,6 @@ def get_foreign_artifact_filepath_from_metadata(
         if lang and lang.lower() != target_lang.lower():
             continue
 
-        _validate_single_file_constraint(file_paths, element)
         found_paths.extend(file_paths)
         source_elements.append(element)
 

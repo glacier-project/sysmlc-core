@@ -333,6 +333,22 @@ class Backend(ABC):
         """
         return False
 
+    def owns_external_delivery(self) -> bool:
+        """Whether ``write`` places used external artifacts itself.
+
+        The CLI's default delivery copies each external artifact's
+        original file, under its own name, beside every directory
+        ``write`` populated. That is wrong for a backend whose own
+        generated filenames can coincide with an artifact's name (e.g. a
+        C backend deriving a scaffold filename from the same model
+        element the artifact backs): the copy would collide with a
+        same-named generated file that means something else entirely.
+        A backend in that position returns True here and does the
+        copying itself, using whatever placement avoids its own
+        collisions; the CLI then skips its generic copy for that build.
+        """
+        return False
+
     def serialize(self, artifact: object, fmt: str) -> str:
         """Serialize a built artifact to text in the requested format."""
         raise SerializationError(
