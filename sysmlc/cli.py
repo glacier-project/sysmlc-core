@@ -242,6 +242,9 @@ def _select_state_def(model: syside.Model, requested: str | None) -> str:
     return requested
 
 
+_FOREIGN_LANG_LABELS: dict[str, str] = {"c": "C", "c_h": "C header"}
+
+
 def _add_foreign_arguments(
     parser: argparse.ArgumentParser, backend: Backend
 ) -> None:
@@ -249,16 +252,16 @@ def _add_foreign_arguments(
     for lang in SUPPORTED_LANG:
         if lang not in backend.supported_foreign_artifact_languages():
             continue
+        label = _FOREIGN_LANG_LABELS.get(lang, lang.capitalize())
         parser.add_argument(
             f"--{lang}",
             type=Path,
             action="append",
             help=(
-                f"a {lang.upper() if lang == 'c' else lang.capitalize()} "
-                "file whose top-level functions back external calc-def "
-                "calls, matched to SysML functions by simple name; repeat "
-                "to also carry along companion files (e.g. a header) that "
-                "define no calc-def function themselves"
+                f"a {label} file whose top-level functions back external "
+                "calc-def calls, matched to SysML functions by simple "
+                "name (a companion file that defines none, e.g. a header, "
+                "is still carried along); repeat for more than one file"
             ),
         )
 

@@ -74,9 +74,36 @@ class CLanguage:
         )
 
 
+@dataclass(frozen=True)
+class CHeaderLanguage:
+    """Handle C header foreign artifacts.
+
+    A header is a companion file (declarations, macros, types), never a
+    match target for a calc-def call: it exposes no function names, even
+    when it happens to contain an inline definition. A backend that wants
+    a calc def backed by a ``.c``/``.h`` pair declares both, one as
+    ``"c"`` and one as ``"c_h"``, and tells them apart by ``lang`` to
+    place each correctly (e.g. a compiled source vs. an include-path-only
+    header) -- see ``sysmlc_statix`` for the backend that actually needs
+    the distinction.
+    """
+
+    name: str = "c_h"
+    extension: str = "h"
+    comment: str = "//"
+
+    def validate(self, source: str) -> None:
+        """Accept C header source as opaque text."""
+
+    def function_names(self, source: str) -> frozenset[str]:
+        """A header backs no calc-def match; always empty."""
+        return frozenset()
+
+
 _LANGUAGES: dict[str, ForeignArtifactLanguage] = {
     "python": PythonLanguage(),
     "c": CLanguage(),
+    "c_h": CHeaderLanguage(),
 }
 
 SUPPORTED_LANG = tuple(_LANGUAGES)
