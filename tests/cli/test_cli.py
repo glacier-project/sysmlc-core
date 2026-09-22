@@ -67,6 +67,7 @@ class _FakeBackend(Backend):
         model: object,
         element_qn: str,
         external: list[ForeignArtifact] | None = None,
+        strict_extern: bool = False,
     ) -> object:
         self.build_calls.append(element_qn)
         self.built_models.append(model)

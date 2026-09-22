@@ -22,6 +22,7 @@ class _StubBackend(Backend):
         model: object,
         element_qn: str,
         external: list[ForeignArtifact] | None = None,
+        strict_extern: bool = False,
     ) -> object:
         return object()
 

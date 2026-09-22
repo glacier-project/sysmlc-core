@@ -196,6 +196,16 @@ def _add_build_arguments(
         ),
     )
     _add_foreign_arguments(build, backend)
+    if backend.accepts_strict_extern():
+        build.add_argument(
+            "--strict-extern",
+            action="store_true",
+            help=(
+                "reject a bodyless calc def with no matching foreign "
+                "artifact instead of generating an unimplemented extern "
+                "for the user to provide by hand later"
+            ),
+        )
     if backend.accepts_target_options():
         build.add_argument(
             "--timeout",
@@ -355,6 +365,11 @@ def _target_options(
     return tuple(options)
 
 
+def _strict_extern(args: argparse.Namespace) -> bool:
+    """Read ``--strict-extern``, absent for backends that don't declare it."""
+    return getattr(args, "strict_extern", False)
+
+
 def _resolve_model_dir(model: Path) -> Path:
     """Resolve the ``model`` argument to a model directory on disk.
 
@@ -452,12 +467,15 @@ def _cmd_build(args: argparse.Namespace) -> int:
         backend, args, model_dir, model, element_qn
     )
 
+    strict_extern = _strict_extern(args)
     if is_rig:
         artifact = backend.build_composition(
-            model, element_qn, external=external
+            model, element_qn, external=external, strict_extern=strict_extern
         )
     else:
-        artifact = backend.build(model, element_qn, external=external)
+        artifact = backend.build(
+            model, element_qn, external=external, strict_extern=strict_extern
+        )
     return _write_artifact(args, backend, element_qn, artifact, external)
 
 
@@ -480,7 +498,11 @@ def _build_part(
     )
 
     artifact = backend.build_part(
-        model, usage_qn, target_options=target_options, external=external
+        model,
+        usage_qn,
+        target_options=target_options,
+        external=external,
+        strict_extern=_strict_extern(args),
     )
     return _write_artifact(args, backend, usage_qn, artifact, external)
 

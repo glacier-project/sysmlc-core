@@ -99,6 +99,7 @@ class Backend(ABC):
         model: syside.Model,
         element_qn: str,
         external: list[ForeignArtifact] | None = None,
+        strict_extern: bool = False,
     ) -> object:
         """Build the artifact for the ``element_qn`` in the given model.
 
@@ -107,6 +108,9 @@ class Backend(ABC):
             element_qn: The qualified name of the state definition to build.
             external: The Foreign Artifacts available to back external
                 calc-def calls, or None when none were provided.
+            strict_extern: For backends that declare `accepts_strict_extern`,
+                whether a bodyless calc def with no matching artifact
+                should be a build-time error. Ignored otherwise.
 
         Returns:
             An artifact object representing the built target, whose type is
@@ -161,6 +165,7 @@ class Backend(ABC):
         *,
         target_options: tuple[tuple[str, str], ...] = (),
         external: list[ForeignArtifact] | None = None,
+        strict_extern: bool = False,
     ) -> object:
         """Build an artifact for a top-level part usage.
 
@@ -171,6 +176,9 @@ class Backend(ABC):
                 for backends that declare :meth:`accepts_target_options`.
             external: The Foreign Artifacts available to back external
                 calc-def calls, or None when none were provided.
+            strict_extern: For backends that declare `accepts_strict_extern`,
+                whether a bodyless calc def with no matching artifact
+                should be a build-time error. Ignored otherwise.
         """
         raise UnsupportedOperationError(
             f"backend {self.name!r} does not build part systems"
@@ -182,6 +190,7 @@ class Backend(ABC):
         element_qn: str,
         *,
         external: list[ForeignArtifact] | None = None,
+        strict_extern: bool = False,
     ) -> object:
         """Build an artifact for a two-exhibit rig composition.
 
@@ -190,6 +199,9 @@ class Backend(ABC):
             element_qn: Qualified name of the rig definition to build.
             external: The Foreign Artifacts available to back external
                 calc-def calls, or None when none were provided.
+            strict_extern: For backends that declare `accepts_strict_extern`,
+                whether a bodyless calc def with no matching artifact
+                should be a build-time error. Ignored otherwise.
         """
         raise UnsupportedOperationError(
             f"backend {self.name!r} does not build compositions"
@@ -330,6 +342,18 @@ class Backend(ABC):
         These populate target-header options (a run timeout and fast mode)
         for the generated program. When False, the CLI omits both flags for
         this backend.
+        """
+        return False
+
+    def accepts_strict_extern(self) -> bool:
+        """Whether the backend accepts the ``--strict-extern`` flag.
+
+        When True, the CLI adds ``--strict-extern`` and forwards it as
+        ``strict_extern`` to ``build``/``build_part``/``build_composition``:
+        the backend should then reject a bodyless calc def with no
+        matching foreign artifact instead of quietly generating an
+        unimplemented one. When False, the CLI omits the flag and always
+        passes ``strict_extern=False``.
         """
         return False
 
