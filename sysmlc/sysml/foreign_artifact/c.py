@@ -91,6 +91,19 @@ def function_declarations(source: str) -> tuple[str, ...]:
     )
 
 
+def with_function_declarations(source: str) -> str:
+    """Add exported prototypes after type context and before definitions."""
+    raw = source.encode()
+    declarations = [
+        (node.start_byte, (_signature(node, raw) + "\n").encode())
+        for node in _top_level(_parse(source))
+        if node.type == "function_definition" and not _static(node)
+    ]
+    for offset, declaration in reversed(declarations):
+        raw = raw[:offset] + declaration + raw[offset:]
+    return raw.decode()
+
+
 def header_source(source: str) -> str:
     """Keep includes/types/macros and replace exported definitions by prototypes.
 

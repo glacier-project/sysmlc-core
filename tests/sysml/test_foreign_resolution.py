@@ -198,13 +198,43 @@ def test_generated_c_header_preserves_types_and_deduplicates_helpers(
     )
     artifacts = parse_text_rep(model, "Example::transform", "c")
     source, header = artifacts
-    assert source.path.read_text().count("double helper(") == 1
+    assert source.path.read_text().count("double helper(double x) {") == 1
     assert "typedef double Value;" in header.path.read_text()
     for args in (
         ("-c", str(source.path), "-o", str(tmp_path / "impl.o")),
         ("-x", "c", "-fsyntax-only", str(header.path)),
     ):
         result = subprocess.run(["cc", *args], capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
+
+
+def test_generated_c_source_compiles_with_required_prototypes(
+    tmp_path: Path,
+) -> None:
+    model = _model(
+        tmp_path,
+        """
+        rep context language "C" /*
+            typedef struct Sample { double value; } Sample;
+        */
+        calc def transform {
+            in x : Real; return : Real;
+            rep impl language "C" /*
+                Sample *transform(Sample *x) { return x; }
+            */
+        }
+        """,
+    )
+    source, header = parse_text_rep(model, "Example::transform", "c")
+    for args in (
+        ("-c", str(source.path), "-o", str(tmp_path / "impl.o")),
+        ("-x", "c", "-fsyntax-only", str(header.path)),
+    ):
+        result = subprocess.run(
+            ["cc", "-Wmissing-prototypes", "-Werror", *args],
+            capture_output=True,
+            text=True,
+        )
         assert result.returncode == 0, result.stderr
 
 

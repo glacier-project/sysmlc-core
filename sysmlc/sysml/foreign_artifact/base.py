@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from sysmlc.errors import SysmlcError
+from sysmlc.sysml.foreign_artifact import c
 from sysmlc.sysml.foreign_artifact.languages import (
     c_header_source,
     get_language,
@@ -170,17 +171,23 @@ def parse_text_rep(
     if not text_rep:
         return []
     file_name, source_lines = text_rep
-    out_dir = Path(tempfile.mkdtemp(prefix="sysmlc-reps-"))
-    file_path = write_file(source_lines, out_dir, file_name, lang)
-    artifacts = [ForeignArtifact(file_path, lang)]
-    if lang.strip().lower() == "c":
-        guard = re.sub(r"[^0-9A-Za-z]", "_", file_name).upper() + "_H"
+    header = None
+    if lang == "c":
+        source = "\n".join(source_lines)
         try:
-            header = c_header_source("\n".join(source_lines))
+            header = c_header_source(source)
+            source_lines = tuple(
+                c.with_function_declarations(source).splitlines()
+            )
         except SyntaxError as error:
             raise ForeignArtifactError(
                 f"C representations for {element_qn!r}: {error}"
             ) from error
+    out_dir = Path(tempfile.mkdtemp(prefix="sysmlc-reps-"))
+    file_path = write_file(source_lines, out_dir, file_name, lang)
+    artifacts = [ForeignArtifact(file_path, lang)]
+    if header is not None:
+        guard = re.sub(r"[^0-9A-Za-z]", "_", file_name).upper() + "_H"
         header_path = write_file(
             [f"#ifndef {guard}", f"#define {guard}", header, "#endif"],
             out_dir,
