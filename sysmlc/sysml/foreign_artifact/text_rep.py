@@ -1,4 +1,4 @@
-"""Support for SysML ``TextualRepresentation`` as an external Python module."""
+"""Build foreign artifacts from SysML ``TextualRepresentation`` bodies."""
 
 from __future__ import annotations
 
@@ -11,13 +11,13 @@ if TYPE_CHECKING:
 import syside
 
 from sysmlc.errors import UnsupportedConstructError
+from sysmlc.sysml.foreign_artifact import c
+from sysmlc.sysml.foreign_artifact.languages import get_language
 from sysmlc.sysml.queries import iter_elements
-
-_PYTHON_TAG = "python"
 
 
 def _require_package_or_calc_def(element: syside.Element) -> None:
-    """Reject a Python rep attached to anything but a package or calc def.
+    """Reject a rep attached to anything but a package or calc def.
 
     A package rep carries module scaffolding (imports, constants, private
     helpers); a calc-def rep carries that function's body. A rep attached
@@ -28,7 +28,7 @@ def _require_package_or_calc_def(element: syside.Element) -> None:
     if isinstance(element, syside.Package | syside.CalculationDefinition):
         return
     raise UnsupportedConstructError(
-        "a Python textual representation is attached to an element that "
+        "a textual representation is attached to an element that "
         "is neither a package nor a calc def; Python bodies are collected "
         "from packages (module scaffolding) and calc defs (function "
         "bodies) only.",
@@ -36,55 +36,58 @@ def _require_package_or_calc_def(element: syside.Element) -> None:
     )
 
 
-def _require_valid_python(body: str, element: syside.Element) -> None:
-    """Reject a rep body that does not parse as Python.
+def _require_valid_lang(body: str, element: syside.Element, lang: str) -> None:
+    """Reject a rep body that is unsupported or empty.
 
     Validating each body on its own keeps the diagnosis attached to the
     element that carries the broken rep.
     """
+    language = get_language(lang)
+    if not body.strip():
+        raise UnsupportedConstructError(
+            "the textual representation body is empty.",
+            node=element,
+        )
     try:
-        ast.parse(body)
+        language.validate(body)
     except SyntaxError as error:
         raise UnsupportedConstructError(
-            "the Python textual representation body is not valid Python: "
+            f"the textual representation body is not valid {lang}: "
             f"{error.msg} (body line {error.lineno})",
             node=element,
         ) from error
 
 
-def _python_rep_bodies(element: syside.Element) -> list[str]:
-    """Bodies of the Python textual representations on ``element``."""
+def _rep_bodies(element: syside.Element, lang: str) -> list[str]:
+    """Return bodies in the requested language on ``element``."""
     return [
         tr.body
         for tr in element.textual_representations.collect()
-        if tr.language.strip().lower() == _PYTHON_TAG
+        if tr.language.strip().lower() == lang.lower()
     ]
 
 
 def _require_backing_def(
-    bodies: list[str], calc: syside.CalculationDefinition
+    bodies: list[str], calc: syside.CalculationDefinition, lang: str
 ) -> None:
-    """Require a body of the calc def to define ``def <calc.name>``.
+    """Require a body of the calc def to expose ``<calc.name>``.
 
     Callers import the calc def's name from the generated module;
     without a matching def the import would only fail at run time.
     """
-    defined: list[str] = []
-    for body in bodies:
-        for statement in ast.parse(body).body:
-            if isinstance(statement, ast.FunctionDef):
-                defined.append(statement.name)
+    language = get_language(lang)
+    defined = set().union(*(language.function_names(body) for body in bodies))
     if calc.name in defined:
         return
-    found = ", ".join(repr(name) for name in defined) or "no function"
+    found = ", ".join(repr(name) for name in sorted(defined)) or "no function"
     raise UnsupportedConstructError(
-        f"the Python body defines {found} but the calc def is named "
-        f"{calc.name!r}; one def must match the calc def name.",
+        f"the {lang} body defines {found} but the calc def is named "
+        f"{calc.name!r}; one definition must match the calc def name.",
         node=calc,
     )
 
 
-def _require_rep_backed_calc_defs(model: syside.Model) -> None:
+def _require_rep_backed_calc_defs(model: syside.Model, lang: str) -> None:
     """Reject a rep-carrying calc def the generated module cannot back.
 
     Each rep-carrying calc def must have exactly one Python body, and
@@ -92,25 +95,26 @@ def _require_rep_backed_calc_defs(model: syside.Model) -> None:
     the module cannot provide the function its callers import.
     """
     for calc in iter_elements(model, syside.CalculationDefinition):
-        bodies = _python_rep_bodies(calc)
+        bodies = _rep_bodies(calc, lang)
         if not bodies:
             continue
         if len(bodies) > 1:
             raise UnsupportedConstructError(
-                "this calc def carries more than one Python textual "
+                f"this calc def carries more than one {lang.capitalize()} textual "
                 "representation, so its function body is ambiguous; "
                 "keep exactly one.",
                 node=calc,
             )
         for body in bodies:
-            _require_valid_python(body, calc)
-        _require_backing_def(bodies, calc)
+            _require_valid_lang(body, calc, lang)
+        _require_backing_def(bodies, calc, lang)
 
 
 def _register_defs(
     body: str,
     element: syside.Element,
     seen: dict[str, tuple[str, str]],
+    lang: str,
 ) -> None:
     """Register the body's top-level defs; reject a conflicting name.
 
@@ -118,19 +122,30 @@ def _register_defs(
     the same name is a collision and fails loud.
     """
     qualified_name = str(element.qualified_name)
-    for statement in ast.parse(body).body:
-        if not isinstance(statement, ast.FunctionDef):
-            continue
-        source = ast.unparse(statement)
-        known = seen.get(statement.name)
+    language = get_language(lang)
+    definitions: dict[str, str] = (
+        c.function_sources(body) if lang == "c" else {}
+    )
+    for name in definitions or language.function_names(body):
+        if language.name == "python":
+            statement = next(
+                statement
+                for statement in ast.parse(body).body
+                if isinstance(statement, ast.FunctionDef)
+                and statement.name == name
+            )
+            source = ast.unparse(statement)
+        else:
+            source = definitions.get(name, body)
+        known = seen.get(name)
         if known is None:
-            seen[statement.name] = (qualified_name, source)
+            seen[name] = (qualified_name, source)
             continue
         known_qualified_name, known_source = known
         if known_source == source:
             continue
         raise UnsupportedConstructError(
-            f"two Python rep bodies define {statement.name!r} with "
+            f"two {lang} rep bodies define {name!r} with "
             f"different implementations ({known_qualified_name!r} and "
             f"{qualified_name!r}); the generated module has one flat "
             "namespace, so the last definition would silently win; "
@@ -139,7 +154,7 @@ def _register_defs(
         )
 
 
-def _require_unique_defs(model: syside.Model) -> None:
+def _require_unique_defs(model: syside.Model, lang: str) -> None:
     """Reject two rep bodies defining the same function differently.
 
     The generated module has one flat namespace: a second ``def`` of
@@ -153,23 +168,23 @@ def _require_unique_defs(model: syside.Model) -> None:
     ]
     seen: dict[str, tuple[str, str]] = {}
     for element in elements:
-        for body in _python_rep_bodies(element):
-            _require_valid_python(body, element)
-            _register_defs(body, element, seen)
+        for body in _rep_bodies(element, lang):
+            _require_valid_lang(body, element, lang)
+            _register_defs(body, element, seen, lang)
 
 
-def _collect_lines(element: syside.Element) -> list[str]:
+def _collect_lines(element: syside.Element, lang: str) -> list[str]:
     code: list[str] = []
 
-    for body in _python_rep_bodies(element):
+    for body in _rep_bodies(element, lang):
         _require_package_or_calc_def(element)
-        _require_valid_python(body, element)
+        _require_valid_lang(body, element, lang)
         if code:
             code.extend(("", ""))
         code.extend(body.splitlines())
 
     for child in element.owned_elements.collect():
-        child_lines = _collect_lines(child)
+        child_lines = _collect_lines(child, lang)
         if not child_lines:
             continue
         if code:
@@ -179,7 +194,7 @@ def _collect_lines(element: syside.Element) -> list[str]:
     return code
 
 
-def _collect_code(model: syside.Model) -> list[str]:
+def _collect_code(model: syside.Model, lang: str) -> list[str]:
     code: list[str] = []
     for element in model.elements(
         syside.Element,
@@ -188,7 +203,7 @@ def _collect_code(model: syside.Model) -> list[str]:
     ):
         if getattr(element, "owner", None) is not None:
             continue
-        lines = _collect_lines(element)
+        lines = _collect_lines(element, lang)
         if not lines:
             continue
         if code:
@@ -197,17 +212,18 @@ def _collect_code(model: syside.Model) -> list[str]:
     return code
 
 
-def extract_textual(
+def extract_text_rep(
     model: syside.Model,
     scope_qn: str,
+    lang: str = "python",
     *,
     module_name: str | None = None,
 ) -> tuple[str, tuple[str, ...]] | None:
-    """Extract the model's Python rep bodies as module source.
+    """Extract the model's rep bodies as source for one artifact.
 
-    Collects every Python ``TextualRepresentation`` body in the model
+    Collects every requested-language ``TextualRepresentation`` body in the model
     (package reps first within each element, in model order) into the
-    source lines of one flat Python module. The caller writes the module
+    source lines of one flat foreign artifact. The caller writes the artifact
     to disk and derives the backing function names from the written file,
     exactly as for a user-supplied backing module.
 
@@ -215,36 +231,43 @@ def extract_textual(
         model: Loaded syside model to collect rep bodies from.
         scope_qn: Qualified name of the element being built; its simple
             name defaults the module stem to ``<name>_impl``.
+        lang: language selection for textual rep
         module_name: Explicit module stem overriding the default.
 
     Returns:
         A ``(module_stem, source_lines)`` pair, or None when the model
-        carries no Python textual representations.
+        carries no textual representations in the requested language.
 
     Raises:
         UnsupportedConstructError: If a rep is attached to an element
             that is neither a package nor a calc def, a body is not valid
-            Python or is empty, a calc def carries more than one Python
-            rep or none of its defs matches its name, or two bodies
+            or is empty, a calc def carries more than one rep or none of
+            its definitions matches its name, or two bodies
             define the same function differently.
     """
-    lines = _collect_code(model)
+    lines = _collect_code(model, lang)
     if not lines:
         return None
 
     src_code = "\n".join(lines)
+    if lang == "c":
+        try:
+            src_code = c.deduplicate_functions(src_code)
+        except SyntaxError as error:
+            raise UnsupportedConstructError(str(error)) from error
+        lines = src_code.splitlines()
     if not src_code.strip():
         raise UnsupportedConstructError(
-            "Python TextualRepresentation bodies found in the model while "
+            "TextualRepresentation bodies found in the model while "
             f"processing {scope_qn!r} but all are empty."
         )
     stem = module_name or f"{scope_qn.split('::')[-1]}_impl"
-    _require_rep_backed_calc_defs(model)
-    _require_unique_defs(model)
+    _require_rep_backed_calc_defs(model, lang)
+    _require_unique_defs(model, lang)
 
     header = [
-        "# Auto-generated from SysML TextualRepresentation bodies.",
-        "# Do not edit — regenerate from the SysML source instead.",
+        f"{get_language(lang).comment} Auto-generated from SysML TextualRepresentation bodies.",
+        f"{get_language(lang).comment} Do not edit - regenerate from the SysML source instead.",
         "",
     ]
     full_lines = tuple(header) + tuple(lines)
@@ -252,29 +275,17 @@ def extract_textual(
     return stem, full_lines
 
 
-def write_module(
+def write_file(
     src_lines: list[str] | tuple[str, ...],
     out_dir: Path,
     module_name: str,
+    lang: str = "python",
 ) -> Path:
-    """Write the Python file."""
+    """Write the generated foreign artifact file."""
+    lang = lang.lower()
+    language = get_language(lang)
+
     out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / f"{module_name}.py"
+    path = out_dir / f"{module_name}.{language.extension}"
     path.write_text("\n".join(src_lines) + "\n")
     return path
-
-
-def module_function_names(module_path: Path) -> frozenset[str]:
-    """Names of the module's top-level synchronous function defs.
-
-    These are the names a backing module offers to calc-def call sites;
-    an ``async def`` cannot back a synchronous call, so it is excluded.
-
-    Raises:
-        OSError: If the file cannot be read.
-        SyntaxError: If the file is not valid Python.
-    """
-    tree = ast.parse(module_path.read_text(), filename=str(module_path))
-    return frozenset(
-        node.name for node in tree.body if isinstance(node, ast.FunctionDef)
-    )

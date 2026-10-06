@@ -11,8 +11,8 @@ from typing import TYPE_CHECKING, Final
 import syside
 
 from sysmlc.errors import UnsupportedConstructError
+from sysmlc.sysml.foreign_artifact.text_rep import write_file
 from sysmlc.sysml.queries import feature_value, is_scalar_quantity
-from sysmlc.sysml.textual_representation import write_module
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -104,7 +104,7 @@ class GeneratedPythonModule:
 
     def write(self, directory: Path) -> Path:
         """Write the module into ``directory`` and return its path."""
-        return write_module(self.lines, directory, self.name)
+        return write_file(self.lines, directory, self.name)
 
     @classmethod
     def from_registry(

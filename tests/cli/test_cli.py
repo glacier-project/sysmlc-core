@@ -6,13 +6,15 @@ import pytest
 from sysmlc_models.sm_examples import SM_EXAMPLES_DIR
 
 from sysmlc.backends import Backend
-from sysmlc.cli import CliError, _copy_python_support, _parse_external, main
+from sysmlc.cli import CliError, _copy_python_support, main
+from sysmlc.sysml.foreign_artifact.base import parse_artifact
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
     from sysmlc.backends import OutputOptions
+    from sysmlc.sysml.foreign_artifact.base import ForeignArtifact
 
 SM01_DIR = SM_EXAMPLES_DIR / "sm01-helloworld"
 
@@ -64,8 +66,8 @@ class _FakeBackend(Backend):
         self,
         model: object,
         element_qn: str,
-        *,
-        external: tuple[str, frozenset[str]] | None = None,
+        external: list[ForeignArtifact] | None = None,
+        strict_extern: bool = False,
     ) -> object:
         self.build_calls.append(element_qn)
         self.built_models.append(model)
@@ -94,7 +96,7 @@ class _FakeBackend(Backend):
         *,
         max_steps: int = 1000,
         until: float | None = None,
-        external: tuple[str, frozenset[str]] | None = None,
+        external: list[ForeignArtifact] | None = None,
         load_external: Callable[[], None] | None = None,
     ) -> _FakeRunReport:
         self.run_events.append("prepared")
@@ -366,7 +368,7 @@ def test_build_rejects_unknown_value_override(
 def test_parse_external_collects_sync_functions(tmp_path: Path) -> None:
     py = tmp_path / "phys.py"
     py.write_text("def step(): ...\nasync def nope(): ...\nx = 1\n")
-    module, names = _parse_external(py)
+    module, names = parse_artifact(py)
     assert module == "phys"
     assert names == frozenset({"step"})
 
@@ -394,6 +396,75 @@ def test_build_copies_python_support_beside_artifact(
 
     assert exit_code == 0
     assert (out / "support.py").read_text() == support.read_text()
+
+
+def test_build_copies_every_repeated_support_flag(
+    fake: _FakeBackend, tmp_path: Path
+) -> None:
+    """Repeating ``--python`` carries every file along, e.g. a companion."""
+    impl = tmp_path / "impl.py"
+    impl.write_text("def step(): ...\n")
+    helper = tmp_path / "helper.py"
+    helper.write_text("VALUE = 1\n")
+    out = tmp_path / "out"
+
+    exit_code = main(
+        [
+            "fake",
+            "build",
+            str(SM01_DIR),
+            "-e",
+            "SM01::Machine",
+            "--python",
+            str(impl),
+            "--python",
+            str(helper),
+            "-o",
+            str(out),
+        ]
+    )
+
+    assert exit_code == 0
+    assert (out / "impl.py").read_text() == impl.read_text()
+    assert (out / "helper.py").read_text() == helper.read_text()
+
+
+class _OwnsDeliveryFakeBackend(_FakeBackend):
+    """A backend that claims to place external artifacts itself."""
+
+    def owns_external_delivery(self) -> bool:
+        return True
+
+
+def test_build_skips_generic_copy_when_backend_owns_delivery(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    backend = _OwnsDeliveryFakeBackend()
+    monkeypatch.setattr(
+        "sysmlc.cli.discover_backends", lambda: {"fake": backend}
+    )
+    support = tmp_path / "support.py"
+    support.write_text("def step(): ...\n")
+    out = tmp_path / "out"
+
+    exit_code = main(
+        [
+            "fake",
+            "build",
+            str(SM01_DIR),
+            "-e",
+            "SM01::Machine",
+            "--python",
+            str(support),
+            "-o",
+            str(out),
+        ]
+    )
+
+    assert exit_code == 0
+    # write() itself did not place a copy; the CLI's generic copy is the
+    # only thing that would have, and it must have been skipped.
+    assert not (out / "support.py").exists()
 
 
 def test_python_support_is_loaded_when_backend_is_ready(

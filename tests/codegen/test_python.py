@@ -273,3 +273,28 @@ class TestPythonCodeGen:
         assert (
             code_gen.render_expression(trans.guard_expression) == case.expected
         )
+
+
+def test_external_calculation_uses_consumer_symbols_and_tracks_usage(
+    tmp_path: Path,
+) -> None:
+    from sysmlc.sysml.foreign_artifact.base import ForeignArtifact
+    from sysmlc.sysml.queries import iter_elements
+
+    support = tmp_path / "codegen_support.py"
+    support.write_text("def step(x): return x + 1\n")
+    model = _load_inline_model(
+        tmp_path,
+        """
+        package Example {
+            private import ScalarValues::*;
+            calc def step { in x : Real; return : Real; }
+            attribute answer : Real = step(2.0);
+        }
+    """,
+    )
+    artifact = ForeignArtifact(support, "python")
+    generator = PythonCodeGen(external=[artifact])
+    invocation = iter_elements(model, syside.InvocationExpression)[0]
+    assert generator.render_expression(invocation) == "step(2.0)"
+    assert generator.used_external == {artifact: {"step"}}

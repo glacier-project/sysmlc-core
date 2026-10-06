@@ -13,10 +13,12 @@ from sysmlc.errors import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterable
     from pathlib import Path
 
     import syside
+
+    from sysmlc.sysml.foreign_artifact.base import ForeignArtifact
 
 logger = logging.getLogger(__name__)
 
@@ -74,24 +76,41 @@ class Backend(ABC):
     name: str
     description: str
     _formats: tuple[tuple[str, str], ...]
+    _foreign_artifact_languages: frozenset[str]
 
     def __init__(
         self,
         name: str,
         description: str,
         formats: tuple[tuple[str, str], ...] | None = None,
+        foreign_artifact_languages: Iterable[str] | None = None,
     ) -> None:
         self.name = name
         self.description = description
         self._formats = formats or ()
+        self._foreign_artifact_languages = frozenset(
+            language.strip().lower()
+            for language in (foreign_artifact_languages or ())
+        )
 
     @abstractmethod
-    def build(self, model: syside.Model, element_qn: str) -> object:
+    def build(
+        self,
+        model: syside.Model,
+        element_qn: str,
+        external: list[ForeignArtifact] | None = None,
+        strict_extern: bool = False,
+    ) -> object:
         """Build the artifact for the ``element_qn`` in the given model.
 
         Args:
             model: The loaded SysML model containing the state definition.
             element_qn: The qualified name of the state definition to build.
+            external: The Foreign Artifacts available to back external
+                calc-def calls, or None when none were provided.
+            strict_extern: For backends that declare `accepts_strict_extern`,
+                whether a bodyless calc def with no matching artifact
+                should be a build-time error. Ignored otherwise.
 
         Returns:
             An artifact object representing the built target, whose type is
@@ -133,7 +152,13 @@ class Backend(ABC):
             kinds.add("part")
         return frozenset(kinds)
 
-    def build_model(self, model: syside.Model) -> object:
+    def build_model(
+        self,
+        model: syside.Model,
+        *,
+        external: list[ForeignArtifact] | None = None,
+        strict_extern: bool = False,
+    ) -> object:
         """Build one artifact from the whole model (no single element)."""
         raise UnsupportedOperationError(
             f"backend {self.name!r} does not build a whole model"
@@ -145,9 +170,22 @@ class Backend(ABC):
         usage_qn: str,
         *,
         target_options: tuple[tuple[str, str], ...] = (),
-        external: tuple[str, frozenset[str]] | None = None,
+        external: list[ForeignArtifact] | None = None,
+        strict_extern: bool = False,
     ) -> object:
-        """Build an artifact for a top-level part usage."""
+        """Build an artifact for a top-level part usage.
+
+        Args:
+            model: The loaded SysML model containing the part usage.
+            usage_qn: Qualified name of the top-level part usage to build.
+            target_options: Target-header options (run timeout, fast mode)
+                for backends that declare :meth:`accepts_target_options`.
+            external: The Foreign Artifacts available to back external
+                calc-def calls, or None when none were provided.
+            strict_extern: For backends that declare `accepts_strict_extern`,
+                whether a bodyless calc def with no matching artifact
+                should be a build-time error. Ignored otherwise.
+        """
         raise UnsupportedOperationError(
             f"backend {self.name!r} does not build part systems"
         )
@@ -157,9 +195,20 @@ class Backend(ABC):
         model: syside.Model,
         element_qn: str,
         *,
-        external: tuple[str, frozenset[str]] | None = None,
+        external: list[ForeignArtifact] | None = None,
+        strict_extern: bool = False,
     ) -> object:
-        """Build an artifact for a two-exhibit rig composition."""
+        """Build an artifact for a two-exhibit rig composition.
+
+        Args:
+            model: The loaded SysML model containing the rig composition.
+            element_qn: Qualified name of the rig definition to build.
+            external: The Foreign Artifacts available to back external
+                calc-def calls, or None when none were provided.
+            strict_extern: For backends that declare `accepts_strict_extern`,
+                whether a bodyless calc def with no matching artifact
+                should be a build-time error. Ignored otherwise.
+        """
         raise UnsupportedOperationError(
             f"backend {self.name!r} does not build compositions"
         )
@@ -171,7 +220,7 @@ class Backend(ABC):
         *,
         max_steps: int = 1000,
         until: float | None = None,
-        external: tuple[str, frozenset[str]] | None = None,
+        external: list[ForeignArtifact] | None = None,
         load_external: Callable[[], None] | None = None,
     ) -> RunReport:
         """Execute a single state definition to quiescence.
@@ -181,7 +230,8 @@ class Backend(ABC):
             element_qn: Qualified name of the state definition to execute.
             max_steps: Safety cap on runtime macro steps.
             until: Optional simulated-time upper bound.
-            external: Python module name and functions backing external calls.
+            external: The Foreign Artifacts available to back external
+                calc-def calls, or None when none were provided.
             load_external: Callback that imports that module. Backends with
                 generated Python runtime dependencies call it after preparing
                 those dependencies and before starting execution.
@@ -200,7 +250,7 @@ class Backend(ABC):
         *,
         max_steps: int = 1000,
         until: float | None = None,
-        external: tuple[str, frozenset[str]] | None = None,
+        external: list[ForeignArtifact] | None = None,
         load_external: Callable[[], None] | None = None,
     ) -> RunReport:
         """Execute a top-level part usage to quiescence.
@@ -210,7 +260,8 @@ class Backend(ABC):
             element_qn: Qualified name of the part usage to execute.
             max_steps: Safety cap on runtime macro steps.
             until: Optional simulated-time upper bound.
-            external: Python module name and functions backing external calls.
+            external: The Foreign Artifacts available to back external
+                calc-def calls, or None when none were provided.
             load_external: Callback that imports that module. Backends with
                 generated Python runtime dependencies call it after preparing
                 those dependencies and before starting execution.
@@ -259,6 +310,28 @@ class Backend(ABC):
         """
         return False
 
+    def supported_foreign_artifact_languages(self) -> frozenset[str]:
+        """Return the foreign artifact languages consumed by this backend.
+
+        A backend declares its language support once through the constructor
+        or by overriding this method. The Python hook is retained as a
+        compatibility fallback for existing backend implementations.
+        """
+        languages = set(self._foreign_artifact_languages)
+        if self.consumes_python_support():
+            languages.add("python")
+        return frozenset(languages)
+
+    def consumes_foreign_artifact_support(self, lang: str) -> bool:
+        """Whether the backend consumes support in ``lang``.
+
+        Deprecated compatibility wrapper around
+        :meth:`supported_foreign_artifact_languages`.
+        """
+        return (
+            lang.strip().lower() in self.supported_foreign_artifact_languages()
+        )
+
     def defers_python_support_loading(self) -> bool:
         """Whether the backend controls when Python support is imported.
 
@@ -275,6 +348,34 @@ class Backend(ABC):
         These populate target-header options (a run timeout and fast mode)
         for the generated program. When False, the CLI omits both flags for
         this backend.
+        """
+        return False
+
+    def accepts_strict_extern(self) -> bool:
+        """Whether the backend accepts the ``--strict-extern`` flag.
+
+        When True, the CLI adds ``--strict-extern`` and forwards it as
+        ``strict_extern`` to ``build``/``build_part``/``build_composition``:
+        the backend should then reject a bodyless calc def with no
+        matching foreign artifact instead of quietly generating an
+        unimplemented one. When False, the CLI omits the flag and always
+        passes ``strict_extern=False``.
+        """
+        return False
+
+    def owns_external_delivery(self) -> bool:
+        """Whether ``write`` places used external artifacts itself.
+
+        The CLI's default delivery copies each external artifact's
+        original file, under its own name, beside every directory
+        ``write`` populated. That is wrong for a backend whose own
+        generated filenames can coincide with an artifact's name (e.g. a
+        C backend deriving a scaffold filename from the same model
+        element the artifact backs): the copy would collide with a
+        same-named generated file that means something else entirely.
+        A backend in that position returns True here and does the
+        copying itself, using whatever placement avoids its own
+        collisions; the CLI then skips its generic copy for that build.
         """
         return False
 

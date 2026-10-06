@@ -7,9 +7,12 @@ from typing import TYPE_CHECKING, ClassVar, Final
 import syside
 
 from sysmlc.errors import UnsupportedConstructError
+from sysmlc.sysml.foreign_artifact.base import interpret_artifacts
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+
+    from sysmlc.sysml.foreign_artifact.base import ForeignArtifact
 
 logger = logging.getLogger(__name__)
 
@@ -176,14 +179,35 @@ class PythonCodeGen:
     Args:
         context: A PythonCodeGenContext instance carrying information through
             the generation process, or None to use the default context.
+        external: The Foreign Artifacts available to back external calc-def
+            calls, or None if none were provided (e.g. no ``--python``
+            module/metadata/textual representation for this model).
     """
 
     # The whitelist consulted by `_emit_library_invocation`. Subclasses
     # may override it to re-target renderings.
     _library_functions: ClassVar[Mapping[str, str]] = LIBRARY_FUNCTIONS
 
-    def __init__(self, context: PythonCodeGenContext | None = None) -> None:
+    def __init__(
+        self,
+        context: PythonCodeGenContext | None = None,
+        external: list[ForeignArtifact] | None = None,
+    ) -> None:
         self._context = context or PythonCodeGenContext()
+        self._external: list[ForeignArtifact] = external or []
+        self._used_external: dict[ForeignArtifact, set[str]] = {}
+        self._external_symbols = interpret_artifacts(self._external, "python")
+
+    @property
+    def used_external(self) -> dict[ForeignArtifact, set[str]]:
+        """Foreign artifacts and function names actually invoked so far.
+
+        Populated incrementally as calc-def calls backed by an external
+        artifact are emitted. Callers (typically a backend that needs to
+        know which support modules to bundle) should read this only after
+        generation is complete.
+        """
+        return self._used_external
 
     def render_expression(self, expr: syside.Expression) -> str:
         """Translate ``expr`` to a Python source string.
@@ -315,10 +339,17 @@ class PythonCodeGen:
         raise ValueError(f"unsupported expression node: {type(expr).__name__}")
 
     def _emit_invocation(self, expr: syside.InvocationExpression) -> str:
-        """Emit a supported library function call; reject anything else."""
+        """Emit a supported library call; reject anything else."""
         library_call = self._emit_library_invocation(expr)
         if library_call is not None:
             return library_call[0]
+
+        external_call = self._emit_external_calculation_invocation(
+            expr, external=self._external, used_external=self._used_external
+        )
+        if external_call is not None:
+            return external_call
+
         func = expr.function
         qn = None if func is None else func.qualified_name
         raise PythonCodeGenError(
@@ -357,27 +388,54 @@ class PythonCodeGen:
         self,
         expr: syside.InvocationExpression,
         *,
-        external_module: str | None,
-        external_names: frozenset[str],
-        used_external: set[str],
+        external: list[ForeignArtifact],
+        used_external: dict[ForeignArtifact, set[str]],
     ) -> str | None:
-        """Emit a simple-name-backed external calc-def call, if applicable."""
+        """Emit a simple-name-backed external calc-def call, if applicable.
+
+        Looks up the invoked calc-def's name against every configured
+        consumer-interpreted function names and requires
+        an unambiguous match. Records the match in ``used_external`` so a
+        caller can later tell which artifacts/functions were actually
+        exercised.
+
+        Returns:
+            Python source for the call when the invoked function resolves
+            to a ``CalculationDefinition`` backed by one of the configured
+            external artifacts; ``None`` when the invocation isn't a
+            calc-def call at all (so the caller can try other handlers or
+            report an "unsupported" error).
+
+        Raises:
+            UnsupportedConstructError: If external artifacts were
+                configured but none of them declares a function matching
+                the invoked calc-def's name.
+        """
         func = expr.function
         if not (
             isinstance(func, syside.CalculationDefinition)
             and func.name is not None
         ):
             return None
-        if func.name in external_names:
-            used_external.add(func.name)
+
+        function_name = func.name
+        for artifact in external:
+            if function_name not in self._external_symbols.get(
+                artifact, frozenset()
+            ):
+                continue
+
+            used_external.setdefault(artifact, set()).add(function_name)
+
             args = ", ".join(
                 self._emit(argument, 0) for argument in expr.arguments.collect()
             )
-            return f"{func.name}({args})"
-        if external_module is not None:
+            return f"{function_name}({args})"
+
+        if external:
             raise UnsupportedConstructError(
-                f"calc def {func.name!r} has no backing function in "
-                f"--python module {external_module!r}.",
+                f"calc def {function_name!r} has no backing function in "
+                "any of the provided external Python artifacts.",
                 node=expr,
             )
         return None

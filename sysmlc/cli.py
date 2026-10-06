@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import argparse
-import atexit
 import importlib.util
 import logging
 import shutil
 import sys
-import tempfile
 from functools import partial
 from importlib.metadata import version
 from pathlib import Path
@@ -17,6 +15,12 @@ import syside
 from sysmlc.backends import Backend, OutputOptions, discover_backends
 from sysmlc.errors import SysmlcError
 from sysmlc.logging import configure_logging
+from sysmlc.sysml.foreign_artifact.base import (
+    ForeignArtifact,
+    collect_foreign_dependencies,
+    interpret_artifacts,
+)
+from sysmlc.sysml.foreign_artifact.languages import supported_languages
 from sysmlc.sysml.loading import load_model
 from sysmlc.sysml.queries import (
     exhibited_state_defs,
@@ -24,11 +28,6 @@ from sysmlc.sysml.queries import (
     rig_definitions,
     state_definitions,
     top_level_part_usages,
-)
-from sysmlc.sysml.textual_representation import (
-    extract_textual,
-    module_function_names,
-    write_module,
 )
 from sysmlc.values import configure_model, load_values, select_values
 
@@ -45,104 +44,26 @@ class CliError(SysmlcError):
     """A user-facing error, reported as a message without a traceback."""
 
 
-def _parse_external(python_path: Path) -> tuple[str, frozenset[str]]:
-    """Parse a ``--python`` file into ``(module_stem, sync_function_names)``.
-
-    Only top-level synchronous ``def``s are eligible; an ``async def`` cannot
-    back a synchronous reaction call.
-
-    Raises:
-        CliError: If the file cannot be read or is not valid Python.
-    """
-    try:
-        names = module_function_names(python_path)
-    except OSError as error:
-        raise CliError(
-            f"cannot read --python file {python_path}: {error}"
-        ) from error
-    except SyntaxError as error:
-        raise CliError(
-            f"--python file {python_path} is not valid Python: {error}"
-        ) from error
-    return python_path.stem, names
-
-
-def _parse_python_arg(
-    args: argparse.Namespace,
-) -> tuple[Path, tuple[str, frozenset[str]]] | tuple[None, None]:
-    """Parse a command's ``--python`` flag.
-
-    The flag exists only for backends that declare
-    :meth:`Backend.consumes_python_support`, so its presence already implies
-    support and no backend check is needed here.
-
-    Returns:
-        The flag's path paired with its ``_parse_external`` result, or
-        ``(None, None)`` when ``--python`` was not given.
-
-    Raises:
-        CliError: If the file cannot be read or is not valid Python.
-    """
-    python_path: Path | None = getattr(args, "python", None)
-    if python_path is None:
-        return None, None
-    return python_path, _parse_external(python_path)
-
-
-def _materialize_reps(
-    model: syside.Model, backend: Backend, element_qn: str
-) -> Path | None:
-    """Write the model's Python rep bodies to a generated module file.
-
-    Returns:
-        The generated module's path, in a fresh temporary directory that
-        is removed at process exit; or None when the backend does not
-        consume backing Python modules or the model carries no Python
-        textual representations.
-
-    Raises:
-        UnsupportedConstructError: If the model's rep bodies are invalid;
-            see :func:`sysmlc.sysml.textual_representation.extract_textual`.
-    """
-    if not backend.consumes_python_support():
-        return None
-    extracted = extract_textual(model, element_qn)
-    if extracted is None:
-        return None
-    module_name, source_lines = extracted
-    out_dir = Path(tempfile.mkdtemp(prefix="sysmlc-reps-"))
-    atexit.register(shutil.rmtree, out_dir, ignore_errors=True)
-    return write_module(source_lines, out_dir, module_name)
-
-
-def _resolve_python(
-    args: argparse.Namespace,
+def _resolve_foreign(
     backend: Backend,
+    args: argparse.Namespace,
+    model_dir: Path,
     model: syside.Model,
     element_qn: str,
-) -> tuple[Path, tuple[str, frozenset[str]]] | tuple[None, None]:
-    """Resolve the backing Python module: ``--python`` flag or model reps.
-
-    An explicit ``--python`` file wins. Otherwise the model's Python
-    textual representations, if any, are written to a generated module
-    file. Either way the file goes through :func:`_parse_external`.
-
-    Returns:
-        The module's path paired with its ``_parse_external`` result, or
-        ``(None, None)`` when there is neither a flag nor a rep.
-
-    Raises:
-        CliError: If the explicit ``--python`` file cannot be read or is not
-            valid Python.
-        UnsupportedConstructError: If the model's rep bodies are invalid.
-    """
-    python_path, external = _parse_python_arg(args)
-    if python_path is not None and external is not None:
-        return python_path, external
-    generated = _materialize_reps(model, backend, element_qn)
-    if generated is None:
-        return None, None
-    return generated, _parse_external(generated)
+) -> list[ForeignArtifact]:
+    languages = tuple(sorted(backend.supported_foreign_artifact_languages()))
+    dependencies = collect_foreign_dependencies(
+        model_dir,
+        model,
+        element_qn,
+        languages,
+        overrides={lang: getattr(args, lang, None) or () for lang in languages},
+    )
+    return [
+        ForeignArtifact(path, dependency.language)
+        for dependency in dependencies
+        for path in dependency.files
+    ]
 
 
 def _load_external_module(python_path: Path) -> None:
@@ -171,6 +92,12 @@ def _load_external_module(python_path: Path) -> None:
         raise CliError(
             f"--python file {python_path} failed to execute: {error}"
         ) from error
+
+
+def _load_external_modules(external: list[ForeignArtifact]) -> None:
+    """Import every Python external artifact under its own module stem."""
+    for artifact in interpret_artifacts(external, "python"):
+        _load_external_module(artifact.path)
 
 
 def _build_parser(backends: dict[str, Backend]) -> argparse.ArgumentParser:
@@ -216,7 +143,7 @@ def _build_parser(backends: dict[str, Backend]) -> argparse.ArgumentParser:
             "run",
             help=f"execute a {backend.name} model to quiescence",
         )
-        _add_run_arguments(run)
+        _add_run_arguments(run, backend)
         run.set_defaults(_backend=backend)
     return parser
 
@@ -262,12 +189,16 @@ def _add_build_arguments(
             "mirrors qualified names (Pkg -> Def -> attribute: value)"
         ),
     )
-    if backend.consumes_python_support():
+    _add_foreign_arguments(build, backend)
+    if backend.accepts_strict_extern():
         build.add_argument(
-            "--python",
-            type=Path,
-            help="a Python file whose top-level functions back external "
-            "calc-def calls; matched to SysML functions by simple name",
+            "--strict-extern",
+            action="store_true",
+            help=(
+                "reject a bodyless calc def with no matching foreign "
+                "artifact instead of generating an unimplemented extern "
+                "for the user to provide by hand later"
+            ),
         )
     if backend.accepts_target_options():
         build.add_argument(
@@ -315,7 +246,32 @@ def _select_state_def(model: syside.Model, requested: str | None) -> str:
     return requested
 
 
-def _add_run_arguments(run: argparse.ArgumentParser) -> None:
+_FOREIGN_LANG_LABELS: dict[str, str] = {"c": "C", "c_h": "C header"}
+
+
+def _add_foreign_arguments(
+    parser: argparse.ArgumentParser, backend: Backend
+) -> None:
+    """Add one path option for each foreign language consumed by a backend."""
+    for lang in supported_languages():
+        if lang not in backend.supported_foreign_artifact_languages():
+            continue
+        label = _FOREIGN_LANG_LABELS.get(lang, lang.capitalize())
+        parser.add_argument(
+            f"--{lang}",
+            type=Path,
+            action="append",
+            help=(
+                f"a {label} file whose top-level functions back external "
+                "calc-def calls, matched to SysML functions by simple "
+                "name (a companion file that defines none, e.g. a header, "
+                "is still carried along); repeat for more than one file. "
+                "Explicit files replace model sources in this language"
+            ),
+        )
+
+
+def _add_run_arguments(run: argparse.ArgumentParser, backend: Backend) -> None:
     """Add the inputs for a ``run`` command."""
     run.add_argument(
         "model",
@@ -343,12 +299,7 @@ def _add_run_arguments(run: argparse.ArgumentParser) -> None:
         help="stop at this simulated time in seconds, keeping the trace up "
         "to it (default: run to quiescence)",
     )
-    run.add_argument(
-        "--python",
-        type=Path,
-        help="a Python file whose top-level functions back external calc-def "
-        "calls; matched to SysML functions by simple name",
-    )
+    _add_foreign_arguments(run, backend)
 
 
 def _select_element(
@@ -409,6 +360,11 @@ def _target_options(
     return tuple(options)
 
 
+def _strict_extern(args: argparse.Namespace) -> bool:
+    """Read ``--strict-extern``, absent for backends that don't declare it."""
+    return getattr(args, "strict_extern", False)
+
+
 def _resolve_model_dir(model: Path) -> Path:
     """Resolve the ``model`` argument to a model directory on disk.
 
@@ -449,7 +405,8 @@ def _resolve_model_dir(model: Path) -> Path:
 def _cmd_build(args: argparse.Namespace) -> int:
     """Run a ``<backend> build`` command."""
     backend: Backend = args._backend
-    model = load_model(_resolve_model_dir(args.model))
+    model_dir = _resolve_model_dir(args.model)
+    model = load_model(model_dir)
     if (
         getattr(args, "element", None) is None
         and "model" in backend.build_kinds()
@@ -459,8 +416,11 @@ def _cmd_build(args: argparse.Namespace) -> int:
                 f"backend {backend.name!r} whole-model builds do not support "
                 "--values yet"
             )
-        artifact = backend.build_model(model)
-        return _write_artifact(args, backend, "model", artifact, None)
+        external = _resolve_foreign(backend, args, model_dir, model, "model")
+        artifact = backend.build_model(
+            model, external=external, strict_extern=_strict_extern(args)
+        )
+        return _write_artifact(args, backend, "model", artifact, external)
 
     element_qn, kind = _select_element(model, args.element)
     target_options = _target_options(args)
@@ -472,7 +432,9 @@ def _cmd_build(args: argparse.Namespace) -> int:
         )
 
     if kind == "part":
-        return _build_part(args, backend, model, element_qn, target_options)
+        return _build_part(
+            args, backend, model, model_dir, element_qn, target_options
+        )
 
     is_rig = kind == "rig"
     if is_rig and "rig" not in backend.build_kinds():
@@ -499,22 +461,27 @@ def _cmd_build(args: argparse.Namespace) -> int:
             overrides = select_values(tree, target_qn)
             model = configure_model(model, target_qn, overrides)
 
-    python_path, external = _resolve_python(args, backend, model, element_qn)
-
-    build_kwargs: dict[str, tuple[str, frozenset[str]]] = (
-        {"external": external} if external is not None else {}
+    external: list[ForeignArtifact] = _resolve_foreign(
+        backend, args, model_dir, model, element_qn
     )
+
+    strict_extern = _strict_extern(args)
     if is_rig:
-        artifact = backend.build_composition(model, element_qn, **build_kwargs)
+        artifact = backend.build_composition(
+            model, element_qn, external=external, strict_extern=strict_extern
+        )
     else:
-        artifact = backend.build(model, element_qn, **build_kwargs)
-    return _write_artifact(args, backend, element_qn, artifact, python_path)
+        artifact = backend.build(
+            model, element_qn, external=external, strict_extern=strict_extern
+        )
+    return _write_artifact(args, backend, element_qn, artifact, external)
 
 
 def _build_part(
     args: argparse.Namespace,
     backend: Backend,
     model: syside.Model,
+    model_dir: Path,
     usage_qn: str,
     target_options: tuple[tuple[str, str], ...],
 ) -> int:
@@ -524,15 +491,18 @@ def _build_part(
     if getattr(args, "values", None) is not None:
         raise CliError("--values is not supported with part systems yet")
 
-    python_path, external = _resolve_python(args, backend, model, usage_qn)
+    external: list[ForeignArtifact] = _resolve_foreign(
+        backend, args, model_dir, model, usage_qn
+    )
 
-    build_kwargs: dict[str, tuple[str, frozenset[str]]] = (
-        {"external": external} if external is not None else {}
-    )
     artifact = backend.build_part(
-        model, usage_qn, target_options=target_options, **build_kwargs
+        model,
+        usage_qn,
+        target_options=target_options,
+        external=external,
+        strict_extern=_strict_extern(args),
     )
-    return _write_artifact(args, backend, usage_qn, artifact, python_path)
+    return _write_artifact(args, backend, usage_qn, artifact, external)
 
 
 def _write_artifact(
@@ -540,7 +510,7 @@ def _write_artifact(
     backend: Backend,
     element_qn: str,
     artifact: object,
-    python_path: Path | None,
+    external: list[ForeignArtifact],
 ) -> int:
     """Write the built artifact and report what was produced."""
     selected = getattr(args, "format", None)
@@ -551,8 +521,9 @@ def _write_artifact(
     )
     written = backend.write(artifact, options)
 
-    if python_path is not None:
-        written.extend(_copy_python_support(python_path, written))
+    if not backend.owns_external_delivery():
+        for fa in external:
+            written.extend(_copy_external_support(fa.path, written))
 
     for path in written:
         logger.info("Wrote %s", path)
@@ -563,6 +534,16 @@ def _write_artifact(
 def _copy_python_support(python_path: Path, written: list[Path]) -> list[Path]:
     """Copy a Python support module beside each generated artifact group.
 
+    Kept as a compatibility wrapper for callers of the former helper.
+    """
+    return _copy_external_support(python_path, written)
+
+
+def _copy_external_support(
+    support_path: Path, written: list[Path]
+) -> list[Path]:
+    """Copy an external support file beside each generated artifact group.
+
     Backend artifacts may be flat or use one or more nested directories.
     A single copy per unique parent directory keeps imports relative to the
     generated files resolvable without duplicating work. Like every other
@@ -571,7 +552,7 @@ def _copy_python_support(python_path: Path, written: list[Path]) -> list[Path]:
     collision with an artifact of the current build is refused.
 
     Args:
-        python_path: User-supplied or textual-representation module.
+        support_path: User-supplied or textual-representation artifact.
         written: Paths returned by the backend's ``write`` operation.
 
     Returns:
@@ -581,21 +562,21 @@ def _copy_python_support(python_path: Path, written: list[Path]) -> list[Path]:
         CliError: If the support filename collides with a different generated
             artifact.
     """
-    source = python_path.resolve()
+    source = support_path.resolve()
     artifact_paths = {path.resolve() for path in written}
     directories = sorted({path.parent.resolve() for path in written})
     copied: list[Path] = []
     for directory in directories:
-        destination = directory / python_path.name
+        destination = directory / support_path.name
         resolved_destination = destination.resolve()
         if resolved_destination == source:
             continue
         if resolved_destination in artifact_paths:
             raise CliError(
-                f"Python support file {python_path.name!r} conflicts with "
+                f"External support file {support_path.name!r} conflicts with "
                 f"generated artifact {destination}"
             )
-        shutil.copy2(python_path, destination)
+        shutil.copy2(support_path, destination)
         copied.append(destination)
     return copied
 
@@ -603,18 +584,22 @@ def _copy_python_support(python_path: Path, written: list[Path]) -> list[Path]:
 def _cmd_run(args: argparse.Namespace) -> int:
     """Run a ``<backend> run`` command: execute the model to quiescence."""
     backend: Backend = args._backend
-    model = load_model(_resolve_model_dir(args.model))
+    model_dir = _resolve_model_dir(args.model)
+    model = load_model(model_dir)
     element_qn, kind = _select_element(model, args.element)
     if kind not in backend.run_kinds():
         raise CliError(f"backend {backend.name!r} cannot run a {kind!r}")
 
-    python_path, external = _resolve_python(args, backend, model, element_qn)
+    external: list[ForeignArtifact] = _resolve_foreign(
+        backend, args, model_dir, model, element_qn
+    )
+
     load_external = None
-    if python_path is not None:
+    if external:
         if backend.defers_python_support_loading():
-            load_external = partial(_load_external_module, python_path)
+            load_external = partial(_load_external_modules, external)
         else:
-            _load_external_module(python_path)
+            _load_external_modules(external)
 
     if kind == "statedef":
         run = backend.run_state_def

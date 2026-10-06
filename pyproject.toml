@@ -9,6 +9,8 @@ license = "BSD-2-Clause"
 dependencies = [
     "syside>=0.8.6",
     "pyyaml>=6,<7",
+    "tree-sitter>=0.25,<0.26",
+    "tree-sitter-c>=0.24,<0.25",
 ]
 
 [project.optional-dependencies]
