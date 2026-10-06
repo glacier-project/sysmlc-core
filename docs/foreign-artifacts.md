@@ -42,7 +42,8 @@ signatures for symbol discovery.
 
 C textual representations generate a source and a guarded companion header.
 Includes, macros, typedefs, and type declarations survive in that header; function
-bodies become prototypes. Identical helper definitions are emitted once, and
+bodies become prototypes. The source also declares each exported function before
+its definition, after any required type context. Identical helper definitions are emitted once, and
 conflicting definitions are errors. Package scaffolding for automatic companions
 must contain declarations rather than external global storage definitions; use
 explicit source/header files when that contract is unsuitable.
