@@ -51,9 +51,11 @@ def test_discover_backends_rejects_duplicate_name(
         _FakeEntryPoint("quake", "quake"),
         _FakeEntryPoint("quake-fork", "quake"),
     ]
-    monkeypatch.setattr(
-        "sysmlc.backends.base.entry_points", lambda group: entry_points
-    )
+
+    def fake_entry_points(group: str) -> list[_FakeEntryPoint]:
+        return entry_points
+
+    monkeypatch.setattr("sysmlc.backends.base.entry_points", fake_entry_points)
     with pytest.raises(BackendError, match="duplicate backend name 'quake'"):
         discover_backends()
 

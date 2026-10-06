@@ -11,6 +11,7 @@ if TYPE_CHECKING:
 import syside
 
 from sysmlc.errors import UnsupportedConstructError
+from sysmlc.sysml.foreign_artifact import c
 from sysmlc.sysml.foreign_artifact.languages import get_language
 from sysmlc.sysml.queries import iter_elements
 
@@ -122,7 +123,10 @@ def _register_defs(
     """
     qualified_name = str(element.qualified_name)
     language = get_language(lang)
-    for name in language.function_names(body):
+    definitions: dict[str, str] = (
+        c.function_sources(body) if lang == "c" else {}
+    )
+    for name in definitions or language.function_names(body):
         if language.name == "python":
             statement = next(
                 statement
@@ -132,7 +136,7 @@ def _register_defs(
             )
             source = ast.unparse(statement)
         else:
-            source = body
+            source = definitions.get(name, body)
         known = seen.get(name)
         if known is None:
             seen[name] = (qualified_name, source)
@@ -246,6 +250,12 @@ def extract_text_rep(
         return None
 
     src_code = "\n".join(lines)
+    if lang == "c":
+        try:
+            src_code = c.deduplicate_functions(src_code)
+        except SyntaxError as error:
+            raise UnsupportedConstructError(str(error)) from error
+        lines = src_code.splitlines()
     if not src_code.strip():
         raise UnsupportedConstructError(
             "TextualRepresentation bodies found in the model while "

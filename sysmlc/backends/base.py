@@ -152,7 +152,13 @@ class Backend(ABC):
             kinds.add("part")
         return frozenset(kinds)
 
-    def build_model(self, model: syside.Model) -> object:
+    def build_model(
+        self,
+        model: syside.Model,
+        *,
+        external: list[ForeignArtifact] | None = None,
+        strict_extern: bool = False,
+    ) -> object:
         """Build one artifact from the whole model (no single element)."""
         raise UnsupportedOperationError(
             f"backend {self.name!r} does not build a whole model"

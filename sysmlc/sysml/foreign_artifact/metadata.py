@@ -1,4 +1,9 @@
+"""Evaluate foreign metadata without losing the declaring document origin."""
+
 from __future__ import annotations
+
+from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 import syside
 
@@ -11,12 +16,7 @@ FOREIGN_ARTIFACT_METADTA_QN = "ForeignArtifactBinding::ForeignArtifact"
 def foreign_artifact_definition(
     model: syside.Model,
 ) -> syside.MetadataDefinition | None:
-    """Resolve the bundled ``ForeignArtifact`` metadata def, or None if absent.
-
-    The definition ships as a bundled library, so it is present in every
-    model loaded through :func:`sysmlc.sysml.loading.load_model`; ``None``
-    covers models assembled through other paths.
-    """
+    """Resolve the bundled metadata definition, if present."""
     try:
         return metadata.resolve_metadata_definition(
             model, FOREIGN_ARTIFACT_METADTA_QN
@@ -25,101 +25,98 @@ def foreign_artifact_definition(
         return None
 
 
-def _extract_literal_string(value_element: syside.Element) -> str | None:
-    """Extract a raw string value from a syside AST node."""
-    if isinstance(value_element, syside.LiteralString):
-        return value_element.value
+def _evaluate_field(
+    usage: syside.MetadataUsage, name: str, model: syside.Model
+) -> object:
+    """Evaluate one metadata feature and surface compilation failures."""
+    for feature in usage.owned_members.collect():
+        if not isinstance(feature, syside.Feature) or feature.name != name:
+            continue
+        expression = feature.feature_value_expression
+        if expression is None:
+            continue
+        value, report = syside.Compiler().evaluate(
+            expression, stdlib=syside.Stdlib(model.index)
+        )
+        if report.fatal or any(
+            diagnostic.severity == syside.DiagnosticSeverity.Error
+            for diagnostic in report.diagnostics
+        ):
+            raise UnsupportedConstructError(
+                f"cannot evaluate @ForeignArtifact {name}: {report.diagnostics}",
+                node=usage,
+            )
+        return value
     return None
 
 
-def _extract_files_and_lang(
-    metadata_usage: syside.MetadataUsage,
-) -> tuple[list[str], str | None]:
-    """Extract file paths and the `lang` attribute from a metadata usage."""
-    file_paths: list[str] = []
-    extracted_lang: str | None = None
-
-    for feature in metadata_usage.owned_members.collect():
-        if not isinstance(feature, syside.Feature) or not feature.name:
+def _declarations(
+    model: syside.Model, target_lang: str
+) -> list[tuple[syside.MetadataUsage, tuple[str, ...]]]:
+    """Evaluate and validate matching declarations in model order."""
+    definition = foreign_artifact_definition(model)
+    if definition is None:
+        return []
+    found: list[tuple[syside.MetadataUsage, tuple[str, ...]]] = []
+    for _, usage in metadata.elements_with_metadata(
+        model, syside.Element, definition
+    ):
+        lang = _evaluate_field(usage, "lang", model)
+        if not isinstance(lang, str) or not lang.strip():
+            raise UnsupportedConstructError(
+                "@ForeignArtifact lang must evaluate to a nonempty string",
+                node=usage,
+            )
+        if lang.strip().lower() != target_lang.strip().lower():
             continue
-
-        for rel in feature.owned_relationships.collect():
-            if not isinstance(rel, syside.FeatureValue) or rel.value is None:
-                continue
-
-            if feature.name == "lang":
-                extracted_lang = _extract_literal_string(rel.value)
-            elif feature.name == "files":
-                value = _extract_literal_string(rel.value)
-                if value:
-                    file_paths.append(value)
-                elif isinstance(rel.value, syside.OperatorExpression):
-                    for operand in rel.value.operands.collect():
-                        operand_value = _extract_literal_string(operand)
-                        if operand_value:
-                            file_paths.append(operand_value)
-
-    return file_paths, extracted_lang
+        raw = _evaluate_field(usage, "files", model)
+        paths = [raw] if isinstance(raw, str) else raw
+        if (
+            (not isinstance(paths, list) and not isinstance(paths, tuple))
+            or not paths
+            or any(
+                not isinstance(path, str) or not path.strip() for path in paths
+            )
+        ):
+            raise UnsupportedConstructError(
+                "@ForeignArtifact files must evaluate to a nonempty string or string sequence",
+                node=usage,
+            )
+        found.append((usage, tuple(str(path) for path in paths)))
+    return found
 
 
 def get_foreign_artifact_filepath_from_metadata(
-    model: syside.Model,
-    target_lang: str = "python",
+    model: syside.Model, target_lang: str = "python"
 ) -> tuple[str, ...] | None:
-    """Locate @ForeignArtifact metadata in the model and return its file paths.
+    """Return evaluated paths from all matching declarations."""
+    paths = tuple(
+        path
+        for _, values in _declarations(model, target_lang)
+        for path in values
+    )
+    return paths or None
 
-    ``ForeignArtifact`` ships as a bundled library metadata definition
-    model apply it with ``@ForeignArtifact { ... }``
-    without declaring or importing it.
 
-    A ``files`` list with more than one entry carries them all along
-    together (e.g. a C implementation plus the header it includes); only
-    the entries whose language's ``function_names`` extraction actually
-    finds a callable back a calc-def call, but every entry is still
-    delivered into the build output.
-
-    Args:
-        model: The loaded syside Model instance.
-        target_lang: The target language filter (default: "python").
-
-    Returns:
-        A tuple of relative file paths, or None if no matching metadata was found.
-
-    Raises:
-        UnsupportedConstructError: If more than one @ForeignArtifact
-            application matches `target_lang` in the model.
-    """
-    definition = foreign_artifact_definition(model)
-    if definition is None:
-        return None
-
-    found_paths: list[str] = []
-    source_elements: list[syside.Element] = []
-
-    for element, usage in metadata.elements_with_metadata(
-        model, syside.Element, definition
-    ):
-        file_paths, lang = _extract_files_and_lang(usage)
-        if not file_paths:
-            continue
-        if lang and lang.lower() != target_lang.lower():
-            continue
-
-        found_paths.extend(file_paths)
-        source_elements.append(element)
-
-    if not found_paths:
-        return None
-
-    if len(source_elements) > 1:
-        qualified_names = [
-            str(getattr(e, "qualified_name", getattr(e, "name", "<anonymous>")))
-            for e in source_elements
-        ]
-        raise UnsupportedConstructError(
-            f"Found {len(source_elements)} @ForeignArtifact declarations "
-            f"across model elements: {qualified_names}. "
-            "Currently, only one global @ForeignArtifact per model is supported."
-        )
-
-    return tuple(found_paths)
+def metadata_file_paths(
+    model: syside.Model, target_lang: str, model_dir: Path
+) -> tuple[Path, ...]:
+    """Resolve each file relative to its declaring SysML document."""
+    paths: list[Path] = []
+    for usage, values in _declarations(model, target_lang):
+        origin = model_dir
+        if usage.document is not None:
+            url = urlsplit(str(usage.document.url))
+            if url.scheme == "file":
+                if url.netloc not in ("", "localhost"):
+                    raise UnsupportedConstructError(
+                        f"unsupported foreign metadata document URL {usage.document.url}",
+                        node=usage,
+                    )
+                origin = Path(unquote(url.path)).parent
+        for raw in values:
+            path = Path(raw)
+            paths.append(
+                (path if path.is_absolute() else origin / path).resolve()
+            )
+    return tuple(dict.fromkeys(paths))

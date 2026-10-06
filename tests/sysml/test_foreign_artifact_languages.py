@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 from sysmlc.sysml.foreign_artifact.languages import (
-    SUPPORTED_LANG,
     c_function_declarations,
     get_language,
+    supported_languages,
 )
 
 
 def test_c_h_is_supported() -> None:
-    assert "c_h" in SUPPORTED_LANG
+    assert "c_h" in supported_languages()
     language = get_language("c_h")
     assert language.extension == "h"
 

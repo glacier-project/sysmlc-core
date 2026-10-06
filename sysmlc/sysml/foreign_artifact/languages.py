@@ -3,18 +3,11 @@
 from __future__ import annotations
 
 import ast
-import re
 from dataclasses import dataclass
-from typing import Final, Protocol
+from typing import Protocol
 
 from sysmlc.errors import UnsupportedConstructError
-
-_C_FUNCTION_PATTERN: Final[re.Pattern[str]] = re.compile(
-    r"(?m)^\s*(?:[A-Za-z_]\w*\s+)+([A-Za-z_]\w*)\s*\([^;{}]*\)\s*\{"
-)
-_C_DECLARATION_PATTERN: Final[re.Pattern[str]] = re.compile(
-    r"(?m)^\s*(?:[A-Za-z_]\w*\s+)+([A-Za-z_]\w*)\s*\([^;{}]*\)\s*;"
-)
+from sysmlc.sysml.foreign_artifact import c
 
 
 class ForeignArtifactLanguage(Protocol):
@@ -68,13 +61,12 @@ class CLanguage:
     comment: str = "//"
 
     def validate(self, source: str) -> None:
-        """Accept C source as opaque text."""
+        """Validate standalone C syntax, leaving type checking to the compiler."""
+        c.function_names(source)
 
     def function_names(self, source: str) -> frozenset[str]:
         """Return names of C function definitions."""
-        return frozenset(
-            match.group(1) for match in _C_FUNCTION_PATTERN.finditer(source)
-        )
+        return c.function_names(source)
 
 
 def c_function_declarations(source: str) -> tuple[str, ...]:
@@ -86,12 +78,12 @@ def c_function_declarations(source: str) -> tuple[str, ...]:
     there is no user-authored file to carry one (see
     ``sysmlc.sysml.foreign_artifact.text_rep``).
     """
-    declarations: list[str] = []
-    for match in _C_FUNCTION_PATTERN.finditer(source):
-        signature = match.group(0)
-        signature = signature[: signature.rindex("{")].rstrip()
-        declarations.append(f"{signature};")
-    return tuple(declarations)
+    return c.function_declarations(source)
+
+
+def c_header_source(source: str) -> str:
+    """Preserve type and include context in an automatic C companion."""
+    return c.header_source(source)
 
 
 @dataclass(frozen=True)
@@ -114,13 +106,12 @@ class CHeaderLanguage:
     comment: str = "//"
 
     def validate(self, source: str) -> None:
-        """Accept C header source as opaque text."""
+        """Validate C header syntax without traversing function bodies."""
+        c.function_names(source, headers=True)
 
     def function_names(self, source: str) -> frozenset[str]:
         """Return names of C function prototypes declared in this header."""
-        return frozenset(
-            match.group(1) for match in _C_DECLARATION_PATTERN.finditer(source)
-        )
+        return c.function_names(source, headers=True)
 
 
 _LANGUAGES: dict[str, ForeignArtifactLanguage] = {
@@ -129,7 +120,10 @@ _LANGUAGES: dict[str, ForeignArtifactLanguage] = {
     "c_h": CHeaderLanguage(),
 }
 
-SUPPORTED_LANG = tuple(_LANGUAGES)
+
+def supported_languages() -> tuple[str, ...]:
+    """Query the live language registry, including plugin registrations."""
+    return tuple(_LANGUAGES)
 
 
 def get_language(lang: str) -> ForeignArtifactLanguage:

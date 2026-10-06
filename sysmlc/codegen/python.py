@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, ClassVar, Final
 import syside
 
 from sysmlc.errors import UnsupportedConstructError
+from sysmlc.sysml.foreign_artifact.base import interpret_artifacts
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -195,6 +196,7 @@ class PythonCodeGen:
         self._context = context or PythonCodeGenContext()
         self._external: list[ForeignArtifact] = external or []
         self._used_external: dict[ForeignArtifact, set[str]] = {}
+        self._external_symbols = interpret_artifacts(self._external, "python")
 
     @property
     def used_external(self) -> dict[ForeignArtifact, set[str]]:
@@ -342,6 +344,12 @@ class PythonCodeGen:
         if library_call is not None:
             return library_call[0]
 
+        external_call = self._emit_external_calculation_invocation(
+            expr, external=self._external, used_external=self._used_external
+        )
+        if external_call is not None:
+            return external_call
+
         func = expr.function
         qn = None if func is None else func.qualified_name
         raise PythonCodeGenError(
@@ -386,8 +394,8 @@ class PythonCodeGen:
         """Emit a simple-name-backed external calc-def call, if applicable.
 
         Looks up the invoked calc-def's name against every configured
-        ``ForeignArtifact``'s declared function names, in order, and binds
-        to the first match. Records the match in ``used_external`` so a
+        consumer-interpreted function names and requires
+        an unambiguous match. Records the match in ``used_external`` so a
         caller can later tell which artifacts/functions were actually
         exercised.
 
@@ -412,7 +420,9 @@ class PythonCodeGen:
 
         function_name = func.name
         for artifact in external:
-            if function_name not in artifact.funct_names:
+            if function_name not in self._external_symbols.get(
+                artifact, frozenset()
+            ):
                 continue
 
             used_external.setdefault(artifact, set()).add(function_name)

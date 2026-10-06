@@ -31,10 +31,10 @@ def test_lang_mismatch_is_filtered_out() -> None:
     assert result is None
 
 
-def test_missing_lang_matches_any_target() -> None:
+def test_missing_lang_is_rejected() -> None:
     model = load_model(FIXTURES_DIR / "external-module-no-lang")
-    result = get_foreign_artifact_filepath_from_metadata(model, "python")
-    assert result == ("generic.py",)
+    with pytest.raises(UnsupportedConstructError, match="lang must evaluate"):
+        get_foreign_artifact_filepath_from_metadata(model, "python")
 
 
 def test_multiple_files_on_one_application_are_all_returned() -> None:
@@ -62,10 +62,9 @@ def test_two_languages_on_the_same_element_are_both_found() -> None:
     )
 
 
-def test_two_declarations_across_model_are_rejected() -> None:
+def test_two_declarations_across_model_are_composed() -> None:
     model = load_model(FIXTURES_DIR / "external-module-multi-declaration")
-    with pytest.raises(
-        UnsupportedConstructError,
-        match="only one global @ForeignArtifact per model",
-    ):
-        get_foreign_artifact_filepath_from_metadata(model, "python")
+    assert get_foreign_artifact_filepath_from_metadata(model, "python") == (
+        "a.py",
+        "b.py",
+    )

@@ -17,10 +17,10 @@ from sysmlc.errors import SysmlcError
 from sysmlc.logging import configure_logging
 from sysmlc.sysml.foreign_artifact.base import (
     ForeignArtifact,
-    parse_raw_file,
-    resolve_foreign_artifact,
+    collect_foreign_dependencies,
+    interpret_artifacts,
 )
-from sysmlc.sysml.foreign_artifact.languages import SUPPORTED_LANG
+from sysmlc.sysml.foreign_artifact.languages import supported_languages
 from sysmlc.sysml.loading import load_model
 from sysmlc.sysml.queries import (
     exhibited_state_defs,
@@ -51,24 +51,19 @@ def _resolve_foreign(
     model: syside.Model,
     element_qn: str,
 ) -> list[ForeignArtifact]:
-    external: list[ForeignArtifact] = []
-    supported = backend.supported_foreign_artifact_languages()
-    for lang in SUPPORTED_LANG:
-        if lang not in supported:
-            continue
-        paths: list[Path] | None = getattr(args, lang, None)
-        for path in paths or ():
-            external.append(parse_raw_file(path, lang))
-        external.extend(
-            resolve_foreign_artifact(
-                model_dir,
-                model,
-                element_qn,
-                lang,
-            )
-        )
-
-    return external
+    languages = tuple(sorted(backend.supported_foreign_artifact_languages()))
+    dependencies = collect_foreign_dependencies(
+        model_dir,
+        model,
+        element_qn,
+        languages,
+        overrides={lang: getattr(args, lang, None) or () for lang in languages},
+    )
+    return [
+        ForeignArtifact(path, dependency.language)
+        for dependency in dependencies
+        for path in dependency.files
+    ]
 
 
 def _load_external_module(python_path: Path) -> None:
@@ -101,9 +96,8 @@ def _load_external_module(python_path: Path) -> None:
 
 def _load_external_modules(external: list[ForeignArtifact]) -> None:
     """Import every Python external artifact under its own module stem."""
-    for artifact in external:
-        if artifact.lang == "python":
-            _load_external_module(artifact.path)
+    for artifact in interpret_artifacts(external, "python"):
+        _load_external_module(artifact.path)
 
 
 def _build_parser(backends: dict[str, Backend]) -> argparse.ArgumentParser:
@@ -259,7 +253,7 @@ def _add_foreign_arguments(
     parser: argparse.ArgumentParser, backend: Backend
 ) -> None:
     """Add one path option for each foreign language consumed by a backend."""
-    for lang in SUPPORTED_LANG:
+    for lang in supported_languages():
         if lang not in backend.supported_foreign_artifact_languages():
             continue
         label = _FOREIGN_LANG_LABELS.get(lang, lang.capitalize())
@@ -271,7 +265,8 @@ def _add_foreign_arguments(
                 f"a {label} file whose top-level functions back external "
                 "calc-def calls, matched to SysML functions by simple "
                 "name (a companion file that defines none, e.g. a header, "
-                "is still carried along); repeat for more than one file"
+                "is still carried along); repeat for more than one file. "
+                "Explicit files replace model sources in this language"
             ),
         )
 
@@ -421,8 +416,11 @@ def _cmd_build(args: argparse.Namespace) -> int:
                 f"backend {backend.name!r} whole-model builds do not support "
                 "--values yet"
             )
-        artifact = backend.build_model(model)
-        return _write_artifact(args, backend, "model", artifact, [])
+        external = _resolve_foreign(backend, args, model_dir, model, "model")
+        artifact = backend.build_model(
+            model, external=external, strict_extern=_strict_extern(args)
+        )
+        return _write_artifact(args, backend, "model", artifact, external)
 
     element_qn, kind = _select_element(model, args.element)
     target_options = _target_options(args)

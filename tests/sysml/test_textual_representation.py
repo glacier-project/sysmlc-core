@@ -118,7 +118,9 @@ def test_c_text_rep_uses_c_extension_when_resolved() -> None:
     artifacts = parse_text_rep(model, "CRep::increment", "c")
     source = artifacts[0]
     assert source.path.suffix == ".c"
-    assert source.funct_names == frozenset({"increment"})
+    assert parse_artifact(source.path, source.lang)[1] == frozenset(
+        {"increment"}
+    )
 
 
 def test_c_text_rep_also_synthesizes_a_companion_header() -> None:

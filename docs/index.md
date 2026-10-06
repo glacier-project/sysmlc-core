@@ -10,6 +10,7 @@ backends render those facts to their targets.
 :caption: Contents
 
 api
+foreign-artifacts
 ```
 
 ## Development
