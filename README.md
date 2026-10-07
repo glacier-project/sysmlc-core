@@ -57,7 +57,7 @@ Installing a backend package beside the core enables its subcommand, for
 example:
 
 ```bash
-uv pip install git+https://github.com/glacier-project/sysmlc-quake@dev
+uv pip install git+https://github.com/glacier-project/sysmlc-quake@main
 ```
 
 ## Usage
