@@ -122,31 +122,18 @@ Other Notes:
 
 ### Release Guidelines
 
-We follow a simplified Git-flow model for releases:
+We use one permanent branch, `main`, with short-lived pull request branches.
 
 #### Branches
 
-- `main`: Represents the latest stable, released version. Only hotfixes and release merges are committed directly to `main`.
-- `dev`: Integration branch for ongoing development. All new features and bug fixes are merged into `dev`.
-- `feature/<feature-name>`: Used for developing new features. Branch off `dev` and merge back into `dev` upon completion.
+- `main`: The shared integration branch. Merge reviewed pull requests with passing CI; never push directly to it.
+- `feature/<feature-name>`, `fix/<name>`, and `auto-update/<name>`: Temporary branches created from `main` and proposed back to `main` through pull requests.
+- Version tags identify releases. A separate release branch is only needed when maintaining an older release line.
 
 Here is the release process:
 
-1. Prepare `dev` for Release:
-   - Ensure all desired features and bug fixes are merged into `dev`.
-   - Update `CHANGELOG.md` with changes for the new version, with the help of the command: `git log --pretty=format:"- (%h) %s" ...`
-   - Update version numbers in relevant project files (e.g., `pyproject.toml`, `package.json`).
-1. Make sure we start from a clean state:
-   - Make sure you are on the `dev`, and that we start from there.
-   - Perform final testing and bug fixing on this branch.
-1. Merge to `main` and Tag:
-   - Once the dev branch is stable, merge it into `main`:
-     1. `git checkout main`
-     1. `git merge --no-ff dev`
-   - Tag the release on `main`: `git tag -a v<version-number> -m "Release v<version-number>"`
-   - Ask the user to push the changes to the `main` branch, including tags: `git push origin main --tags`
-1. Merge back to `dev`:
-   - Merge the main branch back into `dev` to ensure `dev` has all release changes:
-     1. `git checkout dev`
-     1. `git merge --no-ff main`
-   - Ask the user to push the changes to `dev` branch: `git push origin dev`
+1. Create a release preparation branch from `main`.
+1. Update `CHANGELOG.md` and the version in `pyproject.toml` through a pull request.
+1. Run the repository's full validation suite and review the release changes before merging the pull request into `main`.
+1. Tag the reviewed release commit on `main`: `git tag -a v<version-number> -m "Release v<version-number>"`.
+1. Publish the approved release tag without pushing commits directly to `main`.
