@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from sysmlc_models.showcase import SHOWCASE_DIR
+import syside
 from sysmlc_models.sm_examples import SM_EXAMPLES_BY_DIR
 
 from sysmlc.semantics.statemachine.driver import StateMachineDriver
@@ -10,13 +10,14 @@ from tests.test_recording import RecordingBuilder
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 
 
-def test_driver_pushes_asserted_constraints() -> None:
-    model = load_model(SHOWCASE_DIR / "thermostat")
+def test_driver_pushes_asserted_constraints(
+    contract_model: syside.Model,
+) -> None:
     builder = RecordingBuilder()
-    StateMachineDriver(model).run("Thermostat::ThermostatBehavior", builder)
+    StateMachineDriver(contract_model).run("Contracts::Machine", builder)
     assert [c.name for c in builder.constraints] == [
-        "tempBand",
-        "setpointPositive",
+        "levelPositive",
+        "thresholdPositive",
     ]
     assert all(c.scope == "" for c in builder.constraints)
     assert all(c.expression is not None for c in builder.constraints)
@@ -41,7 +42,7 @@ def test_negated_constraint_carries_flag() -> None:
     assert fact.is_negated
 
 
-def test_constraint_hook_is_optional() -> None:
+def test_constraint_hook_is_optional(contract_model: syside.Model) -> None:
     # A builder without `bind_constraint` must keep working on a model that
     # declares asserted constraints.
     class _NoHook:
@@ -57,8 +58,7 @@ def test_constraint_hook_is_optional() -> None:
         def result(self) -> object:
             return "ok"
 
-    model = load_model(SHOWCASE_DIR / "thermostat")
-    result = StateMachineDriver(model).run(
-        "Thermostat::ThermostatBehavior", _NoHook()
+    result = StateMachineDriver(contract_model).run(
+        "Contracts::Machine", _NoHook()
     )
     assert result == "ok"

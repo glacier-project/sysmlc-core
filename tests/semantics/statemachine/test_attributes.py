@@ -1,5 +1,4 @@
 import syside
-from sysmlc_models.showcase import SHOWCASE_DIR
 from sysmlc_models.sm_examples import SM_EXAMPLES_DIR as SM_DIR
 
 from sysmlc.semantics.statemachine import attributes
@@ -70,11 +69,12 @@ def test_iter_scope_attributes_yields_root_attribute() -> None:
     assert names == ["counter"]
 
 
-def test_attribute_direction_is_captured() -> None:
+def test_attribute_direction_is_captured(contract_model: syside.Model) -> None:
     builder = RecordingBuilder()
-    model = load_model(SHOWCASE_DIR / "thermostat")
-    StateMachineDriver(model).run("Thermostat::ThermostatBehavior", builder)
+    StateMachineDriver(contract_model).run("Contracts::Machine", builder)
     directions = {b.name: b.direction for b in builder.attributes}
-    assert directions["setpoint"] is AttributeDirection.IN
-    assert directions["hysteresis"] is AttributeDirection.IN
-    assert directions["temperature"] is AttributeDirection.INOUT
+    assert directions == {
+        "threshold": AttributeDirection.IN,
+        "report": AttributeDirection.OUT,
+        "level": AttributeDirection.INOUT,
+    }
