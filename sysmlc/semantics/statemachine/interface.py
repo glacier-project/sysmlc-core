@@ -7,6 +7,7 @@ entry/do/exit slots and transition effects).  No artifact is rendered, so
 models that a full backend would reject can still yield their interface if
 their action slots can be inspected as inline bodies. Referenced or typed
 action slots are rejected because their sends cannot be collected this way.
+Explicit sequencing outside the supported linear subset is also rejected.
 """
 
 from __future__ import annotations
@@ -51,7 +52,8 @@ class SignalInterfaceCollector:
     Used to learn what a peer machine accepts/sends before the real
     build; it renders nothing, so models that a backend's own builder
     would reject still yield their interface when their action slots are
-    inline. Referenced or typed action slots raise UnsupportedConstructError.
+    inline. Referenced or typed action slots and unsupported sequencing raise
+    UnsupportedConstructError.
     """
 
     def __init__(self) -> None:
@@ -100,7 +102,8 @@ def machine_interface(
 
     Raises:
         UnsupportedConstructError: If an action slot references another action
-            and its signal interface cannot be collected from an inline body.
+            or uses unsupported sequencing, so its signal interface cannot be
+            collected from a supported inline body.
     """
     result = StateMachineDriver(model).run(
         state_def_qn, SignalInterfaceCollector()
