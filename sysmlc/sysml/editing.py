@@ -11,7 +11,9 @@ sema+validation pipeline and any diagnostic fails the build.
 
 Only ``default`` and ``:=`` initializers are overridable; a plain ``=``
 binding is fixed by the model and refused — the same rule the language
-applies to redefinitions.
+applies to redefinitions. Editing keeps the value kind: a mutated
+``default =`` value stays a bound default, and a created value on a
+variable attribute is an initial (``:=``) value.
 """
 
 from __future__ import annotations
@@ -26,7 +28,10 @@ from sysmlc.sysml.quantities import (
     QuantityProbe,
     quantity_parts,
 )
-from sysmlc.sysml.queries import is_scalar_quantity
+from sysmlc.sysml.queries import (
+    feature_value_relationship,
+    is_scalar_quantity,
+)
 
 type ValueScalar = bool | int | float | str
 # A leaf scalar, or a nested mapping overriding a composite's fields.
@@ -37,10 +42,7 @@ _OVERRIDABLE_HINT = "only `default` and `:=` initial values can be overridden"
 
 def value_rel(attr: syside.AttributeUsage) -> syside.FeatureValue | None:
     """Return the ``FeatureValue`` owned by *attr*, or ``None``."""
-    for rel in attr.owned_relationships.collect():
-        if isinstance(rel, syside.FeatureValue):
-            return rel
-    return None
+    return feature_value_relationship(attr)
 
 
 def check_overridable(rel: syside.FeatureValue | None, name: str) -> None:
@@ -93,16 +95,21 @@ def set_value(
 
     Parsed structure cannot be replaced through the editing API (only
     mutated or extended), so an override that would change the literal's
-    KIND is refused with a model-side hint.
+    KIND is refused with a model-side hint. A created value is an initial
+    value (``:=``) on a variable feature, so configuring an unvalued
+    attribute never turns it into a fixed ``=`` binding; a non-variable
+    feature (a structured attribute's field) keeps the created binding.
     """
     rel = value_rel(attr)
     check_overridable(rel, name)
     if rel is None:
         # No initializer: create one. Typing errors (a string into a
         # `Real`) are left for revalidation — syside checks conformance.
-        _new_rel, lit = attr.children.append(
+        new_rel, lit = attr.children.append(
             syside.FeatureValue, literal_class(value)
         )
+        # A created FeatureValue is a fixed binding by default.
+        new_rel.is_initial = attr.is_variable
         set_literal_value(lit, value)
         return
     existing = rel.value

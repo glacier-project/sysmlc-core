@@ -34,6 +34,7 @@ _BINARY_OPERATORS: Final[dict[syside.Operator, tuple[str, int]]] = {
 }
 
 _UNARY_OPERATORS: Final[dict[syside.Operator, tuple[str, int]]] = {
+    syside.Operator.Plus: ("+", 7),
     syside.Operator.Minus: ("-", 7),
     syside.Operator.Not: ("not ", 3),
 }

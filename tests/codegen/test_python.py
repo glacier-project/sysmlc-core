@@ -41,6 +41,7 @@ OPERATOR_CASES: list[OperatorCase] = [
     OperatorCase("bare-reference", "enabled", "enabled"),
     OperatorCase("not", "not enabled", "not enabled"),
     OperatorCase("unary-minus", "-x < 0", "-x < 0"),
+    OperatorCase("unary-plus", "+x > 0", "+x > 0"),
     OperatorCase("and", "a and b", "a and b"),
     OperatorCase("or", "a or b", "a or b"),
     OperatorCase("eq", "x == 1", "x == 1"),
