@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 import pytest
@@ -12,6 +13,8 @@ if TYPE_CHECKING:
 import syside
 
 from sysmlc.codegen.python import PythonCodeGen, PythonCodeGenContext
+from sysmlc.errors import UnsupportedConstructError
+from sysmlc.semantics.statemachine.bindings import require_assignable
 from tests import _load_inline_model, _single_element
 
 
@@ -299,3 +302,68 @@ def test_external_calculation_uses_consumer_symbols_and_tracks_usage(
     invocation = iter_elements(model, syside.InvocationExpression)[0]
     assert generator.render_expression(invocation) == "step(2.0)"
     assert generator.used_external == {artifact: {"step"}}
+
+
+@pytest.mark.parametrize(
+    ("target", "expected"),
+    [
+        ("equipment.flag", "equipment.flag"),
+        ("(plant.equipment).flag", "plant.equipment.flag"),
+    ],
+)
+def test_member_assignment_mutates_the_resolved_receiver(
+    tmp_path: Path, target: str, expected: str
+) -> None:
+    source = """package Targets {
+    private import ScalarValues::*;
+    part def Equipment { attribute flag : Boolean; }
+    part def Plant { part equipment : Equipment; }
+    state def Machine {
+        in ref equipment : Equipment;
+        in ref plant : Plant;
+        entry; then idle;
+        state idle { entry assign TARGET := true; }
+    }
+}"""
+    model = _load_inline_model(tmp_path, source.replace("TARGET", target))
+    assign = _single_element(model, syside.AssignmentActionUsage)
+    gen = PythonCodeGen()
+    equipment = SimpleNamespace(flag=False)
+    plant = SimpleNamespace(equipment=SimpleNamespace(flag=False))
+    context = {"equipment": equipment, "plant": plant, "flag": False}
+    assert gen.render_assignment_target(assign) == expected
+    exec(gen.render_action(assign), context)
+    assert equipment.flag is (target == "equipment.flag")
+    assert plant.equipment.flag is (target != "equipment.flag")
+    assert context["flag"] is False
+
+
+@pytest.mark.parametrize("parenthesized", [False, True])
+def test_nested_bound_leaf_assignment_remains_rejected(
+    tmp_path: Path, parenthesized: bool
+) -> None:
+    target = (
+        "(plant.equipment).flag" if parenthesized else "plant.equipment.flag"
+    )
+    model = _load_inline_model(
+        tmp_path,
+        """package Targets {
+            private import ScalarValues::*;
+            part def Equipment { attribute flag : Boolean = false; }
+            part def Plant { part equipment : Equipment; }
+            state def Machine {
+                in ref plant : Plant;
+                entry; then idle;
+                state idle { entry assign TARGET := true; }
+            }
+        }""".replace("TARGET", target),
+    )
+    assign = _single_element(model, syside.AssignmentActionUsage)
+    if parenthesized:
+        with pytest.raises(UnsupportedConstructError, match="bound with"):
+            require_assignable(assign, "entry")
+    else:
+        # This multilevel spelling remains outside the supported subset.
+        # Rendering it must not bypass the fixed leaf's protection.
+        with pytest.raises(ValueError, match="no resolved target"):
+            PythonCodeGen().render_action(assign)

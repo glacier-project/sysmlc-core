@@ -3,10 +3,10 @@
 Overrides are applied in place on the loaded model: existing initializer
 literals are mutated (or the literal node is replaced when its kind must
 change), missing initializers and per-usage composite fields are created as
-owned ``FeatureValue`` relationships and usage-local attributes (the type's
-defaults are never touched), and quantity overrides written in SysML syntax
-(``"90 [s]"``) are converted into the model's declared unit within the same
-unit KIND. After editing, the user documents are re-run through syside's
+owned ``FeatureValue`` relationships and usage-local redefinitions (the
+type's defaults are never touched), and quantity overrides written in SysML
+syntax (``"90 [s]"``) are converted into the model's declared unit within
+the same unit KIND. After editing, the user documents are re-run through syside's
 sema+validation pipeline and any diagnostic fails the build.
 
 Only ``default`` and ``:=`` initializers are overridable; a plain ``=``
@@ -54,7 +54,7 @@ def check_overridable(rel: syside.FeatureValue | None, name: str) -> None:
         )
 
 
-def literal_class(value: ValueScalar) -> type[syside.Element]:
+def literal_class(value: ValueScalar) -> type[syside.Expression]:
     """Return the syside literal class matching *value*'s Python type."""
     if isinstance(value, bool):  # bool before int: bool is an int
         return syside.LiteralBoolean
@@ -105,8 +105,8 @@ def set_value(
     if rel is None:
         # No initializer: create one. Typing errors (a string into a
         # `Real`) are left for revalidation — syside checks conformance.
-        new_rel, lit = attr.children.append(
-            syside.FeatureValue, literal_class(value)
+        new_rel, lit = attr.feature_value_member.set_member_element(
+            literal_class(value)
         )
         # A created FeatureValue is a fixed binding by default.
         new_rel.is_initial = attr.is_variable
@@ -202,8 +202,9 @@ def apply_composite(
                 "declare one in the model to make it configurable"
             )
         _membership, local = attr.children.append(
-            syside.OwningMembership, syside.AttributeUsage
+            syside.FeatureMembership, syside.AttributeUsage
         )
+        local.heritage.append(syside.Redefinition, field)
         local.declared_name = field_name
         set_value(local, label, field_value)
 

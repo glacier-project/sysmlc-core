@@ -48,6 +48,7 @@ MODEL = """package VPkg {
         attribute label : String := "off";
         attribute armed : Boolean := false;
         attribute pt : Point;
+        attribute pt2 : Point;
         attribute fixed : PointFixed;
         attribute pickDuration : DurationValue default 2 [min];
         attribute warmUp : DurationValue default 2.0 [min];
@@ -174,6 +175,7 @@ def test_composite_override_redefines_per_usage(tmp_path: Path) -> None:
     # usage-local redefinition, never touch Point's own defaults.
     model = _configured(tmp_path, {"pt": {"x": 0.7}})
     assert _value(model, "pt") == {"x": 0.7, "y": 1.0}
+    assert _value(model, "pt2") == {"x": 0.5, "y": 1.0}
     point = resolve(model, syside.AttributeDefinition, "VPkg::Point")
     (x,) = [a for a in point.owned_attributes.collect() if a.name == "x"]
     expression = x.feature_value_expression
@@ -267,3 +269,41 @@ def test_empty_values_return_original_model(tmp_path: Path) -> None:
     (model_dir / "machine.sysml").write_text(MODEL)
     model = load_model(model_dir)
     assert configure_model(model, QN, {}) is model
+
+
+def test_composite_override_preserves_field_type(
+    tmp_path: Path,
+) -> None:
+    # A usage-local redefinition inherits the Real field's conformance rules.
+    with pytest.raises(ValuesError, match="not valid SysML"):
+        _configured(tmp_path, {"pt": {"x": "wrong"}})
+
+
+def test_created_variable_value_can_be_configured_repeatedly(
+    tmp_path: Path,
+) -> None:
+    model = _configured(tmp_path, {"bare": 7.5})
+    configure_model(model, QN, {"bare": 9.5})
+    assert _value(model, "bare") == 9.5
+    attr = resolve(model, syside.AttributeUsage, f"{QN}::bare")
+    relationship = attr.feature_value
+    assert relationship is not None and relationship.is_initial
+    assert (
+        len(
+            [
+                rel
+                for rel in attr.owned_relationships.collect()
+                if isinstance(rel, syside.FeatureValue)
+            ]
+        )
+        == 1
+    )
+
+
+def test_created_nonvariable_field_remains_fixed_on_reconfiguration(
+    tmp_path: Path,
+) -> None:
+    model = _configured(tmp_path, {"pt": {"x": 0.7}})
+    with pytest.raises(ValuesError, match="bound with"):
+        configure_model(model, QN, {"pt": {"x": 0.9}})
+    assert _value(model, "pt") == {"x": 0.7, "y": 1.0}

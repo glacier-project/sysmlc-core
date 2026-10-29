@@ -24,8 +24,6 @@ def order_model() -> syside.Model:
         ("Boundaries", ["initialize", "multiply"]),
         ("UnitMultiplicity", ["initialize", "multiply"]),
         ("Duplicate", ["initialize", "multiply"]),
-        ("LocalStart", ["initialize", "start"]),
-        ("LocalDone", ["initialize", "done"]),
         ("Empty", []),
     ],
 )
@@ -62,7 +60,6 @@ def test_anonymous_then_chain(order_model: syside.Model) -> None:
         "Guarded",
         "Chained",
         "Foreign",
-        "ShadowStart",
         "Multiplicity",
         "EndMultiplicity",
         "ActionMultiplicity",
@@ -81,3 +78,58 @@ def test_unsupported_sequence_is_rejected(
     ) as error:
         actions.inline_actions(slot)
     assert error.value.node is not None
+
+
+@pytest.mark.parametrize(
+    "declaration",
+    [
+        "ref occurrence start;",
+        "action start assign c := c * 10;",
+        "action done assign c := c * 10;",
+    ],
+)
+def test_shadowed_action_boundary_is_rejected_upstream(
+    tmp_path: Path, declaration: str
+) -> None:
+    # Syside 0.11 rejects these before the compiler's ordering policy applies.
+    (tmp_path / "model.sysml").write_text(
+        """package Test {
+            private import ScalarValues::*;
+            state def Machine {
+                attribute c : Integer := 0;
+                entry; then idle;
+                state idle {
+                    entry action {
+                        DECLARATION
+                    }
+                }
+            }
+        }""".replace("DECLARATION", declaration)
+    )
+    with pytest.raises(ValueError, match="namespace-distinguishability"):
+        load_model(tmp_path)
+
+
+def test_qualified_user_start_is_not_an_action_boundary(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "model.sysml").write_text(
+        """package Test {
+            private import ScalarValues::*;
+            action start;
+            state def Machine {
+                attribute c : Integer := 0;
+                entry; then idle;
+                state idle {
+                    entry action {
+                        action initialize assign c := 1;
+                        first Test::start then initialize;
+                    }
+                }
+            }
+        }"""
+    )
+    model = load_model(tmp_path)
+    machine = resolve(model, syside.StateDefinition, "Test::Machine")
+    with pytest.raises(UnsupportedConstructError, match="succession"):
+        actions.inline_actions(machine.owned_states.collect()[0].entry_action)
