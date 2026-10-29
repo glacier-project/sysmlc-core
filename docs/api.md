@@ -49,6 +49,7 @@ API reference to render. -->
 .. automodule:: sysmlc.semantics.statemachine.triggers
 .. automodule:: sysmlc.semantics.statemachine.states
 .. automodule:: sysmlc.semantics.statemachine.attributes
+.. automodule:: sysmlc.semantics.statemachine.bindings
 .. automodule:: sysmlc.semantics.statemachine.constraints
 ```
 

@@ -6,6 +6,7 @@ import syside
 
 from sysmlc.semantics.statemachine import (
     attributes,
+    bindings,
     constraints,
     states,
     transitions,
@@ -31,7 +32,9 @@ class StateMachineDriver:
     classifies, and walks the source state machine, then pushes neutral facts
     (``StateFact`` / ``TransitionFact`` / ``AttributeBinding``, which carry raw
     syside nodes) to the backend's ``TargetBuilder``. It renders nothing and
-    knows nothing about statecharts.
+    knows nothing about statecharts. Bound (``=``) values, including those
+    of inherited attributes, and the assignments in every action slot are
+    admitted (see ``bindings``) before the facts carrying them are pushed.
     """
 
     def __init__(self, model: syside.Model) -> None:
@@ -68,6 +71,7 @@ class StateMachineDriver:
     def _bind_attributes(
         self, state_def: syside.StateDefinition, builder: TargetBuilder
     ) -> None:
+        bindings.require_no_inherited_bindings(state_def)
         for scope, attr in attributes.iter_scope_attributes(state_def):
             assert attr.name is not None
             scope_path = (
@@ -147,6 +151,14 @@ class StateMachineDriver:
             if kind is StateKind.COMPOSITE
             else None
         )
+        for phase, slot in (
+            ("entry", container.entry_action),
+            ("do", container.do_action),
+            ("exit", container.exit_action),
+        ):
+            bindings.require_assignable_actions(
+                slot, f"the `{phase}` action of state {name!r}"
+            )
         builder.add_state(
             StateFact(
                 name=name,
@@ -174,9 +186,14 @@ class StateMachineDriver:
         builder: TargetBuilder,
     ) -> None:
         for trans in transitions.container_transitions(container):
+            source = transitions.source_path(state_def, trans)
+            bindings.require_assignable_actions(
+                trans.effect_action,
+                f"the effect of a transition from {source!r}",
+            )
             builder.add_transition(
                 TransitionFact(
-                    source=transitions.source_path(state_def, trans),
+                    source=source,
                     target=transitions.target(state_def, trans, container),
                     trigger=triggers.classify(
                         trans, self._compiler, self._stdlib

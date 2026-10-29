@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Final
 import syside
 
 from sysmlc.errors import UnsupportedConstructError
-from sysmlc.semantics.statemachine import states, triggers
+from sysmlc.semantics.statemachine import bindings, states, triggers
 from sysmlc.semantics.statemachine.facts import (
     AttributeDirection,
     AttributeValue,
@@ -127,16 +127,25 @@ def bind_value(
       than something to default-materialize. The caller (``_field``) turns a
       ``None`` composite-typed binding into a zero-initialized struct field.
 
+    Every bound (``=``) value, including a composite's fields, is admitted
+    before it is rendered or evaluated; see ``bindings``.
+
     Raises:
-        UnsupportedConstructError: If a scalar-quantity value does not evaluate
-            to a number, or a composite field has no value to bind.
+        UnsupportedConstructError: If a bound value is outside the admitted
+            constant subset, a scalar-quantity value does not evaluate to a
+            number, or a composite field has no value to bind.
     """
     if isinstance(attr, syside.ItemUsage):
+        bindings.require_supported_value(attr)
         return feature_value(attr)
     nested = nested_attributes(attr)
+    quantity = bool(nested) and is_scalar_quantity(attr)
+    bindings.require_supported_value(
+        attr, structured=bool(nested) and not quantity
+    )
     if not nested:
         return feature_value(attr)
-    if is_scalar_quantity(attr):
+    if quantity:
         expr = feature_value(attr)
         if expr is None:
             return None
