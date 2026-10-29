@@ -5,10 +5,23 @@ How this project reads, edits, and extends SysML models through
 (the APIs and the patterns we rely on), part audit (where current usage
 diverges from the documented/recommended API and what to change).
 
-**Pinned to syside `0.8.6` / Python 3.14.** API names below were checked
-against the version installed in `.venv` unless a line says otherwise. Run
-checks with `.venv/bin/python -m …` (never bare `uv run` — it prunes the dev
-extra and syside disappears).
+**Current dependency: syside `0.11.0`.** The core declares
+`syside>=0.11.0,<0.12`; Quake, Rosetta, Statix and Solder pin `syside==0.11.0`. The
+guidance on feature-value creation and reading (§1, §4, §6), composite
+overrides (§6) and assignment receivers (§4), with the matching audit and
+gotcha rows marked as revised for or verified on 0.11.0, was updated for
+this release. The APIs it recommends already exist in 0.8.6 and behave the
+same there.
+
+**Historical survey: syside `0.8.6` / Python 3.14.** Everything else in
+this document — including the remaining audit rows (§8), gotcha statuses
+(§9), the element-kind catalog (§10) and the `file:line` references —
+records a survey of 0.8.6 and was not re-run against 0.11.0. Its
+"verified" labels refer to 0.8.6, and its line references may be stale.
+API names below were checked
+against the version installed in `.venv` at the time unless a line says
+otherwise. Run checks with `.venv/bin/python -m …` (never bare `uv run` —
+it prunes the dev extra and syside disappears).
 
 The read → edit → add → revalidate → evaluate patterns in §3–§7, plus the
 audit's `cast`/`try_cast` and `.STD` recommendations, are exercised by the
@@ -59,13 +72,17 @@ syside confusion.
   returns `None` instead. Both accept either a tuple or varargs of types.
   Prefer these over `assert isinstance(...)`, which is stripped under
   `python -O`.
-- **CST-backed accessors are blind to created nodes.** Accessors backed by the
-  concrete syntax tree (`feature_value_expression`, `owned_features`) only see
-  what was *parsed*. Nodes you create through the low-level editing API
-  ([§6](#6-adding--removing-nodes)) are invisible to them even after a full
-  pipeline re-run. Read created/edited structure through the **semantic**
-  accessors (`owned_relationships`, `owned_members`) instead. This is the
-  single most expensive gotcha in the codebase.
+- **Create through the dedicated slot, or the high-level accessors miss it.**
+  A feature value created with the generic
+  `children.append(syside.FeatureValue, …)` is a real owned relationship,
+  but `feature_value` and `feature_value_expression` stay empty, even after
+  a full pipeline re-run. A value set through
+  `feature.feature_value_member.set_member_element(...)` populates both
+  immediately and after revalidation (same on 0.8.6 and 0.11.0). This is a
+  consequence of the creation call, not an accessor defect; see
+  [§6](#6-adding--removing-nodes). The 0.8.6 survey also recorded
+  `owned_features` as blind to low-level-created members; read created
+  members through `owned_members` / `owned_relationships`.
 
 ______________________________________________________________________
 
@@ -181,17 +198,36 @@ also see low-level-created members uses `owned_members`
 ### Reading a value
 
 ```python
-# sysml/queries.py — feature_value(): owned FeatureValue first, CST fallback
-for rel in attr.owned_relationships.collect():
-    if isinstance(rel, syside.FeatureValue):
-        return rel.value
-return attr.feature_value_expression       # blind to created values
+# A feature's OWN value: parsed, or created through feature_value_member
+rel = attr.feature_value              # FeatureValue relationship or None
+expr = attr.feature_value_expression  # its value expression or None
 ```
 
-Always read the owned `FeatureValue` relationship first.
-`feature_value_expression` is the CST accessor and will miss any value created
-through editing. `FeatureValue` also carries `is_default` / `is_initial`
-(`=` vs `default`/`:=` — see [§5](#5-editing-existing-nodes)).
+When values are created through `feature_value_member.set_member_element`
+([§6](#6-adding--removing-nodes)), the direct accessors agree with a scan of
+`owned_relationships` for an owned `FeatureValue`, for parsed and created
+values alike, before and after revalidation. `FeatureValue` also carries
+`is_default` / `is_initial` (`=` vs `default`/`:=` — see
+[§5](#5-editing-existing-nodes)). A value created with the generic
+`children.append(syside.FeatureValue, …)` is visible only to the
+relationship scan, so code that still has to read such values must scan
+`owned_relationships`.
+
+These accessors return only values the feature **owns**. A feature that
+inherits its value without redefining it reports `None`, so the effective
+(inherited or redefined) value of a feature remains separate logic over
+the feature's redefinitions; do not replace it with the direct read.
+
+### Assignment receivers
+
+For `assign <target> := <value>`, read the receiver from
+`AssignmentActionUsage.target_argument`: a `FeatureReferenceExpression`
+(its `referent` is the base) or a `FeatureChainExpression` (whose
+`target_feature.chaining_features` give the remaining path). Combine that
+base with `referent`, the assigned feature. Do not infer the base from
+`Specialization` relationships attached to the action's `target`
+parameter: 0.8.6 happened to add one, 0.11.0 does not. `target_argument`
+gives the same result on both releases.
 
 ### Expressions, operators, quantities
 
@@ -249,20 +285,45 @@ ______________________________________________________________________
 ### Creating
 
 There are **no element constructors**. You create a node by appending a
-`(relationship_type, element_type)` pair to a container; syside allocates both.
+`(relationship_type, element_type)` pair to a container, or by filling a
+dedicated membership slot; syside allocates both.
 
 ```python
-# sysml/editing.py — create a FeatureValue holding a fresh literal
-new_rel, lit = attr.children.append(syside.FeatureValue, literal_class(value))
+# create a feature value holding a fresh literal: use the dedicated slot
+new_rel, lit = attr.feature_value_member.set_member_element(
+    literal_class(value)
+)
+# a created FeatureValue is a fixed `=` binding unless marked initial
+new_rel.is_initial = attr.is_variable
 lit.value = value
 
-# create a usage-local attribute, then name it
+# create a usage-local override of a field inherited from the definition
 _membership, local = attr.children.append(
-    syside.OwningMembership, syside.AttributeUsage
+    syside.FeatureMembership, syside.AttributeUsage
 )
 local.declared_name = field_name           # see the name= caveat below
+local.heritage.append(syside.Redefinition, field)
 ```
 
+- **Feature values go through `feature_value_member`.** It keeps
+  `feature_value` / `feature_value_expression` populated
+  ([§4](#reading-a-value)). The generic
+  `children.append(syside.FeatureValue, …)` creates a valid owned
+  relationship that those accessors do not report. Set `is_initial` from
+  `attr.is_variable`: a variable attribute gets an initial value (`:=`),
+  while a non-variable field (e.g. of a structured attribute) keeps a fixed
+  binding.
+- **Usage-local overrides need a `FeatureMembership` and an explicit
+  `Redefinition`.** A same-named attribute under a plain
+  `OwningMembership` only shadows the definition's field: 0.11.0 reports
+  a shadowing error, and 0.8.6 accepted it silently. A `FeatureMembership`
+  without a redefinition still shadows (0.8.6 then exposes two features
+  of that name), and an `OwningMembership` with a redefinition is rejected
+  on both ("package-level feature cannot be redefined"). Only the combination
+  passes on both releases. The redefinition also gives the local field the
+  original field's type, so revalidation rejects ill-typed overrides
+  (e.g. a String into a `Real` field); other usages and the definition's
+  default are unchanged.
 - **`children` is a `NamespaceBody`.** Its full surface:
   `append`, `insert`, `at`, `pop`, `clear`, `extract`, `extract_element`,
   `extract_with_relationship`, `remove_element`, `remove_relationship`,
@@ -275,9 +336,9 @@ local.declared_name = field_name           # see the name= caveat below
   **`element.declared_name`** afterward.
 - **Created nodes are real AST** that sema processes (implied relationships
   appear after a pipeline re-run), and they are visible through
-  `owned_relationships` / `owned_members` — but **not** through the CST
-  accessors (`feature_value_expression`, `owned_features`). This asymmetry is
-  the recurring trap; see [§1](#1-conventions-you-must-internalize).
+  `owned_relationships` / `owned_members`. Whether a high-level accessor
+  reports them depends on how they were created (see the feature-value item
+  above); the 0.8.6 survey recorded `owned_features` as not reporting them.
 
 ### Removing
 
@@ -350,24 +411,29 @@ ______________________________________________________________________
 
 ## 8. Audit: current usage vs recommended API
 
-Every row checked against syside 0.8.6. Priority reflects correctness risk
-*for this codebase today*, not abstract tidiness.
+Rows were checked against syside 0.8.6 unless marked as revised for 0.11.0.
+Priority reflects correctness risk *for this codebase today*, not abstract
+tidiness.
 
-| #   | Area                                | Current pattern (file:line)                                                                             | Recommended                                                                                    | Priority     | Notes                                                                                                                                                                                                                   |
-| --- | ----------------------------------- | ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | `isinstance` completeness           | `actions.py:31`, `visitor.py:128` use `isinstance(x, syside.ActionUsage)`                               | `…, syside.ActionUsage.STD` **or** a comment that excluding `FlowUsage` is intentional         | **Med**      | `ActionUsage.STD == (ActionUsage, FlowUsage)`; current check silently skips flow usages. Decide if that's wanted.                                                                                                       |
-| 2   | `isinstance` completeness           | `visitor.py:124` `isinstance(x, syside.PartUsage)`                                                      | `…PartUsage.STD` or documented exclusion                                                       | Low          | `PartUsage.STD` adds `ConnectionUsage`; relevant once connections appear.                                                                                                                                               |
-| 3   | `isinstance` completeness           | `constraints.py:24` `isinstance(m, syside.AssertConstraintUsage)`                                       | `…AssertConstraintUsage.STD` or documented exclusion                                           | Low          | `.STD` adds `SatisfyRequirementUsage`. Harmless today (no requirements), latent later.                                                                                                                                  |
-| 4   | `isinstance` (all other sites)      | `AttributeUsage`, `StateDefinition`, `OperatorExpression`, literals, `MetadataUsage`, …                 | **no change**                                                                                  | —            | Their `.STD` is single-element; plain `isinstance` already matches the spec. Listed so nobody churns them.                                                                                                              |
-| 5   | Type narrowing                      | `assert isinstance(...)` on syside nodes at `editing.py:85,205,239`, `quantities.py:107`                | `node.cast(*types)` / `try_cast`                                                               | Low          | `cast` raises a typed error and returns the narrowed node; `assert` is stripped under `python -O`. (`interface.py:83` asserts a *project* type — not applicable.)                                                       |
-| 6   | Node naming                         | `editing.py:179-182` `append(OwningMembership, AttributeUsage)` then `local.declared_name = field_name` | **keep**                                                                                       | —            | `append`'s `name=` takes a `NameID` **enum**, not a string, and only on the instance overload; setting `declared_name` is the correct way to name a created node. Verified: `append(…, name="str")` raises `TypeError`. |
-| 7   | Reading created values              | `queries.py:155` falls back to `feature_value_expression`                                               | **keep** (read owned `FeatureValue` first)                                                     | — (upstream) | CST accessor is blind to created nodes; the relationship-first read is the correct workaround. **Candidate upstream issue** — track for a syside fix.                                                                   |
-| 8   | `owned_features` vs `owned_members` | split across `actions.py:27`/`states.py:66` (features) and `attributes.py:55`/editing (members)         | **keep**; documented in [§4](#4-reading--querying)                                             | —            | Correct as-is: features = sema-derived/CST (blind to edits), members = authoritative. Don't "unify" them.                                                                                                               |
-| 9   | Operator compare                    | `quantities.py:124` `operator is not syside.Operator.Quantity`                                          | **keep**                                                                                       | —            | Confirmed correct: `operator` is an enum; `is` is right, `==`/string compare is wrong.                                                                                                                                  |
-| 10  | Removal API                         | none (project never removes nodes)                                                                      | when needed, prefer `NamespaceBody.extract*/remove_*`; verify parsed-vs-created behavior first | Info         | `remove_relationship` returns `False` for parsed rels. Pre-work for parts/ports support.                                                                                                                                |
+| #   | Area                                | Current pattern (file:line)                                                                          | Recommended                                                                                                                       | Priority | Notes                                                                                                                                                                                                                                                                                                                                    |
+| --- | ----------------------------------- | ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `isinstance` completeness           | `actions.py:31`, `visitor.py:128` use `isinstance(x, syside.ActionUsage)`                            | `…, syside.ActionUsage.STD` **or** a comment that excluding `FlowUsage` is intentional                                            | **Med**  | `ActionUsage.STD == (ActionUsage, FlowUsage)`; current check silently skips flow usages. Decide if that's wanted.                                                                                                                                                                                                                        |
+| 2   | `isinstance` completeness           | `visitor.py:124` `isinstance(x, syside.PartUsage)`                                                   | `…PartUsage.STD` or documented exclusion                                                                                          | Low      | `PartUsage.STD` adds `ConnectionUsage`; relevant once connections appear.                                                                                                                                                                                                                                                                |
+| 3   | `isinstance` completeness           | `constraints.py:24` `isinstance(m, syside.AssertConstraintUsage)`                                    | `…AssertConstraintUsage.STD` or documented exclusion                                                                              | Low      | `.STD` adds `SatisfyRequirementUsage`. Harmless today (no requirements), latent later.                                                                                                                                                                                                                                                   |
+| 4   | `isinstance` (all other sites)      | `AttributeUsage`, `StateDefinition`, `OperatorExpression`, literals, `MetadataUsage`, …              | **no change**                                                                                                                     | —        | Their `.STD` is single-element; plain `isinstance` already matches the spec. Listed so nobody churns them.                                                                                                                                                                                                                               |
+| 5   | Type narrowing                      | `assert isinstance(...)` on syside nodes at `editing.py:85,205,239`, `quantities.py:107`             | `node.cast(*types)` / `try_cast`                                                                                                  | Low      | `cast` raises a typed error and returns the narrowed node; `assert` is stripped under `python -O`. (`interface.py:83` asserts a *project* type — not applicable.)                                                                                                                                                                        |
+| 6   | Node naming / local overrides       | `editing.py` uses `FeatureMembership`, `Redefinition` and `declared_name`                            | **keep** `declared_name`; use `FeatureMembership` + explicit `Redefinition` (revised for 0.11.0)                                  | **High** | `append`'s `name=` takes a `NameID` **enum**, not a string, and only on the instance overload; setting `declared_name` is the correct way to name a created node. Verified: `append(…, name="str")` raises `TypeError`. An `OwningMembership` without a redefinition only shadows the field, which 0.11.0 rejects — see [§6](#creating). |
+| 7   | Reading created values              | `editing.py` uses `feature_value_member.set_member_element`; `queries.py` reads the direct accessors | create through `feature_value_member.set_member_element` (revised for 0.11.0); then the direct accessors suffice for owned values | Med      | Not an upstream accessor bug: the generic `append` leaves `feature_value` / `feature_value_expression` empty, the dedicated setter populates them (same on 0.8.6 and 0.11.0). Keep the owned-vs-effective (inherited) value distinction — see [§4](#reading-a-value).                                                                    |
+| 8   | `owned_features` vs `owned_members` | split across `actions.py:27`/`states.py:66` (features) and `attributes.py:55`/editing (members)      | **keep**; documented in [§4](#4-reading--querying)                                                                                | —        | Correct as-is: features = sema-derived/CST (blind to edits), members = authoritative. Don't "unify" them.                                                                                                                                                                                                                                |
+| 9   | Operator compare                    | `quantities.py:124` `operator is not syside.Operator.Quantity`                                       | **keep**                                                                                                                          | —        | Confirmed correct: `operator` is an enum; `is` is right, `==`/string compare is wrong.                                                                                                                                                                                                                                                   |
+| 10  | Removal API                         | none (project never removes nodes)                                                                   | when needed, prefer `NamespaceBody.extract*/remove_*`; verify parsed-vs-created behavior first                                    | Info     | `remove_relationship` returns `False` for parsed rels. Pre-work for parts/ports support.                                                                                                                                                                                                                                                 |
+| 11  | Assignment receiver                 | `codegen/python.py` reads the receiver through `target_argument`                                     | `AssignmentActionUsage.target_argument` (revised for 0.11.0)                                                                      | **High** | 0.11.0 no longer adds the incidental `Specialization`, so `equipment.flag` loses its base. `target_argument` holds the receiver directly on both releases — see [§4](#assignment-receivers).                                                                                                                                             |
 
-**Net:** the editing core is sound. The one finding with real bite is **#1**
-(`ActionUsage` excluding `FlowUsage`) — decide whether that exclusion is
+Rows 1–5 and 8–10 record the 0.8.6 survey; rows 6, 7 and 11 were revised
+for the 0.11.0 migration, and their recommended APIs also exist in 0.8.6.
+
+Rows 6, 7 and 11 describe the implemented migration corrections. Of the 0.8.6 findings, the one with real bite is
+**#1** (`ActionUsage` excluding `FlowUsage`) — decide whether that exclusion is
 intentional and either adopt `.STD` or pin the decision with a comment.
 Everything else is low-risk tidy-up or "keep, it's correct" confirmations.
 
@@ -375,22 +441,29 @@ ______________________________________________________________________
 
 ## 9. Gotchas — hard-won facts (status vs 0.8.6)
 
-| Fact                                                                                                                                                                     | Status                      |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------- |
-| `expr.operator` is an enum (`syside.Operator.Quantity`); compare with `is`                                                                                               | verified                    |
-| Literal nodes have `.value` setters; `feature_value_expression` does not, and elements have **no constructors**                                                          | verified                    |
-| `children.append(Rel, Node)` creates AST sema processes; visible via `owned_relationships`/`owned_members`, **invisible** to `feature_value_expression`/`owned_features` | verified                    |
-| `NamespaceBody.append` `name=` is a `NameID` **enum** (not a string); set `declared_name` to name a created node                                                         | verified                    |
-| `children.remove_relationship` returns `False` for parsed relationships                                                                                                  | unverified                  |
-| `Membership.member_element` has no setter                                                                                                                                | unverified                  |
-| syside validates value types but **not** unit kinds                                                                                                                      | verified                    |
-| `node.cst_node.start_byte/end_byte` are file byte spans; `.text()` needs the doc text; `document.url` is `file:<path>`                                                   | unverified                  |
-| `AssertConstraintUsage ⊂ ConstraintUsage`; body via `.result_expression`                                                                                                 | unverified                  |
-| A generated `<Name>.lf` cannot be lfc-compiled standalone (main-reactor name clash)                                                                                      | unverified (LF, not syside) |
+| Fact                                                                                                                                                                                 | Status                       |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------- |
+| `expr.operator` is an enum (`syside.Operator.Quantity`); compare with `is`                                                                                                           | verified                     |
+| Literal nodes have `.value` setters; `feature_value_expression` does not, and elements have **no constructors**                                                                      | verified                     |
+| `children.append(Rel, Node)` creates AST sema processes; visible via `owned_relationships`/`owned_members`, **invisible** to `feature_value_expression`/`owned_features`             | verified                     |
+| Feature values created with `children.append(FeatureValue, …)` are missing from `feature_value`/`feature_value_expression`; `feature_value_member.set_member_element` populates both | verified on 0.8.6 and 0.11.0 |
+| A usage-local field override needs `FeatureMembership` + explicit `Redefinition`; same-name shadowing is rejected by 0.11.0                                                          | verified on 0.8.6 and 0.11.0 |
+| `AssignmentActionUsage.target_argument` holds the assignment receiver; 0.11.0 no longer adds an incidental `Specialization` to the `target` parameter                                | verified on 0.8.6 and 0.11.0 |
+| `NamespaceBody.append` `name=` is a `NameID` **enum** (not a string); set `declared_name` to name a created node                                                                     | verified                     |
+| `children.remove_relationship` returns `False` for parsed relationships                                                                                                              | unverified                   |
+| `Membership.member_element` has no setter                                                                                                                                            | unverified                   |
+| syside validates value types but **not** unit kinds                                                                                                                                  | verified                     |
+| `node.cst_node.start_byte/end_byte` are file byte spans; `.text()` needs the doc text; `document.url` is `file:<path>`                                                               | unverified                   |
+| `AssertConstraintUsage ⊂ ConstraintUsage`; body via `.result_expression`                                                                                                             | unverified                   |
+| A generated `<Name>.lf` cannot be lfc-compiled standalone (main-reactor name clash)                                                                                                  | unverified (LF, not syside)  |
 
 "verified" = re-checked against the `.venv` install on 0.8.6;
 "unverified" = recorded on an earlier syside build on this line, not re-run
-against 0.8.6.
+against 0.8.6. Neither label implies a re-check on 0.11.0; rows marked
+"verified on 0.8.6 and 0.11.0" were probed on both releases during the
+migration. The `children.append` row was recorded for feature values; its
+`feature_value_expression` part is a consequence of the creation call, as
+the next row shows.
 
 ______________________________________________________________________
 

@@ -347,7 +347,7 @@ def _value_types(expr: syside.Expression) -> list[syside.Type]:
     if isinstance(expr, syside.FeatureChainExpression):
         tail = expr.target_feature
         if tail is not None:
-            feature = (tail.chaining_features.collect() or [tail])[-1]
+            feature = tail.feature_target
     elif isinstance(expr, syside.FeatureReferenceExpression):
         feature = expr.referent
     return [] if feature is None else feature.types.collect()

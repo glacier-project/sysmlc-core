@@ -48,11 +48,11 @@ def test_resolve_initial_does_not_treat_user_state_start_as_initial(
     (tmp_path / "model.sysml").write_text(
         """
         package Test {
+            state start;
             state def Machine {
-                state start;
                 state idle;
 
-                first start then idle;
+                first Test::start then idle;
             }
         }
         """
@@ -62,3 +62,14 @@ def test_resolve_initial_does_not_treat_user_state_start_as_initial(
 
     with pytest.raises(ValueError, match="No initial state for"):
         states.resolve_initial(machine)
+
+
+@pytest.mark.parametrize("name", ["start", "done"])
+def test_shadowed_state_boundary_is_rejected_upstream(
+    tmp_path: Path, name: str
+) -> None:
+    (tmp_path / "model.sysml").write_text(
+        f"package Test {{ state def Machine {{ state {name}; }} }}"
+    )
+    with pytest.raises(ValueError, match="namespace-distinguishability"):
+        load_model(tmp_path)

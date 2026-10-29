@@ -7,7 +7,7 @@ requires-python = ">=3.12,<4"
 readme = "README.md"
 license = "BSD-2-Clause"
 dependencies = [
-    "syside>=0.8.6",
+    "syside>=0.11.0,<0.12",
     "pyyaml>=6,<7",
     "tree-sitter>=0.25,<0.26",
     "tree-sitter-c>=0.24,<0.25",

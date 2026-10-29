@@ -121,38 +121,31 @@ def payload_signature(
     return event_name, pairs
 
 
-def _assignment_target_base(
-    assign: syside.AssignmentActionUsage,
-) -> str | None:
-    """Return a chained assignment target's base feature name, if any."""
-    target_feature = _assignment_target_parameter(assign)
-    if target_feature is None:
-        return None
-    for rel in target_feature.owned_relationships.collect():
-        if not isinstance(rel, syside.Specialization):
-            continue
-        general = rel.general
-        if general is None or general.name is None:
-            continue
-        qn = (
-            ""
-            if general.qualified_name is None
-            else str(general.qualified_name)
-        )
-        if qn.startswith("Actions::"):
-            continue
-        return general.name
-    return None
+def _target_base_features(
+    expr: syside.Expression | None,
+) -> list[syside.Feature]:
+    """Return the resolved features an assignment's target argument reads.
 
-
-def _assignment_target_parameter(
-    assign: syside.AssignmentActionUsage,
-) -> syside.Feature | None:
-    """Return the owned ``target`` parameter feature of an assignment."""
-    for feature in assign.owned_features.collect():
-        if feature.name == "target":
-            return feature
-    return None
+    Raises:
+        ValueError: If the target argument is not a resolved feature
+            reference or feature chain.
+    """
+    if expr is None:
+        return []
+    if isinstance(expr, syside.FeatureReferenceExpression):
+        if expr.referent is None:
+            raise ValueError("assignment target base has no resolved referent")
+        return [expr.referent]
+    if isinstance(expr, syside.FeatureChainExpression):
+        operands = expr.operands.collect()
+        tail = expr.target_feature
+        if not operands or tail is None:
+            raise ValueError("assignment target base chain is unresolved")
+        chain = tail.chaining_features.collect() or [tail]
+        return [*_target_base_features(operands[0]), *chain]
+    raise ValueError(
+        f"unsupported assignment target base: {type(expr).__name__}"
+    )
 
 
 class PythonCodeGenError(UnsupportedConstructError):
@@ -263,15 +256,21 @@ class PythonCodeGen:
             ``equipment.flag``.
 
         Raises:
-            ValueError: If the assignment target has no resolved feature.
+            ValueError: If the assignment target or a feature on its base
+                path has no resolved name, or the base is not a feature
+                reference or feature chain.
         """
         target = assign.referent
         if target is None or target.name is None:
             raise ValueError("AssignmentActionUsage has no resolved target")
-        base = _assignment_target_base(assign)
-        if base is None:
-            return target.name
-        return f"{base}.{target.name}"
+        segments: list[str] = []
+        for feature in _target_base_features(assign.target_argument):
+            if feature.name is None:
+                raise ValueError(
+                    "assignment target base has an unnamed feature"
+                )
+            segments.append(feature.name)
+        return ".".join([*segments, target.name])
 
     def render_action(self, action: syside.ActionUsage) -> str:
         """Translate a supported action usage to typed emitted Python."""

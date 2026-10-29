@@ -202,33 +202,14 @@ def exhibited_state_defs(
 def feature_value_relationship(
     feature: syside.Feature,
 ) -> syside.FeatureValue | None:
-    """Return the ``FeatureValue`` owned by ``feature``, if any.
-
-    Scans the owned relationships: syside's ``feature_value`` accessor is
-    blind to values created through the low-level editing API (in-memory
-    configuration), while the relationship is authoritative for parsed and
-    created values alike.
-    """
-    for rel in feature.owned_relationships.collect():
-        if isinstance(rel, syside.FeatureValue):
-            return rel
-    return None
+    """Return the ``FeatureValue`` owned by ``feature``, if any."""
+    return feature.feature_value
 
 
 def feature_value(
     attr: syside.AttributeUsage | syside.ItemUsage,
 ) -> syside.Expression | None:
-    """Return the attribute's own value expression, if any.
-
-    Reads the owned ``FeatureValue`` relationship first: syside's
-    ``feature_value_expression`` accessor is blind to values created
-    through the low-level editing API (in-memory configuration), while
-    the relationship is authoritative for parsed and created values
-    alike.
-    """
-    rel = feature_value_relationship(attr)
-    if rel is not None:
-        return rel.value
+    """Return the attribute's own value expression, if any."""
     return attr.feature_value_expression
 
 
