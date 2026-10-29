@@ -4,7 +4,9 @@ Drives a state machine through the generic ``StateMachineDriver`` using a
 lightweight ``TargetBuilder`` that records only which signal names the machine
 *accepts* (via SIGNAL triggers) and which it *sends* (via ``send`` actions in
 entry/do/exit slots and transition effects).  No artifact is rendered, so
-models that a full backend would reject can still yield their interface.
+models that a full backend would reject can still yield their interface if
+their action slots can be inspected as inline bodies. Referenced or typed
+action slots are rejected because their sends cannot be collected this way.
 """
 
 from __future__ import annotations
@@ -48,7 +50,8 @@ class SignalInterfaceCollector:
 
     Used to learn what a peer machine accepts/sends before the real
     build; it renders nothing, so models that a backend's own builder
-    would reject still yield their interface.
+    would reject still yield their interface when their action slots are
+    inline. Referenced or typed action slots raise UnsupportedConstructError.
     """
 
     def __init__(self) -> None:
@@ -93,7 +96,12 @@ class SignalInterfaceCollector:
 def machine_interface(
     model: syside.Model, state_def_qn: str
 ) -> MachineInterface:
-    """Collect the accepted/sent signal names of one state definition."""
+    """Collect the accepted/sent signal names of one state definition.
+
+    Raises:
+        UnsupportedConstructError: If an action slot references another action
+            and its signal interface cannot be collected from an inline body.
+    """
     result = StateMachineDriver(model).run(
         state_def_qn, SignalInterfaceCollector()
     )
