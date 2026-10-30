@@ -6,11 +6,22 @@ from typing import TYPE_CHECKING, ClassVar, Final
 
 import syside
 
+from sysmlc.codegen.structured import named_fields
 from sysmlc.errors import UnsupportedConstructError
+from sysmlc.semantics.statemachine.bindings import (
+    effective_value_relationship,
+    is_constant,
+)
+from sysmlc.semantics.statemachine.facts import AttributeValue, CompositeValue
 from sysmlc.sysml.foreign_artifact.base import interpret_artifacts
+from sysmlc.sysml.queries import (
+    definitions_of,
+    is_scalar_quantity,
+    structured_fields,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Iterable, Mapping
 
     from sysmlc.sysml.foreign_artifact.base import ForeignArtifact
 
@@ -78,23 +89,120 @@ def join_statements(actions: list[str]) -> str:
     return "\n".join(action for action in actions if action)
 
 
+@dataclass(frozen=True)
+class PayloadField:
+    """One effective field of a send's constructed payload and its value.
+
+    Attributes:
+        feature: The constructed type's effective attribute for the field;
+            a redefinition stands in for the attribute it redefines.
+        value: The field's value. When ``explicit``, the constructor
+            argument bound to it. Otherwise the value the type gives it:
+            its own or inherited default or bound value, a literal
+            constant expression; for a structured field without one, other
+            than a scalar quantity, a ``CompositeValue`` of its definition
+            holding the values of the field's own fields, recursively,
+            where the field's own redefinitions override its definition's;
+            else ``None``, an unspecified value.
+        explicit: Whether ``value`` is a constructor argument. An argument
+            may read the sender's state, so it belongs to the send's
+            evaluation, not to the payload type.
+    """
+
+    name: str
+    feature: syside.AttributeUsage
+    value: AttributeValue
+    explicit: bool
+
+
 def payload_signature(
     send: syside.SendActionUsage,
 ) -> tuple[str, list[tuple[str, syside.Expression]]]:
-    """Return a send's payload type name and its bound (attribute, arg) pairs.
+    """Return a send's payload type name and its constructor arguments.
 
-    Each positional constructor argument binds to the payload attribute at
-    the same position, in declaration order; a send may pass fewer arguments
-    than the type has attributes (KerML 8.3.4.8.7).
+    Each argument binds to the field that its constructor result feature
+    redefines (KerML 8.3.4.8.3): a positional argument to the field at its
+    position and a named argument to the named field, owned or inherited.
+    A send may omit fields (KerML 8.3.4.8.7); they are not listed here,
+    and :func:`payload_fields` also resolves their values from the type.
 
     Returns:
-        The payload type's simple name, and one ``(attribute name, argument
-        expression)`` pair per bound constructor argument.
+        The payload type's simple name, and one ``(field name, argument
+        expression)`` pair per constructor argument, in argument order.
 
     Raises:
         ValueError: If the payload is not a ``new <Type>(...)`` constructor
-            resolving to a named definition, or an argument has no
-            corresponding named attribute.
+            resolving to a named definition, or an argument does not bind
+            exactly one named attribute.
+    """
+    constructor, _event_type, event_name = _payload_constructor(send)
+    return event_name, [
+        (_field_name(field), argument)
+        for field, argument in _argument_bindings(constructor)
+    ]
+
+
+def payload_fields(send: syside.SendActionUsage) -> list[PayloadField]:
+    """Return every effective field of a send's payload with its value.
+
+    A constructor argument binds the field that its result feature
+    redefines, as in :func:`payload_signature`. A field the constructor
+    omits takes its value from the type: its own default or bound value,
+    else the one it inherits through the attribute it redefines. An
+    omitted structured field without such a value, other than a scalar
+    quantity, is built from the values of its own fields.
+
+    Constant eligibility is an extraction check, not a guarantee that the
+    expression renderer supports the value. Literal quantity expressions,
+    for example, still require quantity-operator rendering support.
+
+    Returns:
+        One entry per effective field of the constructed type: first the
+        arguments, in the constructor's member order as
+        :func:`payload_signature` lists them, then the omitted fields in
+        the type's feature order, so emitting the entries in sequence
+        evaluates the arguments in the constructor's member order. A type
+        without fields yields no entries.
+
+    Raises:
+        ValueError: If the payload is not a ``new <Type>(...)`` constructor
+            resolving to a named definition, or an argument does not bind
+            exactly one effective field of the type.
+        UnsupportedConstructError: If a structured type involved has an
+            unnamed field or two distinct fields sharing a name, or the
+            constructor omits a field whose value from the type is not a
+            literal constant, at any depth, or whose structured definition
+            is unnamed or contains itself. A non-constant value may refer
+            to the payload's own features, so it cannot be evaluated with
+            the send's arguments.
+    """
+    constructor, event_type, event_name = _payload_constructor(send)
+    names = {field: name for name, field in named_fields(event_type)}
+    resolved: list[PayloadField] = []
+    for field, argument in _argument_bindings(constructor):
+        name = names.pop(field, None)
+        if name is None:
+            raise ValueError(
+                f"send payload argument {field.name!r} does not bind an "
+                f"effective field of {event_name!r}"
+            )
+        resolved.append(PayloadField(name, field, argument, explicit=True))
+    enclosing = frozenset({event_type})
+    resolved.extend(
+        PayloadField(name, field, _type_value(field, enclosing), explicit=False)
+        for field, name in names.items()
+    )
+    return resolved
+
+
+def _payload_constructor(
+    send: syside.SendActionUsage,
+) -> tuple[syside.ConstructorExpression, syside.Definition, str]:
+    """Return a send's payload constructor, its definition and its name.
+
+    Raises:
+        ValueError: If the payload is not a ``new <Type>(...)`` constructor
+            resolving to a named definition.
     """
     payload = send.payload_argument
     if not isinstance(payload, syside.ConstructorExpression):
@@ -105,20 +213,124 @@ def payload_signature(
     event_name = event_type.name
     if event_name is None:
         raise ValueError("send payload type has no resolved name")
-    attributes = event_type.owned_attributes.collect()
-    pairs: list[tuple[str, syside.Expression]] = []
-    for index, argument in enumerate(payload.arguments.collect()):
-        if index >= len(attributes):
+    return payload, event_type, event_name
+
+
+def _argument_bindings(
+    constructor: syside.ConstructorExpression,
+) -> list[tuple[syside.AttributeUsage, syside.Expression]]:
+    """Pair each constructor argument with the field it binds.
+
+    Every owned feature of the constructor's result redefines the field
+    its argument binds and holds the argument as its value, so arguments
+    need not correspond one-to-one with the fields by position.
+
+    Raises:
+        ValueError: If a result feature does not redefine exactly one
+            attribute or has no argument value.
+    """
+    result = constructor.result
+    if result is None:
+        raise ValueError("send payload constructor has no result")
+    bindings: list[tuple[syside.AttributeUsage, syside.Expression]] = []
+    for feature in result.owned_features.collect():
+        redefined = [
+            redefinition.redefined_feature
+            for redefinition in feature.owned_redefinitions.collect()
+        ]
+        targets = [
+            field
+            for field in redefined
+            if isinstance(field, syside.AttributeUsage)
+        ]
+        argument = feature.feature_value_expression
+        if len(targets) != 1 or argument is None:
             raise ValueError(
-                "send payload has more args than the type has attributes"
+                f"send payload argument {feature.name!r} does not bind "
+                "exactly one attribute field of the constructed type"
             )
-        name = attributes[index].name
-        if name is None:
-            raise ValueError(
-                "send payload binds an argument to an unnamed attribute"
-            )
-        pairs.append((name, argument))
-    return event_name, pairs
+        bindings.append((targets[0], argument))
+    return bindings
+
+
+def _type_value(
+    field: syside.AttributeUsage,
+    enclosing: frozenset[syside.Definition],
+) -> AttributeValue:
+    """Return the value its type gives an omitted payload field.
+
+    Args:
+        field: The omitted effective field.
+        enclosing: The structured definitions being built around
+            ``field``, which a nested field must not contain again.
+
+    Raises:
+        UnsupportedConstructError: If a value is not a literal constant,
+            or a nested structured definition is unnamed or recursive, or
+            has an unnamed field or two distinct fields sharing a name.
+    """
+    relationship = effective_value_relationship(field)
+    value = None if relationship is None else relationship.value
+    if value is not None:
+        if is_constant(value):
+            return value
+        raise UnsupportedConstructError(
+            f"send omits field {_qualified(field)!r}, whose value from the "
+            "type is not a literal constant; only Boolean, Integer, "
+            "Rational and String literals, unary numeric signs, literal "
+            "quantities and enumeration literals are eligible as omitted "
+            "payload values. Emission also requires expression renderer "
+            "support. Pass nonconstant values as constructor arguments.",
+            node=field,
+        )
+    # A scalar quantity is one number, not a structure built from its
+    # library definition's fields.
+    if is_scalar_quantity(field):
+        return None
+    definition = next(
+        (
+            candidate
+            for candidate in definitions_of(field)
+            if isinstance(candidate, syside.AttributeDefinition)
+            and structured_fields(candidate)
+        ),
+        None,
+    )
+    if definition is None:
+        return None
+    if definition.name is None or definition in enclosing:
+        raise UnsupportedConstructError(
+            f"send omits structured field {_qualified(field)!r}, whose "
+            "definition is unnamed or recursive",
+            node=field,
+        )
+    # The field's own redefinitions override its definition's fields; the
+    # value keeps the definition's identity for its generated class.
+    nested = enclosing | {definition}
+    return CompositeValue(
+        tuple(
+            (name, _type_value(part, nested))
+            for name, part in named_fields(field)
+        ),
+        definition.name,
+        definition,
+    )
+
+
+def _field_name(field: syside.AttributeUsage) -> str:
+    """Return a payload field's name.
+
+    Raises:
+        ValueError: If the field has no name.
+    """
+    if field.name is None:
+        raise ValueError("send payload type has an unnamed field")
+    return field.name
+
+
+def _qualified(element: syside.Element) -> str:
+    """Return an element's qualified name, or its name, for diagnostics."""
+    return str(element.qualified_name or element.name)
 
 
 def _target_base_features(
@@ -219,6 +431,73 @@ class PythonCodeGen:
                 kind the emitter does not support.
         """
         return self._emit(expr)
+
+    def render_value(
+        self,
+        value: AttributeValue,
+        register: Callable[[syside.Definition], None] | None = None,
+    ) -> str | None:
+        """Translate a neutral attribute value to a Python source string.
+
+        An expression renders through :meth:`render_expression`, a scalar
+        quantity's SI magnitude as a float literal, and a structured value
+        as a keyword construction of its definition's generated class,
+        with its fields rendered by :meth:`render_fields`.
+
+        Args:
+            value: The value to translate.
+            register: Called with a structured value's definition before
+                its construction is rendered, so the caller can provide
+                the generated class, or None when the caller already does.
+
+        Returns:
+            Python source for ``value``, or None when ``value`` is None.
+
+        Raises:
+            ValueError: If an expression (or any sub-expression) is a node
+                kind the emitter does not support.
+        """
+        if value is None:
+            return None
+        if isinstance(value, CompositeValue):
+            if register is not None:
+                register(value.definition)
+            fields = self.render_fields(value.fields, register)
+            return f"{value.type_name}({fields})"
+        if isinstance(value, float):
+            return repr(value)
+        return self.render_expression(value)
+
+    def render_fields(
+        self,
+        fields: Iterable[tuple[str, AttributeValue]],
+        register: Callable[[syside.Definition], None] | None = None,
+    ) -> str:
+        """Translate named field values to Python keyword arguments.
+
+        Evaluating the result evaluates the values in ``fields`` order. A
+        field whose value is None, unspecified, gets no argument, so a
+        generated class keeps its own placeholder for it.
+
+        Args:
+            fields: ``(field name, value)`` pairs.
+            register: Called with each nested structured value's
+                definition, as for :meth:`render_value`.
+
+        Returns:
+            Comma-separated ``<name>=<source>`` keyword arguments; empty
+            when no field has a value.
+
+        Raises:
+            ValueError: If an expression (or any sub-expression) is a node
+                kind the emitter does not support.
+        """
+        arguments: list[str] = []
+        for name, value in fields:
+            rendered = self.render_value(value, register)
+            if rendered is not None:
+                arguments.append(f"{name}={rendered}")
+        return ", ".join(arguments)
 
     def render_assignment(self, assign: syside.AssignmentActionUsage) -> str:
         """Translate an assignment action to a Python assignment statement.

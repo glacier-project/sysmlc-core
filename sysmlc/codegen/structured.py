@@ -11,8 +11,9 @@ from typing import TYPE_CHECKING, Final
 import syside
 
 from sysmlc.errors import UnsupportedConstructError
+from sysmlc.semantics.statemachine.bindings import effective_value_relationship
 from sysmlc.sysml.foreign_artifact.text_rep import write_file
-from sysmlc.sysml.queries import feature_value, is_scalar_quantity
+from sysmlc.sysml.queries import is_scalar_quantity, structured_fields
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -128,8 +129,9 @@ def _resolve_field_type(
     """Return an attribute's Python annotation and structured definition.
 
     A scalar quantity value collapses to ``float`` (its SI magnitude);
-    SysML scalars map to Python builtins; a structured definition maps to
-    its generated dataclass name and is returned alongside; anything
+    SysML scalars map to Python builtins; a structured definition, one
+    with owned or inherited model attributes, maps to its generated
+    dataclass name and is returned alongside; anything
     unmapped falls back to ``object`` deliberately: an untyped or
     unrecognized attribute is valid SysML, and the annotation is only a
     hint on a working field, unlike the unnamed/keyword cases below that
@@ -143,14 +145,58 @@ def _resolve_field_type(
     for definition in attribute.attribute_definitions.collect():
         if definition.name in _SCALAR_PY:
             return _SCALAR_PY[definition.name], None
-        if (
-            isinstance(definition, syside.Definition)
-            and definition.owned_attributes.collect()
+        if isinstance(definition, syside.Definition) and structured_fields(
+            definition
         ):
             if definition.name is None:
                 raise ValueError("structured attribute definition has no name")
             return definition.name, definition
     return "object", None
+
+
+def named_fields(
+    structure: syside.Type,
+) -> list[tuple[str, syside.AttributeUsage]]:
+    """Return a structured type's fields with the names generated values use.
+
+    A generated value identifies each field by its simple name. SysML lets
+    distinct fields inherited from different general types share a name;
+    such a valid type has no representation as a generated value.
+
+    Args:
+        structure: A structured definition, or a usage of one.
+
+    Returns:
+        One ``(name, field)`` pair per effective field, in the type's
+        feature order.
+
+    Raises:
+        UnsupportedConstructError: If a field is unnamed, or two distinct
+            fields share a name.
+    """
+    named: dict[str, syside.AttributeUsage] = {}
+    for field in structured_fields(structure):
+        name = field.name
+        if name is None:
+            raise UnsupportedConstructError(
+                f"structured type {structure.name!r} has an unnamed field",
+                node=field,
+            )
+        known = named.setdefault(name, field)
+        if known != field:
+            raise UnsupportedConstructError(
+                f"structured type {structure.name!r} has two distinct fields "
+                f"named {name!r}, {_qualified(known)!r} and "
+                f"{_qualified(field)!r}; generated values identify fields by "
+                "simple name, so such a type is not supported",
+                node=field,
+            )
+    return list(named.items())
+
+
+def _qualified(element: syside.Element) -> str:
+    """Return an element's qualified name, or its name, for diagnostics."""
+    return str(element.qualified_name or element.name)
 
 
 def constructed_payload_definition(
@@ -301,13 +347,17 @@ def register_dataclass(
 ) -> None:
     """Render ``definition`` as a dataclass and register it, recursively.
 
-    A field typed by another structured definition registers that
-    definition first, so the companion module is self-contained. A field
-    default comes from the model's declared default when it renders to a
-    Python literal (``bool``, ``int``, ``float``, or ``str``); any other
-    default, and any field without one, falls back to ``None`` so the
-    emitted class never embeds expressions that reference names outside
-    the companion module.
+    The class has one field per effective model attribute of the
+    definition, owned or inherited, with a redefinition standing in for
+    the attribute it redefines. A field typed by another structured
+    definition registers that definition first, so the companion module
+    is self-contained. A field's default is its own or inherited default
+    or bound value when that renders to a Python literal (``bool``,
+    ``int``, ``float``, or ``str``), and ``None`` when the model gives the
+    field no value. Any other value is not embedded, since it may
+    reference names outside the companion module: such a field has no
+    default and the class becomes keyword-only, so constructing it
+    without that field fails instead of substituting ``None``.
 
     Args:
         definition: The structured (item or composite attribute)
@@ -318,9 +368,9 @@ def register_dataclass(
 
     Raises:
         UnsupportedConstructError: If the definition or one of its fields
-            is unnamed or not a Python identifier, the definition is
-            recursive, or its simple name collides with a different
-            definition already registered.
+            is unnamed or not a Python identifier, two distinct fields
+            share a name, the definition is recursive, or its simple name
+            collides with a different definition already registered.
     """
     _register_dataclass(definition, registry, render_default, set())
 
@@ -353,17 +403,11 @@ def _register_dataclass(
         )
     in_progress.add(origin)
     try:
-        fields = definition.owned_attributes.collect()
+        fields = named_fields(definition)
         lines = ["@dataclass", f"class {name}:"]
         if not fields:
             lines.append("    pass")
-        for attribute in fields:
-            field_name = attribute.name
-            if field_name is None:
-                raise UnsupportedConstructError(
-                    f"structured type {name!r} has an unnamed field",
-                    node=attribute,
-                )
+        for field_name, attribute in fields:
             if not field_name.isidentifier() or keyword.iskeyword(field_name):
                 raise UnsupportedConstructError(
                     f"structured field name {field_name!r} is not a "
@@ -376,7 +420,11 @@ def _register_dataclass(
                     nested, registry, render_default, in_progress
                 )
             default = _field_default(attribute, render_default)
-            lines.append(f"    {field_name}: {annotation} = {default}")
+            if default is None:
+                lines[0] = "@dataclass(kw_only=True)"
+                lines.append(f"    {field_name}: {annotation}")
+            else:
+                lines.append(f"    {field_name}: {annotation} = {default}")
         registry.register(name, origin, tuple(lines))
     finally:
         in_progress.remove(origin)
@@ -385,16 +433,23 @@ def _register_dataclass(
 def _field_default(
     attribute: syside.AttributeUsage,
     render_default: Callable[[syside.Expression], str],
-) -> str:
-    """Render a field's default, or ``None`` when it is not a literal."""
-    default_expression = feature_value(attribute)
-    if default_expression is None:
+) -> str | None:
+    """Render a field's default source, or ``None`` when it has none.
+
+    Returns:
+        The rendered literal value, the source ``"None"`` when the field
+        has no value, or ``None`` when its value does not render to a
+        literal.
+    """
+    relationship = effective_value_relationship(attribute)
+    value = None if relationship is None else relationship.value
+    if value is None:
         return "None"
     try:
-        rendered = render_default(default_expression)
+        rendered = render_default(value)
         literal = ast.literal_eval(rendered)
     except (SyntaxError, ValueError, UnsupportedConstructError):
-        return "None"
+        return None
     if isinstance(literal, (bool, int, float, str)):
         return rendered
-    return "None"
+    return None
