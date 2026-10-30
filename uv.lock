@@ -1283,7 +1283,7 @@ provides-extras = ["dev", "docs", "models"]
 [[package]]
 name = "sysmlc-models"
 version = "0.0.0"
-source = { git = "https://github.com/glacier-project/sysmlc-models?branch=main#14996c6da159d4fb545160739d8b5f9ff836d279" }
+source = { git = "https://github.com/glacier-project/sysmlc-models?branch=main#db63a469e0cff218baf8e893435f4c9fa9f5e6a3" }
 
 [[package]]
 name = "tomli"
