@@ -388,6 +388,8 @@ class PythonCodeGen:
         external: The Foreign Artifacts available to back external calc-def
             calls, or None if none were provided (e.g. no ``--python``
             module/metadata/textual representation for this model).
+        definition_symbols: Frozen qualified-definition to Python-symbol map,
+            or None to preserve legacy simple class names.
     """
 
     # The whitelist consulted by `_emit_library_invocation`. Subclasses
@@ -398,7 +400,10 @@ class PythonCodeGen:
         self,
         context: PythonCodeGenContext | None = None,
         external: list[ForeignArtifact] | None = None,
+        *,
+        definition_symbols: Mapping[str, str] | None = None,
     ) -> None:
+        self.definition_symbols = dict(definition_symbols or {})
         self._context = context or PythonCodeGenContext()
         self._external: list[ForeignArtifact] = external or []
         self._used_external: dict[ForeignArtifact, set[str]] = {}
@@ -463,7 +468,10 @@ class PythonCodeGen:
             if register is not None:
                 register(value.definition)
             fields = self.render_fields(value.fields, register)
-            return f"{value.type_name}({fields})"
+            symbol = self.definition_symbols.get(
+                str(value.definition.qualified_name), value.type_name
+            )
+            return f"{symbol}({fields})"
         if isinstance(value, float):
             return repr(value)
         return self.render_expression(value)

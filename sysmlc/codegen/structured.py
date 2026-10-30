@@ -16,7 +16,7 @@ from sysmlc.sysml.foreign_artifact.text_rep import write_file
 from sysmlc.sysml.queries import is_scalar_quantity, structured_fields
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable, Mapping, Sequence
     from pathlib import Path
 
 _SCALAR_PY: Final[dict[str, str]] = {
@@ -143,7 +143,9 @@ def _resolve_field_type(
     if is_scalar_quantity(attribute):
         return "float", None
     for definition in attribute.attribute_definitions.collect():
-        if definition.name in _SCALAR_PY:
+        if definition.name in _SCALAR_PY and definition.matches_qualified_name(
+            ("ScalarValues", definition.name)
+        ):
             return _SCALAR_PY[definition.name], None
         if isinstance(definition, syside.Definition) and structured_fields(
             definition
@@ -218,17 +220,24 @@ def constructed_payload_definition(
 
 
 class DataclassRegistry:
-    """Rendered dataclass blocks keyed by simple name, collision-checked.
+    """Rendered dataclass blocks keyed by generated symbol, collision-checked.
 
-    Registration is idempotent for the same qualified origin and fails
-    loud when two different structured definitions want the same simple
-    Python name, since a generated companion module has one flat
-    namespace.
+    An optional frozen qualified-name map assigns class symbols before
+    registration; without it, legacy simple names are used. Registration
+    is idempotent for the same qualified origin and rejects different
+    definitions sharing one generated Python symbol.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, symbols: Mapping[str, str] | None = None) -> None:
+        self._symbols = dict(symbols or {})
         # One entry per generated class name: (origin qualified name, block).
         self._entries: dict[str, tuple[str, tuple[str, ...]]] = {}
+
+    def symbol_for(self, definition: syside.Definition) -> str:
+        """Return the frozen symbol, or the legacy simple definition name."""
+        return self._symbols.get(
+            str(definition.qualified_name), definition.name or ""
+        )
 
     def __bool__(self) -> bool:
         """Whether any dataclass was registered."""
@@ -369,7 +378,7 @@ def register_dataclass(
     Raises:
         UnsupportedConstructError: If the definition or one of its fields
             is unnamed or not a Python identifier, two distinct fields
-            share a name, the definition is recursive, or its simple name
+            share a name, the definition is recursive, or its generated symbol
             collides with a different definition already registered.
     """
     _register_dataclass(definition, registry, render_default, set())
@@ -382,8 +391,8 @@ def _register_dataclass(
     in_progress: set[str],
 ) -> None:
     """Recursive worker for :func:`register_dataclass`."""
-    name = definition.name
-    if name is None:
+    name = registry.symbol_for(definition)
+    if not name:
         raise UnsupportedConstructError(
             "structured type has no resolved name", node=definition
         )
@@ -416,6 +425,7 @@ def _register_dataclass(
                 )
             annotation, nested = _resolve_field_type(attribute)
             if nested is not None:
+                annotation = registry.symbol_for(nested)
                 _register_dataclass(
                     nested, registry, render_default, in_progress
                 )

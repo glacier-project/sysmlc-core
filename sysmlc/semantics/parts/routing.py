@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     import syside
 
     from sysmlc.semantics.parts.graph import PartGraph, PartNode
+    from sysmlc.semantics.statemachine.signals import SignalCatalog
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,8 @@ def validated_routes(
     model: syside.Model,
     graph: PartGraph,
     nodes: tuple[PartNode, ...],
+    *,
+    catalog: SignalCatalog | None = None,
 ) -> tuple[dict[str, MachineInterface], tuple[PortSignalRoute, ...]]:
     """Build each node's machine interface, validate it, and route the graph.
 
@@ -47,6 +50,7 @@ def validated_routes(
         graph: The part graph whose connections are validated and routed.
         nodes: The part nodes whose interfaces participate in routing; each
             must exhibit exactly one behavior.
+        catalog: Frozen concrete signal catalog, or None for legacy names.
 
     Returns:
         Each routed node's machine interface keyed by usage name, and the
@@ -70,7 +74,9 @@ def validated_routes(
     # would silently drop a node and route only part of the system.
     assert len(parts) == len(nodes), "part usage names are not unique"
     faces = {
-        node.usage_name: machine_interface(model, node.behaviors[0][1])
+        node.usage_name: machine_interface(
+            model, node.behaviors[0][1], catalog=catalog
+        )
         for node in nodes
     }
     _validate_via_ports(nodes, faces)
@@ -119,6 +125,7 @@ def _port_signal_routes(
     """Build port-addressed routing edges for matched send/accept signals."""
     routes: list[PortSignalRoute] = []
     destinations: dict[tuple[str, str], str] = {}
+    physical_edges: set[PortSignalRoute] = set()
 
     def wire(
         source_inst: str,
@@ -127,6 +134,12 @@ def _port_signal_routes(
         target_port: str,
         signal: str,
     ) -> None:
+        edge = PortSignalRoute(
+            source_inst, source_port, signal, target_inst, target_port
+        )
+        if edge in physical_edges:
+            return
+        physical_edges.add(edge)
         key = (target_inst, signal)
         # One source per (target, signal): delivery carries only the signal
         # name, not the port it arrived on, so a target's `accept M via a`

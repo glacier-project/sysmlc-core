@@ -23,6 +23,37 @@ def container_transitions(
     return container.nested_transitions.collect()
 
 
+def declaration_order(
+    state_def: syside.StateDefinition,
+) -> dict[syside.TransitionUsage, int]:
+    """Return transition ordinals in semantic owned-member preorder.
+
+    Only state containers visited by the driver participate. Recurse into a
+    composite state at its declared member position, so an inner transition
+    can precede a later transition declared in its parent's scope.
+    """
+    result: dict[syside.TransitionUsage, int] = {}
+
+    def visit(container: syside.StateDefinition | syside.StateUsage) -> None:
+        candidates = set(container_transitions(container))
+        nested = set(states.substates(container))
+        for member in container.owned_members.collect():
+            if (
+                isinstance(member, syside.TransitionUsage)
+                and member in candidates
+            ):
+                result[member] = len(result)
+            elif (
+                isinstance(member, syside.StateUsage)
+                and member in nested
+                and states.substates(member)
+            ):
+                visit(member)
+
+    visit(state_def)
+    return result
+
+
 def source_path(
     state_def: syside.StateDefinition, trans: syside.TransitionUsage
 ) -> str:

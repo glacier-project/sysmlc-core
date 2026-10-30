@@ -4,6 +4,7 @@ import math
 
 import syside
 
+from sysmlc.errors import UnsupportedConstructError
 from sysmlc.semantics.statemachine.facts import (
     AfterTrigger,
     AtTrigger,
@@ -54,6 +55,8 @@ def classify(
     trans: syside.TransitionUsage,
     compiler: syside.Compiler,
     stdlib: syside.Stdlib,
+    *,
+    strict_signals: bool = False,
 ) -> Trigger | None:
     """Classify a transition's accepter into a neutral ``Trigger``, or None.
 
@@ -66,7 +69,12 @@ def classify(
       condition node;
     - an eventless transition -> None.
 
+    Typed callers may set ``strict_signals`` to reject unresolved, untyped or
+    value-bound signal accepts before they can be mistaken for eventless edges.
+
     Raises:
+        UnsupportedConstructError: If strict signal classification encounters
+            an unresolved, untyped or value-bound signal accept.
         ValueError: If an ``after`` duration does not evaluate to a finite,
             non-negative number, if an ``at`` instant does not evaluate to a
             finite number, or if an ``accept when`` condition does not resolve
@@ -75,15 +83,59 @@ def classify(
     invocation = trigger_invocation(trans)
     if invocation is None:
         accepted_type = _accepted_type(trans)
+        actions = list(trans.trigger_actions)
+        if strict_signals and actions:
+            action = actions[0]
+            parameter = action.payload_parameter
+            if action.payload_argument is not None:
+                raise UnsupportedConstructError(
+                    "value-bound signal accepts are not supported in typed dispatch",
+                    node=action,
+                )
+            if (
+                accepted_type is None
+                or accepted_type.name is None
+                or parameter is None
+                or not parameter.types.collect()
+                or not (
+                    parameter.owned_typings.collect()
+                    or any(
+                        not subsetting.is_implied
+                        for subsetting in parameter.owned_subsettings.collect()
+                    )
+                )
+            ):
+                raise UnsupportedConstructError(
+                    "untyped signal accepts are not supported in typed dispatch",
+                    node=action,
+                )
         if accepted_type is None or accepted_type.name is None:
             return None
         payload_name = _payload_name(trans)
+        action = next(iter(trans.trigger_actions))
+        parameter = action.payload_parameter
+        assert parameter is not None
         return SignalTrigger(
             signal_name=accepted_type.name,
             payload_name=payload_name,
             payload_feature=_payload_feature(trans, payload_name),
             via_port=_via_port(trans),
             accepted_type=accepted_type,
+            accepted_types=(
+                tuple(parameter.types.collect())
+                if parameter.owned_typings.collect()
+                or any(
+                    not subsetting.is_implied
+                    for subsetting in parameter.owned_subsettings.collect()
+                )
+                else ()
+            ),
+            value_bound=action.payload_argument is not None,
+            declared_types=tuple(
+                typing.general
+                for typing in parameter.owned_typings.collect()
+                if not typing.is_implied and typing.general is not None
+            ),
         )
     if invocation.kind is syside.TriggerKind.After:
         duration = invocation.arguments.collect()[0]
@@ -142,13 +194,8 @@ def _accepted_type(trans: syside.TransitionUsage) -> syside.Type | None:
     param = actions[0].payload_parameter
     if param is None:
         return None
-    typings = param.owned_typings.collect()
-    if not typings:
-        return None
-    general = typings[0].general
-    if general is None:
-        return None
-    return general
+    types = param.types.collect()
+    return types[0] if types else None
 
 
 def _payload_name(trans: syside.TransitionUsage) -> str | None:
