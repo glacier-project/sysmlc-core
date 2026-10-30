@@ -213,6 +213,61 @@ def feature_value(
     return attr.feature_value_expression
 
 
+def structured_fields(structure: syside.Type) -> list[syside.AttributeUsage]:
+    """Return the effective attribute fields of a structured type.
+
+    The fields are the type's attribute features as KerML resolves them:
+    its owned attributes followed by the inherited ones. A redefinition
+    replaces the attribute it redefines, and a private attribute of a
+    general type is not inherited; for a usage, its own redefinitions of
+    its definition's attributes apply. Distinct inherited fields may share
+    a simple name.
+
+    The built-in ``Items::Item::isSolid`` characteristic is not an
+    application data field and is excluded, including its redefinitions.
+    Attributes declared in library packages are otherwise kept.
+
+    Args:
+        structure: A structured definition, or a usage of one.
+    """
+    return [
+        feature
+        for feature in structure.features.collect()
+        if isinstance(feature, syside.AttributeUsage)
+        and not feature.specializes(("Items", "Item", "isSolid"))
+    ]
+
+
+def item_payload_features(
+    item: syside.ItemDefinition, stdlib: syside.Stdlib
+) -> list[syside.Feature]:
+    """Return effective item features beyond universal item structure.
+
+    Exclude only the exact features supplied by the standard ``Items::Item``
+    base. Application features, including inherited members, library members,
+    and redefinitions of standard features, remain visible. An empty result
+    identifies an item with no additional payload structure.
+
+    Args:
+        item: The accepted item definition.
+        stdlib: The standard library for the loaded model.
+
+    Raises:
+        ValueError: If the standard item base cannot be resolved.
+    """
+    base = stdlib.implicit_supertype_for(
+        syside.ItemDefinition, syside.ImplicitSpecializationKind.Base
+    )
+    if base is None:
+        raise ValueError("the standard Items::Item base cannot be resolved")
+    baseline = set(base.features.collect())
+    return [
+        feature
+        for feature in item.features.collect()
+        if feature not in baseline
+    ]
+
+
 def _element_sort_key(element: syside.Element) -> tuple[str, str, str]:
     qualified_name = element.qualified_name
     path = element.path

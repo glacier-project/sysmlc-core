@@ -74,15 +74,16 @@ def classify(
     """
     invocation = trigger_invocation(trans)
     if invocation is None:
-        name = _signal_name(trans)
-        if name is None:
+        accepted_type = _accepted_type(trans)
+        if accepted_type is None or accepted_type.name is None:
             return None
         payload_name = _payload_name(trans)
         return SignalTrigger(
-            signal_name=name,
+            signal_name=accepted_type.name,
             payload_name=payload_name,
             payload_feature=_payload_feature(trans, payload_name),
             via_port=_via_port(trans),
+            accepted_type=accepted_type,
         )
     if invocation.kind is syside.TriggerKind.After:
         duration = invocation.arguments.collect()[0]
@@ -129,8 +130,8 @@ def _change_condition(
     )
 
 
-def _signal_name(trans: syside.TransitionUsage) -> str | None:
-    """Return a signal accepter's payload type simple name, or None.
+def _accepted_type(trans: syside.TransitionUsage) -> syside.Type | None:
+    """Return a signal accepter's resolved nominal payload type, or None.
 
     Only called for a transition with no trigger invocation (so a time/change
     trigger has already been excluded).
@@ -147,7 +148,7 @@ def _signal_name(trans: syside.TransitionUsage) -> str | None:
     general = typings[0].general
     if general is None:
         return None
-    return general.name
+    return general
 
 
 def _payload_name(trans: syside.TransitionUsage) -> str | None:

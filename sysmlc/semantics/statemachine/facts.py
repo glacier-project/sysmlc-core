@@ -37,12 +37,15 @@ class SignalTrigger:
     reading : Tick`` -> ``"reading"``); ``payload_feature`` is the
     transition-scoped reference feature that guard/effect expressions resolve
     to for that payload; ``via_port`` is the receiver port's simple name.
+    ``accepted_type`` is the resolved nominal type used to identify the signal,
+    independent of the local payload parameter name.
     """
 
     signal_name: str
     payload_name: str | None = None
     payload_feature: syside.Feature | None = None
     via_port: str | None = None
+    accepted_type: syside.Type | None = None
 
 
 @dataclass(frozen=True)
