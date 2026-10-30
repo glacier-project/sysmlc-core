@@ -38,7 +38,11 @@ class SignalTrigger:
     transition-scoped reference feature that guard/effect expressions resolve
     to for that payload; ``via_port`` is the receiver port's simple name.
     ``accepted_type`` is the resolved nominal type used to identify the signal,
-    independent of the local payload parameter name.
+    independent of the local payload parameter name. ``accepted_types`` holds
+    all effective constraints for conjunctive typed dispatch; ``value_bound``
+    identifies accepts whose additional value restriction is unsupported there.
+    ``declared_types`` retains explicitly written type references separately
+    from effective constraints and their implied universal ancestors.
     """
 
     signal_name: str
@@ -46,6 +50,9 @@ class SignalTrigger:
     payload_feature: syside.Feature | None = None
     via_port: str | None = None
     accepted_type: syside.Type | None = None
+    accepted_types: tuple[syside.Type, ...] = ()
+    value_bound: bool = False
+    declared_types: tuple[syside.Type, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -172,10 +179,16 @@ class StateFact:
 
 @dataclass(frozen=True)
 class TransitionFact:
-    """A transition between two states (or to a scope's completion)."""
+    """A transition between two states (or to a scope's completion).
+
+    ``declaration_order`` is its semantic owned-member preorder ordinal within
+    the state definition, independent of fact emission order. Manually supplied
+    facts may leave it None to retain their supplied order.
+    """
 
     source: str
     target: str | CompletionTarget
     trigger: Trigger | None
     guard: syside.Expression | None
     effect: syside.ActionUsage | None
+    declaration_order: int | None = None

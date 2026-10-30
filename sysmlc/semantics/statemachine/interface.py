@@ -14,10 +14,12 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import syside
 
 from sysmlc.codegen.python import payload_signature
+from sysmlc.codegen.structured import constructed_payload_definition
 from sysmlc.semantics.statemachine import actions
 from sysmlc.semantics.statemachine.driver import StateMachineDriver
 from sysmlc.semantics.statemachine.facts import (
@@ -26,6 +28,9 @@ from sysmlc.semantics.statemachine.facts import (
     StateFact,
     TransitionFact,
 )
+
+if TYPE_CHECKING:
+    from sysmlc.semantics.statemachine.signals import SignalCatalog
 
 
 @dataclass(frozen=True)
@@ -37,13 +42,16 @@ class MachineInterface:
     travels through (``accept E via p`` / ``send E via p``), which the part
     assembler uses for port-based connection routing; a signal with no
     ``via`` port keys on ``None``. The maps are additive — the rig path reads
-    only the flat sets, so its output is unchanged.
+    only the flat sets. With a typed catalog, all sets contain concrete
+    channel identifiers instead of legacy simple type names.
     """
 
     accepted: frozenset[str]
     sent: frozenset[str]
     accepted_via: dict[str | None, frozenset[str]] = field(default_factory=dict)
     sent_via: dict[str | None, frozenset[str]] = field(default_factory=dict)
+    accepted_triggers: tuple[SignalTrigger, ...] = ()
+    sent_types: frozenset[syside.Definition] = frozenset()
 
 
 class SignalInterfaceCollector:
@@ -56,7 +64,10 @@ class SignalInterfaceCollector:
     UnsupportedConstructError.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, catalog: SignalCatalog | None = None) -> None:
+        self._catalog = catalog
+        self._accepted_triggers: list[SignalTrigger] = []
+        self._sent_types: set[syside.Definition] = set()
         self._accepted: set[str] = set()
         self._sent: set[str] = set()
         self._accepted_via: dict[str | None, set[str]] = defaultdict(set)
@@ -74,8 +85,14 @@ class SignalInterfaceCollector:
         """Record a signal trigger; scan the effect for sends."""
         trigger = transition.trigger
         if isinstance(trigger, SignalTrigger):
-            self._accepted.add(trigger.signal_name)
-            self._accepted_via[trigger.via_port].add(trigger.signal_name)
+            self._accepted_triggers.append(trigger)
+            channels = (
+                self._catalog.matching_channels(trigger)
+                if self._catalog is not None
+                else frozenset({trigger.signal_name})
+            )
+            self._accepted.update(channels)
+            self._accepted_via[trigger.via_port].update(channels)
         self._scan(transition.effect)
 
     def result(self) -> MachineInterface:
@@ -85,20 +102,34 @@ class SignalInterfaceCollector:
             sent=frozenset(self._sent),
             accepted_via=_freeze(self._accepted_via),
             sent_via=_freeze(self._sent_via),
+            accepted_triggers=tuple(self._accepted_triggers),
+            sent_types=frozenset(self._sent_types),
         )
 
     def _scan(self, slot: syside.ActionUsage | None) -> None:
         for action in actions.inline_actions(slot):
             if isinstance(action, syside.SendActionUsage):
                 event_name, _pairs = payload_signature(action)
+                definition = constructed_payload_definition(action)
+                assert definition is not None
+                self._sent_types.add(definition)
+                if self._catalog is not None:
+                    event_name = self._catalog.channel_for(definition)
                 self._sent.add(event_name)
                 self._sent_via[send_via_port(action)].add(event_name)
 
 
 def machine_interface(
-    model: syside.Model, state_def_qn: str
+    model: syside.Model,
+    state_def_qn: str,
+    *,
+    catalog: SignalCatalog | None = None,
+    strict_signals: bool = False,
 ) -> MachineInterface:
-    """Collect the accepted/sent signal names of one state definition.
+    """Collect legacy names or catalog-expanded concrete signal channels.
+
+    ``strict_signals`` rejects unresolved, untyped and value-bound accepts;
+    providing a typed catalog also enables this validation.
 
     Raises:
         UnsupportedConstructError: If an action slot references another action
@@ -106,7 +137,9 @@ def machine_interface(
             collected from a supported inline body.
     """
     result = StateMachineDriver(model).run(
-        state_def_qn, SignalInterfaceCollector()
+        state_def_qn,
+        SignalInterfaceCollector(catalog),
+        strict_signals=strict_signals or catalog is not None,
     )
     assert isinstance(result, MachineInterface)
     return result

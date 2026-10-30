@@ -71,3 +71,39 @@ def test_driver_preserves_exclusive_and_competing_guards(
         assert transition.guard is not None
         evaluated.append(compiler.evaluate(transition.guard, stdlib=stdlib)[0])
     assert evaluated == enabled
+
+
+@pytest.mark.parametrize("parent_first", [False, True])
+def test_declaration_order_crosses_state_container_boundaries(
+    tmp_path: Path, parent_first: bool
+) -> None:
+    parent = "transition first outer.a accept Event then outer.parentChosen;"
+    outer = """state outer {
+        entry; then a;
+        state a;
+        state innerChosen;
+        state parentChosen;
+        transition first a accept Event then innerChosen;
+    }"""
+    declarations = parent + outer if parent_first else outer + parent
+    model = _load_inline_model(
+        tmp_path,
+        f"""package DeclarationOrder {{
+        item def Event;
+        state def Machine {{
+            entry; then outer;
+            {declarations}
+        }}
+    }}""",
+    )
+    builder = RecordingBuilder()
+    StateMachineDriver(model).run("DeclarationOrder::Machine", builder)
+    # Preserve the existing fact emission order for legacy consumers.
+    assert [t.target for t in builder.transitions] == [
+        "outer::parentChosen",
+        "outer::innerChosen",
+    ]
+    assert [t.declaration_order for t in builder.transitions] == (
+        [0, 1] if parent_first else [1, 0]
+    )
+    assert {t.source for t in builder.transitions} == {"outer::a"}

@@ -47,15 +47,29 @@ class StateMachineDriver:
         self._compiler = syside.Compiler()
         self._stdlib = syside.Stdlib(model.index)
 
-    def run(self, state_def_qn: str, builder: TargetBuilder) -> object:
+    def run(
+        self,
+        state_def_qn: str,
+        builder: TargetBuilder,
+        *,
+        strict_signals: bool = False,
+    ) -> object:
         """Drive ``builder`` to assemble the artifact for ``state_def_qn``.
 
         Args:
             state_def_qn: Qualified name of the SysML ``state def`` to walk.
             builder: The backend collaborator that assembles the artifact.
+            strict_signals: Reject unresolved, untyped or value-bound signal
+                accepts instead of using legacy classification.
 
         Returns:
             The artifact returned by ``builder.result()``.
+
+        Raises:
+            UnsupportedConstructError: If executable actions or strict signal
+                accepts use unsupported forms.
+            ValueError: If state resolution or structural/trigger semantics
+                are invalid.
         """
         state_def = resolve(self._model, syside.StateDefinition, state_def_qn)
         set_compiler_context = getattr(builder, "set_compiler_context", None)
@@ -65,7 +79,13 @@ class StateMachineDriver:
         self._bind_constraints(state_def, builder)
         assert state_def.name is not None
         self._walk_states(state_def, state_def, state_def.name, None, builder)
-        self._walk_transitions(state_def, state_def, builder)
+        self._walk_transitions(
+            state_def,
+            state_def,
+            builder,
+            transitions.declaration_order(state_def),
+            strict_signals,
+        )
         return builder.result()
 
     def _bind_attributes(
@@ -184,6 +204,8 @@ class StateMachineDriver:
         state_def: syside.StateDefinition,
         container: syside.StateDefinition | syside.StateUsage,
         builder: TargetBuilder,
+        declaration_order: dict[syside.TransitionUsage, int],
+        strict_signals: bool,
     ) -> None:
         for trans in transitions.container_transitions(container):
             source = transitions.source_path(state_def, trans)
@@ -196,12 +218,22 @@ class StateMachineDriver:
                     source=source,
                     target=transitions.target(state_def, trans, container),
                     trigger=triggers.classify(
-                        trans, self._compiler, self._stdlib
+                        trans,
+                        self._compiler,
+                        self._stdlib,
+                        strict_signals=strict_signals,
                     ),
                     guard=trans.guard_expression,
                     effect=trans.effect_action,
+                    declaration_order=declaration_order.get(trans),
                 )
             )
         for substate in states.substates(container):
             if states.substates(substate):
-                self._walk_transitions(state_def, substate, builder)
+                self._walk_transitions(
+                    state_def,
+                    substate,
+                    builder,
+                    declaration_order,
+                    strict_signals,
+                )
