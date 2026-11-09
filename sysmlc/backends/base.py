@@ -13,7 +13,7 @@ from sysmlc.errors import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
+    from collections.abc import Callable, Iterable, Mapping
     from pathlib import Path
 
     import syside
@@ -59,6 +59,28 @@ class OutputOptions:
     output_dir: Path
     formats: tuple[str, ...] = ()
     basename: str | None = None
+
+
+@dataclass(frozen=True)
+class BuildOption:
+    """A backend-specific setting chosen on the command line at build time.
+
+    The CLI exposes each option a backend declares in
+    :meth:`Backend.build_options` as ``--<name>`` on that backend's
+    ``build`` command, and passes the chosen values to
+    :meth:`Backend.configured`.
+
+    Attributes:
+        name: The option's name; the flag is ``--<name>``.
+        help: The help text shown for the flag.
+        choices: The accepted values, or None to accept any value.
+        default: The value used when the flag is absent.
+    """
+
+    name: str
+    help: str
+    choices: tuple[str, ...] | None = None
+    default: str | None = None
 
 
 class Backend(ABC):
@@ -378,6 +400,31 @@ class Backend(ABC):
         collisions; the CLI then skips its generic copy for that build.
         """
         return False
+
+    def build_options(self) -> tuple[BuildOption, ...]:
+        """Return the backend-specific options its ``build`` command accepts.
+
+        Returns:
+            The options, in the order their flags are added; none by
+            default.
+        """
+        return ()
+
+    def configured(self, options: Mapping[str, str | None]) -> Backend:
+        """Return this backend set up with the chosen build options.
+
+        The CLI calls this before building, and uses the returned backend
+        for every later step: building, writing and the summary.
+
+        Args:
+            options: The value of each option from :meth:`build_options`,
+                keyed by option name; an option without a default whose
+                flag is absent maps to None.
+
+        Returns:
+            The backend to build with; by default this same backend.
+        """
+        return self
 
     def serialize(self, artifact: object, fmt: str) -> str:
         """Serialize a built artifact to text in the requested format."""

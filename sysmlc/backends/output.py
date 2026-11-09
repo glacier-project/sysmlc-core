@@ -3,7 +3,7 @@
 A backend describes what it generates as a :class:`GeneratedOutput`: a set
 of text files at paths relative to the output directory. Folders are
 implied by the paths. Building the description is separate from writing it,
-so the output can be inspected without touching the disk, and every backend 
+so the output can be inspected without touching the disk, and every backend
 writes its files the same way.
 """
 

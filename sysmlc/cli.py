@@ -12,7 +12,12 @@ from typing import TYPE_CHECKING
 
 import syside
 
-from sysmlc.backends import Backend, OutputOptions, discover_backends
+from sysmlc.backends import (
+    Backend,
+    BuildOption,
+    OutputOptions,
+    discover_backends,
+)
 from sysmlc.errors import SysmlcError
 from sysmlc.logging import configure_logging
 from sysmlc.sysml.foreign_artifact.base import (
@@ -212,6 +217,37 @@ def _add_build_arguments(
             help="enable fast mode in the generated program's target header "
             "(top-level part usages only)",
         )
+    for option in backend.build_options():
+        default_note = (
+            "" if option.default is None else f" (default: {option.default})"
+        )
+        build.add_argument(
+            f"--{option.name}",
+            dest=_build_option_dest(option),
+            choices=option.choices,
+            default=option.default,
+            help=f"{option.help}{default_note}",
+        )
+
+
+def _build_option_dest(option: BuildOption) -> str:
+    """Return the parsed-arguments attribute holding a build option's value.
+
+    The prefix keeps a backend's option from overwriting one of the CLI's
+    own arguments.
+    """
+    return f"build_option_{option.name.replace('-', '_')}"
+
+
+def _configured_backend(args: argparse.Namespace) -> Backend:
+    """Return the selected backend set up with its chosen build options."""
+    backend: Backend = args._backend
+    return backend.configured(
+        {
+            option.name: getattr(args, _build_option_dest(option))
+            for option in backend.build_options()
+        }
+    )
 
 
 def _select_state_def(model: syside.Model, requested: str | None) -> str:
@@ -404,7 +440,7 @@ def _resolve_model_dir(model: Path) -> Path:
 
 def _cmd_build(args: argparse.Namespace) -> int:
     """Run a ``<backend> build`` command."""
-    backend: Backend = args._backend
+    backend = _configured_backend(args)
     model_dir = _resolve_model_dir(args.model)
     model = load_model(model_dir)
     if (
