@@ -69,3 +69,13 @@ def test_backend_declares_supported_foreign_artifact_languages() -> None:
 
     assert backend.supported_foreign_artifact_languages() == frozenset({"c"})
     assert backend.consumes_foreign_artifact_support(" C ")
+
+
+def test_backend_declares_no_build_options_by_default() -> None:
+    assert _StubBackend("stub").build_options() == ()
+
+
+def test_backend_configured_with_no_options_is_itself() -> None:
+    backend = _StubBackend("stub")
+
+    assert backend.configured({}) is backend

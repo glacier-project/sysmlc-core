@@ -5,12 +5,12 @@ from typing import TYPE_CHECKING
 import pytest
 from sysmlc_models.sm_examples import SM_EXAMPLES_DIR
 
-from sysmlc.backends import Backend
+from sysmlc.backends import Backend, BuildOption
 from sysmlc.cli import CliError, _copy_python_support, main
 from sysmlc.sysml.foreign_artifact.base import parse_artifact
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
     from pathlib import Path
 
     from sysmlc.backends import OutputOptions
@@ -565,3 +565,114 @@ def test_copy_python_support_rejects_generated_path_collision(
 
     with pytest.raises(CliError, match="conflicts with generated artifact"):
         _copy_python_support(support, [generated])
+
+
+class _TargetFakeBackend(_FakeBackend):
+    """A fake backend with a ``--target`` build option.
+
+    ``configured`` returns a new instance bound to the chosen target that
+    shares this one's call logs, so a test can tell which instance the CLI
+    drove.
+    """
+
+    def __init__(self, target: str = "unconfigured") -> None:
+        super().__init__()
+        self.target = target
+
+    def build_options(self) -> tuple[BuildOption, ...]:
+        return (
+            BuildOption(
+                "target",
+                "language to generate",
+                choices=("python", "c"),
+                default="python",
+            ),
+        )
+
+    def configured(
+        self, options: Mapping[str, str | None]
+    ) -> _TargetFakeBackend:
+        target = options["target"]
+        assert target is not None
+        bound = _TargetFakeBackend(target)
+        bound.build_calls = self.build_calls
+        bound.write_calls = self.write_calls
+        return bound
+
+    def build(
+        self,
+        model: object,
+        element_qn: str,
+        external: list[ForeignArtifact] | None = None,
+        strict_extern: bool = False,
+    ) -> object:
+        self.build_calls.append(f"{self.target}:{element_qn}")
+        return f"artifact:{element_qn}"
+
+    def summary(self, artifact: object) -> str:
+        return f"{self.target} {artifact}"
+
+
+@pytest.fixture
+def target_fake(monkeypatch: pytest.MonkeyPatch) -> _TargetFakeBackend:
+    backend = _TargetFakeBackend()
+    monkeypatch.setattr(
+        "sysmlc.cli.discover_backends", lambda: {"fake": backend}
+    )
+    return backend
+
+
+def _build_sm01(tmp_path: Path, *extra: str) -> int:
+    return main(
+        [
+            *("fake", "build", str(SM01_DIR), "-e", "SM01::Machine"),
+            *("-o", str(tmp_path)),
+            *extra,
+        ]
+    )
+
+
+def test_build_option_value_reaches_the_configured_backend(
+    target_fake: _TargetFakeBackend, tmp_path: Path
+) -> None:
+    assert _build_sm01(tmp_path, "--target", "c") == 0
+
+    assert target_fake.build_calls == ["c:SM01::Machine"]
+
+
+def test_build_option_defaults_when_the_flag_is_absent(
+    target_fake: _TargetFakeBackend, tmp_path: Path
+) -> None:
+    _build_sm01(tmp_path)
+
+    assert target_fake.build_calls == ["python:SM01::Machine"]
+
+
+def test_configured_backend_also_writes_and_summarizes(
+    target_fake: _TargetFakeBackend,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level("INFO", logger="sysmlc.cli"):
+        _build_sm01(tmp_path, "--target", "c")
+
+    assert len(target_fake.write_calls) == 1
+    assert "c artifact:SM01::Machine" in caplog.text
+
+
+def test_build_option_rejects_a_value_outside_its_choices(
+    target_fake: _TargetFakeBackend, tmp_path: Path
+) -> None:
+    with pytest.raises(SystemExit):
+        _build_sm01(tmp_path, "--target", "rust")
+
+    assert target_fake.build_calls == []
+
+
+def test_build_option_flag_exists_only_for_backends_declaring_it(
+    fake: _FakeBackend, tmp_path: Path
+) -> None:
+    with pytest.raises(SystemExit):
+        _build_sm01(tmp_path, "--target", "c")
+
+    assert fake.build_calls == []
