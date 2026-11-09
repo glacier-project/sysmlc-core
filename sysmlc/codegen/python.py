@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, ClassVar, Final
+from typing import TYPE_CHECKING, ClassVar, Final, override
 
 import syside
 
+from sysmlc.codegen.expression import ExpressionCodeGen
 from sysmlc.codegen.structured import named_fields
 from sysmlc.errors import UnsupportedConstructError
 from sysmlc.semantics.statemachine.bindings import (
@@ -13,7 +13,6 @@ from sysmlc.semantics.statemachine.bindings import (
     is_constant,
 )
 from sysmlc.semantics.statemachine.facts import AttributeValue, CompositeValue
-from sysmlc.sysml.foreign_artifact.base import interpret_artifacts
 from sysmlc.sysml.queries import (
     definitions_of,
     is_scalar_quantity,
@@ -24,8 +23,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping
 
     from sysmlc.sysml.foreign_artifact.base import ForeignArtifact
-
-logger = logging.getLogger(__name__)
 
 _BINARY_OPERATORS: Final[dict[syside.Operator, tuple[str, int]]] = {
     syside.Operator.Or: ("or", 1),
@@ -49,17 +46,6 @@ _UNARY_OPERATORS: Final[dict[syside.Operator, tuple[str, int]]] = {
     syside.Operator.Minus: ("-", 7),
     syside.Operator.Not: ("not ", 3),
 }
-
-_COMPARISON_OPERATORS: Final[frozenset[syside.Operator]] = frozenset(
-    {
-        syside.Operator.Equals,
-        syside.Operator.NotEquals,
-        syside.Operator.Less,
-        syside.Operator.LessEqual,
-        syside.Operator.Greater,
-        syside.Operator.GreaterEqual,
-    }
-)
 
 # Parent precedence strictly above every operator in the tables above.
 ATOM_PRECEDENCE: Final[int] = (
@@ -333,33 +319,6 @@ def _qualified(element: syside.Element) -> str:
     return str(element.qualified_name or element.name)
 
 
-def _target_base_features(
-    expr: syside.Expression | None,
-) -> list[syside.Feature]:
-    """Return the resolved features an assignment's target argument reads.
-
-    Raises:
-        ValueError: If the target argument is not a resolved feature
-            reference or feature chain.
-    """
-    if expr is None:
-        return []
-    if isinstance(expr, syside.FeatureReferenceExpression):
-        if expr.referent is None:
-            raise ValueError("assignment target base has no resolved referent")
-        return [expr.referent]
-    if isinstance(expr, syside.FeatureChainExpression):
-        operands = expr.operands.collect()
-        tail = expr.target_feature
-        if not operands or tail is None:
-            raise ValueError("assignment target base chain is unresolved")
-        chain = tail.chaining_features.collect() or [tail]
-        return [*_target_base_features(operands[0]), *chain]
-    raise ValueError(
-        f"unsupported assignment target base: {type(expr).__name__}"
-    )
-
-
 class PythonCodeGenError(UnsupportedConstructError):
     """Raised when the Python code generator does not support a construct."""
 
@@ -372,7 +331,7 @@ class PythonCodeGenContext:
     string_delimiter: str = '"'
 
 
-class PythonCodeGen:
+class PythonCodeGen(ExpressionCodeGen):
     """Generates Python source code from a SysML AST node.
 
     This class is designed to be extended with methods for handling specific
@@ -392,8 +351,14 @@ class PythonCodeGen:
             or None to preserve legacy simple class names.
     """
 
-    # The whitelist consulted by `_emit_library_invocation`. Subclasses
-    # may override it to re-target renderings.
+    _language_name: ClassVar[str] = "Python"
+    _error_type: ClassVar[type[UnsupportedConstructError]] = PythonCodeGenError
+    _binary_operators: ClassVar[Mapping[syside.Operator, tuple[str, int]]] = (
+        _BINARY_OPERATORS
+    )
+    _unary_operators: ClassVar[Mapping[syside.Operator, tuple[str, int]]] = (
+        _UNARY_OPERATORS
+    )
     _library_functions: ClassVar[Mapping[str, str]] = LIBRARY_FUNCTIONS
 
     def __init__(
@@ -403,39 +368,9 @@ class PythonCodeGen:
         *,
         definition_symbols: Mapping[str, str] | None = None,
     ) -> None:
+        super().__init__(external)
         self.definition_symbols = dict(definition_symbols or {})
         self._context = context or PythonCodeGenContext()
-        self._external: list[ForeignArtifact] = external or []
-        self._used_external: dict[ForeignArtifact, set[str]] = {}
-        self._external_symbols = interpret_artifacts(self._external, "python")
-
-    @property
-    def used_external(self) -> dict[ForeignArtifact, set[str]]:
-        """Foreign artifacts and function names actually invoked so far.
-
-        Populated incrementally as calc-def calls backed by an external
-        artifact are emitted. Callers (typically a backend that needs to
-        know which support modules to bundle) should read this only after
-        generation is complete.
-        """
-        return self._used_external
-
-    def render_expression(self, expr: syside.Expression) -> str:
-        """Translate ``expr`` to a Python source string.
-
-        Public entry point for the Python expression translator.
-
-        Args:
-            expr: The expression node to translate.
-
-        Returns:
-            Python source for ``expr``, with no enclosing parentheses.
-
-        Raises:
-            ValueError: If ``expr`` (or any sub-expression) is a node
-                kind the emitter does not support.
-        """
-        return self._emit(expr)
 
     def render_value(
         self,
@@ -507,226 +442,17 @@ class PythonCodeGen:
                 arguments.append(f"{name}={rendered}")
         return ", ".join(arguments)
 
-    def render_assignment(self, assign: syside.AssignmentActionUsage) -> str:
-        """Translate an assignment action to a Python assignment statement.
+    @override
+    def _render_assignment_statement(self, target: str, value: str) -> str:
+        """Spell an assignment as ``<target> = <value>``."""
+        return f"{target} = {value}"
 
-        Emits ``<target> = <rhs>``, where ``<target>`` is the assigned
-        feature path and ``<rhs>`` is the emitted value expression.
+    @override
+    def _library_call_needs_math(self, callee: str) -> bool:
+        """Return whether ``callee`` lives in the ``math`` module."""
+        return callee.startswith("math.")
 
-        Args:
-            assign: The ``assign <target> := <expr>`` action to translate.
-
-        Returns:
-            Python source for the assignment statement.
-
-        Raises:
-            ValueError: If the assignment target has no resolved name, if the
-                value expression is absent, or if the value expression is a
-                node kind ``render_expression`` does not support.
-        """
-        target = self.render_assignment_target(assign)
-        value = assign.value_expression
-        if value is None:
-            raise ValueError("AssignmentActionUsage has no value expression")
-        return f"{target} = {self.render_expression(value)}"
-
-    def render_assignment_target(
-        self, assign: syside.AssignmentActionUsage
-    ) -> str:
-        """Translate an assignment target to a Python assignment target.
-
-        Args:
-            assign: The ``assign <target> := <expr>`` action to inspect.
-
-        Returns:
-            Python source for the assignment target, e.g. ``counter`` or
-            ``equipment.flag``.
-
-        Raises:
-            ValueError: If the assignment target or a feature on its base
-                path has no resolved name, or the base is not a feature
-                reference or feature chain.
-        """
-        target = assign.referent
-        if target is None or target.name is None:
-            raise ValueError("AssignmentActionUsage has no resolved target")
-        segments: list[str] = []
-        for feature in _target_base_features(assign.target_argument):
-            if feature.name is None:
-                raise ValueError(
-                    "assignment target base has an unnamed feature"
-                )
-            segments.append(feature.name)
-        return ".".join([*segments, target.name])
-
-    def render_action(self, action: syside.ActionUsage) -> str:
-        """Translate a supported action usage to typed emitted Python."""
-        if isinstance(action, syside.AssignmentActionUsage):
-            return self.render_assignment(action)
-        if isinstance(action, syside.SendActionUsage):
-            return self.render_send(action)
-        raise PythonCodeGenError("unsupported action type", node=action)
-
-    def render_send(self, send: syside.SendActionUsage) -> str:
-        """Translate a send action to the appropriate Python source.
-
-        This method is abstract and must be implemented by subclasses to handle
-        the specific translation logic for send actions, which may involve
-        different patterns or libraries depending on the target Python
-        environment or framework being used.
-
-        Args:
-            send: The ``send new <Type>(<args>)`` action to translate.
-
-        Returns:
-            Python source for the send action.
-        """
-        raise NotImplementedError(
-            "render_send must be implemented by subclasses"
-        )
-
-    def _emit(self, expr: syside.Expression, parent_precedence: int = 0) -> str:
-        """Dispatch ``expr`` to its node-type handler.
-
-        Branch order respects syside's class hierarchy: more specific
-        subclasses are matched before their parent classes.
-
-        Args:
-            expr: The expression node to translate.
-            parent_precedence: Precedence of the enclosing operator. An
-                operator handler wraps its output in parentheses when its
-                own precedence is strictly less than this value.
-
-        Returns:
-            Python source for ``expr``.
-
-        Raises:
-            ValueError: If ``expr`` is a node kind the emitter does not
-                support, or if any called handler raises.
-        """
-        logger.debug("dispatching %s", type(expr).__name__)
-
-        if isinstance(expr, syside.LiteralBoolean):
-            return self._emit_literal_boolean(expr)
-        if isinstance(expr, syside.LiteralRational):
-            return self._emit_literal_rational(expr)
-        if isinstance(expr, syside.LiteralInteger):
-            return self._emit_literal_integer(expr)
-        if isinstance(expr, syside.LiteralString):
-            return self._emit_literal_string(expr)
-        if isinstance(expr, syside.FeatureChainExpression):
-            return self._emit_feature_chain(expr)
-        if isinstance(expr, syside.OperatorExpression):
-            return self._emit_operator(expr, parent_precedence)
-        if isinstance(expr, syside.InvocationExpression):
-            return self._emit_invocation(expr)
-        if isinstance(expr, syside.FeatureReferenceExpression):
-            return self._emit_feature_reference(expr)
-
-        raise ValueError(f"unsupported expression node: {type(expr).__name__}")
-
-    def _emit_invocation(self, expr: syside.InvocationExpression) -> str:
-        """Emit a supported library call; reject anything else."""
-        library_call = self._emit_library_invocation(expr)
-        if library_call is not None:
-            return library_call[0]
-
-        external_call = self._emit_external_calculation_invocation(
-            expr, external=self._external, used_external=self._used_external
-        )
-        if external_call is not None:
-            return external_call
-
-        func = expr.function
-        qn = None if func is None else func.qualified_name
-        raise PythonCodeGenError(
-            f"function {qn or '<unresolved>'!s} is not in Python codegen's "
-            "supported set.",
-            node=expr,
-        )
-
-    def _emit_library_invocation(
-        self, expr: syside.InvocationExpression
-    ) -> tuple[str, bool] | None:
-        """Emit a library function call from the class's whitelist.
-
-        Non-operator invocations are atoms, so no precedence wrapping is
-        needed.
-
-        Args:
-            expr: The invocation expression to translate.
-
-        Returns:
-            ``(source, needs_math)`` for calls in the class's
-            library-function whitelist, or ``None`` when the invocation
-            is not in it.
-        """
-        func = expr.function
-        qn = None if func is None else func.qualified_name
-        target = None if qn is None else self._library_functions.get(str(qn))
-        if target is None:
-            return None
-        args = ", ".join(
-            self._emit(argument, 0) for argument in expr.arguments.collect()
-        )
-        return f"{target}({args})", target.startswith("math.")
-
-    def _emit_external_calculation_invocation(
-        self,
-        expr: syside.InvocationExpression,
-        *,
-        external: list[ForeignArtifact],
-        used_external: dict[ForeignArtifact, set[str]],
-    ) -> str | None:
-        """Emit a simple-name-backed external calc-def call, if applicable.
-
-        Looks up the invoked calc-def's name against every configured
-        consumer-interpreted function names and requires
-        an unambiguous match. Records the match in ``used_external`` so a
-        caller can later tell which artifacts/functions were actually
-        exercised.
-
-        Returns:
-            Python source for the call when the invoked function resolves
-            to a ``CalculationDefinition`` backed by one of the configured
-            external artifacts; ``None`` when the invocation isn't a
-            calc-def call at all (so the caller can try other handlers or
-            report an "unsupported" error).
-
-        Raises:
-            UnsupportedConstructError: If external artifacts were
-                configured but none of them declares a function matching
-                the invoked calc-def's name.
-        """
-        func = expr.function
-        if not (
-            isinstance(func, syside.CalculationDefinition)
-            and func.name is not None
-        ):
-            return None
-
-        function_name = func.name
-        for artifact in external:
-            if function_name not in self._external_symbols.get(
-                artifact, frozenset()
-            ):
-                continue
-
-            used_external.setdefault(artifact, set()).add(function_name)
-
-            args = ", ".join(
-                self._emit(argument, 0) for argument in expr.arguments.collect()
-            )
-            return f"{function_name}({args})"
-
-        if external:
-            raise UnsupportedConstructError(
-                f"calc def {function_name!r} has no backing function in "
-                "any of the provided external Python artifacts.",
-                node=expr,
-            )
-        return None
-
+    @override
     def _emit_literal_boolean(self, expr: syside.LiteralBoolean) -> str:
         """Emit a boolean literal as ``"True"`` or ``"False"``.
 
@@ -738,6 +464,7 @@ class PythonCodeGen:
         """
         return "True" if expr.value else "False"
 
+    @override
     def _emit_literal_integer(self, expr: syside.LiteralInteger) -> str:
         """Emit an integer literal as its Python ``str``.
 
@@ -751,6 +478,7 @@ class PythonCodeGen:
         """
         return str(expr.value)
 
+    @override
     def _emit_literal_rational(self, expr: syside.LiteralRational) -> str:
         """Emit a rational literal as its Python ``repr``.
 
@@ -762,6 +490,7 @@ class PythonCodeGen:
         """
         return repr(expr.value)
 
+    @override
     def _emit_literal_string(self, expr: syside.LiteralString) -> str:
         """Emit a string literal wrapped in the context's quote delimiter.
 
@@ -784,6 +513,7 @@ class PythonCodeGen:
         value = value.replace("\t", "\\t")
         return f"{quote}{value}{quote}"
 
+    @override
     def _emit_feature_reference(
         self, expr: syside.FeatureReferenceExpression
     ) -> str:
@@ -809,6 +539,7 @@ class PythonCodeGen:
             )
         return ref.name
 
+    @override
     def _emit_feature_chain(self, expr: syside.FeatureChainExpression) -> str:
         """Emit a chained reference as dotted Python attribute access.
 
@@ -841,89 +572,3 @@ class PythonCodeGen:
                 )
             segments.append(feature.name)
         return ".".join(segments)
-
-    def _emit_operator(
-        self,
-        expr: syside.OperatorExpression,
-        parent_precedence: int,
-    ) -> str:
-        """Route ``expr`` to the binary or unary handler by operator arity.
-
-        Args:
-            expr: The operator expression to translate.
-            parent_precedence: Precedence of the enclosing operator.
-
-        Returns:
-            Python source for ``expr``.
-
-        Raises:
-            ValueError: If the operator value or arity is not supported.
-        """
-        op = expr.operator
-        operands = expr.operands.collect()
-        logger.debug("operator %s with %d operand(s)", op, len(operands))
-
-        if op in _BINARY_OPERATORS and len(operands) == 2:
-            return self._emit_binary(expr, parent_precedence)
-        if op in _UNARY_OPERATORS and len(operands) == 1:
-            return self._emit_unary(expr, parent_precedence)
-
-        raise ValueError(
-            f"unsupported operator: {op!r} with {len(operands)} operand(s)"
-        )
-
-    def _emit_binary(
-        self,
-        expr: syside.OperatorExpression,
-        parent_precedence: int,
-    ) -> str:
-        """Emit a binary operator expression as ``<lhs> <op> <rhs>``.
-
-        Args:
-            expr: The operator expression to translate.
-            parent_precedence: Precedence of the enclosing operator.
-
-        Returns:
-            Python source for ``expr``, wrapped in parentheses when this
-            operator's precedence is strictly less than
-            ``parent_precedence``.
-        """
-        py_op, prec = _BINARY_OPERATORS[expr.operator]
-        operands = expr.operands.collect()
-        if expr.operator in _COMPARISON_OPERATORS:
-            # Comparisons are non-associative in Python: 'a < b < c' is a
-            # single expression, not '(a < b) < c'. So both sides get +1 to
-            # force parens around equal-precedence sub-expressions.
-            lhs_parent_precedence = prec + 1
-            rhs_parent_precedence = prec + 1
-        else:
-            lhs_parent_precedence = prec
-            # +1 forces parens around an equal-precedence RHS
-            # (left-associativity): 'a - b - c' stays bare,
-            # 'a - (b - c)' keeps its parens.
-            rhs_parent_precedence = prec + 1
-        lhs = self._emit(operands[0], lhs_parent_precedence)
-        rhs = self._emit(operands[1], rhs_parent_precedence)
-        body = f"{lhs} {py_op} {rhs}"
-        return f"({body})" if prec < parent_precedence else body
-
-    def _emit_unary(
-        self,
-        expr: syside.OperatorExpression,
-        parent_precedence: int,
-    ) -> str:
-        """Emit a unary operator expression as ``<op><inner>``.
-
-        Args:
-            expr: The operator expression to translate.
-            parent_precedence: Precedence of the enclosing operator.
-
-        Returns:
-            Python source for ``expr``, wrapped in parentheses when this
-            operator's precedence is strictly less than
-            ``parent_precedence``.
-        """
-        py_op, prec = _UNARY_OPERATORS[expr.operator]
-        inner = self._emit(expr.operands.collect()[0], prec)
-        body = f"{py_op}{inner}"
-        return f"({body})" if prec < parent_precedence else body
