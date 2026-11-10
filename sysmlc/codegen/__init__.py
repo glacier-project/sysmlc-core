@@ -1,3 +1,4 @@
+from sysmlc.codegen.c import CCodeGen, CCodeGenError
 from sysmlc.codegen.python import (
     PythonCodeGen,
     PythonCodeGenContext,
@@ -14,6 +15,8 @@ from sysmlc.codegen.structured import (
 )
 
 __all__ = [
+    "CCodeGen",
+    "CCodeGenError",
     "DataclassRegistry",
     "GeneratedPythonModule",
     "PythonCodeGen",
