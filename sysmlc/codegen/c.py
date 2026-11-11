@@ -347,8 +347,11 @@ class CCodeGen(ExpressionCodeGen):
         expr: syside.OperatorExpression,
         parent_precedence: int,
     ) -> str:
-        """Emit a unary expression. Signed operands (positive or negative) gets
+        """Emit a unary expression.
+
+        Signed operands (positive or negative) gets
         parentheses (``-(-x)`` must not become ``--x``).
+
         """
         token, precedence = self._unary_operators[expr.operator]
         inner = self._emit(expr.operands.collect()[0], precedence)
