@@ -63,5 +63,7 @@ API reference to render. -->
 ## Code generation
 
 ```{eval-rst}
+.. automodule:: sysmlc.codegen.expression
 .. automodule:: sysmlc.codegen.python
+.. automodule:: sysmlc.codegen.c
 ```
