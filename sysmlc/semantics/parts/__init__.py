@@ -12,12 +12,26 @@ Verified syside part/connection API (2026-06-15) against the bundled
   ``ExhibitStateUsage``; ``exhibit.state_definitions`` filtered to
   model-declared ``StateDefinition`` qns; count drives the 0/1/>=2 rule.
 - connection: ``usage.owned_features`` filtered to ``ConnectionUsage``
-  (exclude ``SuccessionAsUsage``); ``conn.connector_ends`` -> 2 ends;
-  ``end.owned_reference_subsetting.general.chaining_features`` ->
+  (exclude ``SuccessionAsUsage``); ``conn.related_features`` -> 2 endpoint features;
+  ``feature.chaining_features`` ->
   ``[(PartUsage instance), (PortUsage port)]``.
 
-Port binding (verified 2026-06-15):
-``connect a.pa to b.pb`` routes a signal only if it is *sent via* ``pa``
+Port transport:
+``interface a.pa to b.pb`` establishes eligible port peers. Named interfaces
+(``interface c : I connect a.pa to b.pb``) and connections semantically typed
+by an interface definition (``connection c : I connect a.pa to b.pb``) have
+the same eligibility. Classification uses resolved interface definitions,
+including indirect specialization of ``Interfaces::Interface``.
+
+Generic structural connections (``connect a.pa to b.pb``) never route signals.
+They remain legal structural relationships, including connections between
+parts or mixed endpoints, and do not enter the execution graph. A structural
+link alongside an interface between the same ports has no routing effect.
+``PartGraph.interfaces`` contains only resolved interface endpoint pairs.
+A sender without a matching interface route retains the existing warning
+that its signal is never delivered.
+
+An eligible interface routes a signal only if it is *sent via* ``pa``
 on one end and *accepted via* ``pb`` on the other. The accept-side port is
 ``Trigger.via_port`` (already captured, read from the accepter's
 ``receiver_argument``). The send-side port is the *sender* port:

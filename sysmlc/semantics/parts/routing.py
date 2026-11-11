@@ -42,12 +42,12 @@ def validated_routes(
     """Build each node's machine interface, validate it, and route the graph.
 
     The single entry point to routing: interface building, ``via``-port and
-    connection validation, and route computation run in one sequence, so no
+    interface validation, and route computation run in one sequence, so no
     caller can compute routes from an unvalidated interface.
 
     Args:
         model: Loaded syside model containing the part system.
-        graph: The part graph whose connections are validated and routed.
+        graph: The part graph whose interfaces are validated and routed.
         nodes: The part nodes whose interfaces participate in routing; each
             must exhibit exactly one behavior.
         catalog: Frozen concrete signal catalog, or None for legacy names.
@@ -58,8 +58,8 @@ def validated_routes(
 
     Raises:
         UnsupportedConstructError: If a behavior sends or accepts via an
-            undeclared port, a connection names an unknown part or an
-            undeclared port, a signal travels both ways over one connection,
+            undeclared port, an interface names an unknown part or an
+            undeclared port, a signal travels both ways over one interface,
             or one ``(target, signal)`` input has two sources.
     """
     for node in nodes:
@@ -80,7 +80,7 @@ def validated_routes(
         for node in nodes
     }
     _validate_via_ports(nodes, faces)
-    _validate_connections(graph, parts)
+    _validate_interfaces(graph, parts)
     return faces, _port_signal_routes(graph, faces)
 
 
@@ -102,19 +102,19 @@ def _validate_via_ports(
                 )
 
 
-def _validate_connections(graph: PartGraph, parts: dict[str, PartNode]) -> None:
-    """Reject a ``connect`` naming an unknown part or undeclared port."""
-    for (ia, pa), (ib, pb) in graph.connections:
+def _validate_interfaces(graph: PartGraph, parts: dict[str, PartNode]) -> None:
+    """Reject an interface naming an unknown part or undeclared port."""
+    for (ia, pa), (ib, pb) in graph.interfaces:
         for inst, port in ((ia, pa), (ib, pb)):
             node = parts.get(inst)
             if node is None:
                 raise UnsupportedConstructError(
-                    f"connection references part {inst!r}, which is not a "
+                    f"interface references part {inst!r}, which is not a "
                     f"part of {graph.name!r}"
                 )
             if port not in node.ports:
                 raise UnsupportedConstructError(
-                    f"connection references port {port!r}, which is not a "
+                    f"interface references port {port!r}, which is not a "
                     f"declared port of part def {node.definition_name!r}"
                 )
 
@@ -163,7 +163,7 @@ def _port_signal_routes(
             )
         )
 
-    for (ia, pa), (ib, pb) in graph.connections:
+    for (ia, pa), (ib, pb) in graph.interfaces:
         fa, fb = faces[ia], faces[ib]
         a_to_b = fa.sent_via.get(pa, frozenset()) & fb.accepted_via.get(
             pb, frozenset()
@@ -175,7 +175,7 @@ def _port_signal_routes(
         if both:
             raise UnsupportedConstructError(
                 f"signal(s) {sorted(both)!r} travel both ways over the "
-                f"connection {ia}.{pa} <-> {ib}.{pb}; bidirectional "
+                f"interface {ia}.{pa} <-> {ib}.{pb}; bidirectional "
                 "same-name signals are not supported"
             )
         for signal in sorted(a_to_b):
