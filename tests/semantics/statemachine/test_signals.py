@@ -207,7 +207,7 @@ def test_typed_routes_deduplicate_conforming_accepts(tmp_path: Path) -> None:
         part system {
             part sender : Sender;
             part receiver : Receiver;
-            connect sender.tx to receiver.rx;
+            interface sender.tx to receiver.rx;
         }
     }""",
     )
@@ -217,7 +217,7 @@ def test_typed_routes_deduplicate_conforming_accepts(tmp_path: Path) -> None:
     assert faces["receiver"].accepted == {"Base", "Child"}
     assert [(r.signal, r.target) for r in routes] == [("Child", "receiver")]
     # Repeated identical physical connection is one delivery edge.
-    repeated = replace(graph, connections=graph.connections + graph.connections)
+    repeated = replace(graph, interfaces=graph.interfaces + graph.interfaces)
     assert (
         validated_routes(model, repeated, graph.parts, catalog=catalog)[1]
         == routes

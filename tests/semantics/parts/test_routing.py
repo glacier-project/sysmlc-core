@@ -55,3 +55,107 @@ def test_validated_routes_rejects_single_channel_fan_in() -> None:
 
     with pytest.raises(UnsupportedConstructError, match="multiplicity"):
         validated_routes(model, graph, graph.parts)
+
+
+TRANSPORT = """package Transport {
+    item def Event;
+    port def EventPort;
+    interface def Link { end a : EventPort; end b : EventPort; }
+    interface def DerivedLink :> Link;
+    state def Source {
+        port tx;
+        entry; then s;
+        state s { entry send new Event() via tx; }
+    }
+    state def Sink {
+        port rx;
+        entry; then s; state s;
+        transition first s accept Event via rx then s;
+    }
+    part def Sender {
+        port tx : EventPort;
+        port spare : EventPort;
+        exhibit state : Source;
+    }
+    part def Receiver {
+        port rx : EventPort;
+        port spare : EventPort;
+        exhibit state : Sink;
+    }
+    part system {
+        part sender : Sender;
+        part receiver : Receiver;
+        RELATIONSHIPS
+    }
+}"""
+
+
+@pytest.mark.parametrize(
+    "relationship",
+    [
+        "interface sender.tx to receiver.rx;",
+        "interface c : Link connect sender.tx to receiver.rx;",
+        "connection c : Link connect sender.tx to receiver.rx;",
+        "connection c : DerivedLink connect sender.tx to receiver.rx;",
+    ],
+)
+def test_resolved_interface_forms_deliver(
+    tmp_path: Path, relationship: str
+) -> None:
+    from tests import _load_inline_model
+
+    model = _load_inline_model(
+        tmp_path, TRANSPORT.replace("RELATIONSHIPS", relationship)
+    )
+    graph = part_graph(model, "Transport::system")
+    assert graph.interfaces == ((("sender", "tx"), ("receiver", "rx")),)
+    _, routes = validated_routes(model, graph, graph.parts)
+    assert [
+        (r.source, r.source_port, r.signal, r.target, r.target_port)
+        for r in routes
+    ] == [("sender", "tx", "Event", "receiver", "rx")]
+
+
+@pytest.mark.parametrize(
+    "relationship",
+    [
+        "connect sender.tx to receiver.rx;",
+        "connect sender to receiver;",
+        "connect sender.tx to receiver;",
+        "connect sender.spare to receiver.spare;",
+    ],
+)
+def test_generic_connections_do_not_route(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, relationship: str
+) -> None:
+    from tests import _load_inline_model
+
+    model = _load_inline_model(
+        tmp_path, TRANSPORT.replace("RELATIONSHIPS", relationship)
+    )
+    graph = part_graph(model, "Transport::system")
+    assert graph.interfaces == ()
+    assert validated_routes(model, graph, graph.parts)[1] == ()
+    assert (
+        "part 'sender' sends 'Event' via 'tx' but no connected peer "
+        "accepts it; the signal is never delivered"
+    ) in caplog.text
+
+
+def test_structural_link_alongside_interface_is_legal(tmp_path: Path) -> None:
+    from tests import _load_inline_model
+
+    model = _load_inline_model(
+        tmp_path,
+        TRANSPORT.replace(
+            "RELATIONSHIPS",
+            """connect sender to receiver;
+            connect sender.tx to receiver;
+            connect receiver.rx to sender.tx;
+            interface sender.tx to receiver.rx;""",
+        ),
+    )
+    graph = part_graph(model, "Transport::system")
+    assert len(graph.interfaces) == 1
+    _, routes = validated_routes(model, graph, graph.parts)
+    assert [(r.signal, r.target) for r in routes] == [("Event", "receiver")]

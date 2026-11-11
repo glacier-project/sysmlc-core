@@ -16,7 +16,7 @@ def test_part_graph_extracts_system() -> None:
     assert g.parts[0].behaviors == (("Plant", "Part01::PlantBehavior"),)
     assert g.parts[1].definition_name == "Tester"
     assert g.parts[1].behaviors == (("Tester", "Part01::TesterBehavior"),)
-    assert g.connections == ((("plant", "commPort"), ("tb", "commPort")),)
+    assert g.interfaces == ((("plant", "commPort"), ("tb", "commPort")),)
 
 
 def test_part_graph_captures_declared_ports() -> None:
@@ -48,3 +48,44 @@ def test_part_node_carries_multiple_exhibits() -> None:
         ("plant", "PartMulti::PlantBehavior"),
         ("tb", "PartMulti::TesterBehavior"),
     )
+
+
+@pytest.mark.parametrize("is_interface", [False, True])
+@pytest.mark.parametrize("nested_port", [False, True])
+def test_interface_pair_checks_actual_port_endpoints(
+    is_interface: bool,
+    nested_port: bool,
+) -> None:
+    from unittest.mock import Mock
+
+    import syside
+
+    from sysmlc.semantics.parts.graph import _interface_pair
+
+    # Invalid interface endpoints cannot pass Syside's textual validator.
+    # Check the shared extraction boundary with resolved AST-shaped features.
+    conn = Mock(
+        spec=syside.InterfaceUsage if is_interface else syside.ConnectionUsage
+    )
+    conn.connection_definitions.collect.return_value = []
+    instance = Mock(spec=syside.PartUsage)
+    instance.name = "sender"
+    attribute = Mock(spec=syside.AttributeUsage)
+    attribute.name = "tx"
+    endpoint = Mock(spec=syside.Feature)
+    if nested_port:
+        port = Mock(spec=syside.PortUsage)
+        port.name = "tx"
+        chain = [instance, instance, port]
+    else:
+        chain = [instance, attribute]
+    endpoint.chaining_features.collect.return_value = chain
+    conn.related_features.collect.return_value = [endpoint, endpoint]
+    if is_interface:
+        with pytest.raises(
+            UnsupportedConstructError, match="endpoint is a port"
+        ):
+            _interface_pair(conn)
+    else:
+        assert _interface_pair(conn) is None
+        conn.related_features.collect.assert_not_called()

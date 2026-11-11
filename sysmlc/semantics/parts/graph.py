@@ -1,11 +1,8 @@
 """Extract a SysML part graph into backend-neutral data.
 
-Walks a top-level part *usage* and records its nested parts (each typed by a
-``part def`` that inlines one or more ``exhibit state`` members), the declared
-ports of each part, and the explicit ``connect`` edges as port pairs. The part
-assembler consumes this to emit one reactor per part def plus a ``main
-reactor`` wiring them through their connected ports (see ``parts/__init__``
-for the verified syside accessors).
+Walks a top-level part usage and records its nested behavioral parts, ports,
+and resolved interfaces as port pairs. Generic structural connections are
+ignored; they never establish signal routes.
 """
 
 from __future__ import annotations
@@ -16,10 +13,9 @@ import syside
 
 from sysmlc.errors import UnsupportedConstructError
 
-# A connection end is ``(instance usage name, port name)``; a connection is a
-# pair of ends.
+# An interface endpoint is ``(instance usage name, port name)``.
 type Endpoint = tuple[str, str]
-type Connection = tuple[Endpoint, Endpoint]
+type InterfacePair = tuple[Endpoint, Endpoint]
 
 
 @dataclass(frozen=True)
@@ -34,11 +30,15 @@ class PartNode:
 
 @dataclass(frozen=True)
 class PartGraph:
-    """A top-level part usage decomposed into parts + connections."""
+    """A top-level part usage decomposed into behavioral parts and links.
+
+    Attributes:
+        interfaces: Resolved interface endpoint pairs for signal routing.
+    """
 
     name: str  # top-level usage simple name (-> main reactor)
     parts: tuple[PartNode, ...]
-    connections: tuple[Connection, ...]
+    interfaces: tuple[InterfacePair, ...]
 
 
 def part_graph(model: syside.Model, usage_qn: str) -> PartGraph:
@@ -47,7 +47,7 @@ def part_graph(model: syside.Model, usage_qn: str) -> PartGraph:
     Raises:
         ValueError: If ``usage_qn`` does not name a part usage in the model.
         UnsupportedConstructError: If the usage composes no parts, or a
-            composed part or connection has a shape the extractor does
+            composed part or interface has a shape the extractor does
             not support.
     """
     system = _resolve_part_usage(model, usage_qn)
@@ -60,12 +60,14 @@ def part_graph(model: syside.Model, usage_qn: str) -> PartGraph:
         )
     }
     parts: list[PartNode] = []
-    connections: list[Connection] = []
+    interfaces: list[InterfacePair] = []
     for feature in system.owned_features.collect():
         # NB: transitions create ``SuccessionAsUsage`` (a sibling
         # ConnectorAsUsage); match ``ConnectionUsage`` exactly to exclude it.
         if isinstance(feature, syside.ConnectionUsage):
-            connections.append(_connection(feature))
+            pair = _interface_pair(feature)
+            if pair is not None:
+                interfaces.append(pair)
         elif isinstance(feature, syside.PartUsage):
             parts.append(_part_node(feature, model_defs))
     if not parts:
@@ -75,7 +77,7 @@ def part_graph(model: syside.Model, usage_qn: str) -> PartGraph:
     return PartGraph(
         name=usage_qn.split("::")[-1],
         parts=tuple(parts),
-        connections=tuple(connections),
+        interfaces=tuple(interfaces),
     )
 
 
@@ -158,35 +160,48 @@ def _exhibited_behavior(
     return str(declared[0].qualified_name)
 
 
-def _connection(conn: syside.ConnectionUsage) -> Connection:
-    ends = conn.connector_ends.collect()
+def _interface_pair(conn: syside.ConnectionUsage) -> InterfacePair | None:
+    """Extract a port pair only for a resolved interface relationship.
+
+    Args:
+        conn: Resolved connection or interface usage to classify.
+
+    Returns:
+        The interface endpoint pair, or None for a generic connection.
+
+    Raises:
+        UnsupportedConstructError: If an interface does not have exactly two
+            named part-port endpoints.
+    """
+    if not isinstance(conn, syside.InterfaceUsage) and not any(
+        definition.specializes(("Interfaces", "Interface"))
+        for definition in conn.connection_definitions.collect()
+    ):
+        return None
+    ends = conn.related_features.collect()
     if len(ends) != 2:
         raise UnsupportedConstructError(
-            f"connection has {len(ends)} ends; exactly two are required"
+            f"interface has {len(ends)} ends; exactly two are required"
         )
-    return (_endpoint(ends[0]), _endpoint(ends[1]))
+    first, second = (_port_endpoint(end) for end in ends)
+    if first is None or second is None:
+        raise UnsupportedConstructError(
+            "an interface end must reference exactly a named `<part>.<port>` "
+            "whose endpoint is a port"
+        )
+    return (first, second)
 
 
-def _endpoint(end: syside.Feature) -> Endpoint:
-    subsetting = end.owned_reference_subsetting
-    if subsetting is None:
-        raise UnsupportedConstructError(
-            "a connection end has no reference subsetting (`<part>.<port>`)"
-        )
-    feature = subsetting.general
-    if not isinstance(feature, syside.Feature):
-        raise UnsupportedConstructError(
-            "a connection end does not resolve to a chained feature"
-        )
+def _port_endpoint(feature: syside.Feature) -> Endpoint | None:
     chain = feature.chaining_features.collect()
-    if len(chain) < 2:
-        raise UnsupportedConstructError(
-            "a connection end must chain `<part>.<port>`"
-        )
+    if (
+        len(chain) != 2
+        or not isinstance(chain[0], syside.PartUsage)
+        or not isinstance(chain[-1], syside.PortUsage)
+    ):
+        return None
     instance = chain[0].name
     port = chain[-1].name
     if instance is None or port is None:
-        raise UnsupportedConstructError(
-            "a connection end references an unnamed part or port"
-        )
+        return None
     return (instance, port)
