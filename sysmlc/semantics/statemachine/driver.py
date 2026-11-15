@@ -189,6 +189,7 @@ class StateMachineDriver:
                 entry_action=container.entry_action,
                 do_action=container.do_action,
                 exit_action=container.exit_action,
+                source_name=container.name,
             )
         )
         for substate in states.substates(container):

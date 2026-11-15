@@ -160,7 +160,14 @@ class ConstraintFact:
 
 @dataclass(frozen=True)
 class StateFact:
-    """A state, with its SysML slots delivered separately (never pre-fused)."""
+    """A state, with its SysML slots delivered separately (never pre-fused).
+
+    Attributes:
+        name: Canonical state identity relative to the state definition.
+        source_name: Semantic simple name supplied by Syside, without textual
+            quoting or qualified-name escaping. None for manually supplied
+            facts that omit source-name metadata.
+    """
 
     name: str
     kind: StateKind
@@ -169,6 +176,7 @@ class StateFact:
     entry_action: syside.ActionUsage | None
     do_action: syside.ActionUsage | None
     exit_action: syside.ActionUsage | None
+    source_name: str | None = None
 
     def executable_actions(self) -> tuple[syside.ActionUsage | None, ...]:
         """Return this state's executable action slots, in slot order.
