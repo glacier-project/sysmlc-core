@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.12, <4"
 
 [[package]]
@@ -1219,6 +1219,7 @@ source = { editable = "." }
 dependencies = [
     { name = "pyyaml" },
     { name = "syside" },
+    { name = "sysmlc-library" },
     { name = "tree-sitter" },
     { name = "tree-sitter-c" },
 ]
@@ -1271,6 +1272,7 @@ requires-dist = [
     { name = "sphinx-autodoc-typehints", marker = "extra == 'docs'", specifier = ">=2.2,<4" },
     { name = "sphinx-copybutton", marker = "extra == 'docs'", specifier = ">=0.5,<1" },
     { name = "syside", specifier = ">=0.11.0,<0.12" },
+    { name = "sysmlc-library", git = "https://github.com/glacier-project/sysmlc-library?branch=main" },
     { name = "sysmlc-models", marker = "extra == 'dev'", git = "https://github.com/glacier-project/sysmlc-models?branch=main" },
     { name = "sysmlc-models", marker = "extra == 'models'", git = "https://github.com/glacier-project/sysmlc-models?branch=main" },
     { name = "tox", marker = "extra == 'dev'", specifier = ">=4.50.1,<5" },
@@ -1279,6 +1281,11 @@ requires-dist = [
     { name = "tree-sitter-c", specifier = ">=0.24,<0.25" },
 ]
 provides-extras = ["dev", "docs", "models"]
+
+[[package]]
+name = "sysmlc-library"
+version = "0.1.0"
+source = { git = "https://github.com/glacier-project/sysmlc-library?branch=main#bd8a5da8b0794baf11a8c197660e1d794992d5d5" }
 
 [[package]]
 name = "sysmlc-models"
