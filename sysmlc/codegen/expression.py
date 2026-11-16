@@ -179,8 +179,19 @@ class ExpressionCodeGen(ABC):
                 raise ValueError(
                     "assignment target base has an unnamed feature"
                 )
-            segments.append(feature.name)
+            segments.append(
+                feature.name
+                if segments
+                else self._assignment_base_name(feature)
+            )
+        if not segments:
+            return self._assignment_base_name(target)
         return ".".join([*segments, target.name])
+
+    def _assignment_base_name(self, feature: syside.Feature) -> str:
+        """Render the resolved root declaration of an assignment target."""
+        assert feature.name is not None
+        return feature.name
 
     def render_action(self, action: syside.ActionUsage) -> str:
         """Translate a supported action usage to a statement.
