@@ -126,6 +126,7 @@ class StateMachineDriver:
                     type_name=type_name,
                     type_definition=type_def,
                     feature=attr,
+                    source_feature=attr,
                 )
             )
 

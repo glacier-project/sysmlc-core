@@ -51,13 +51,20 @@ def test_composite_value_carries_type_name() -> None:
     assert value.definition.name == "Point"
 
 
-def test_scalar_quantity_binds_to_si_float() -> None:
+def test_scalar_quantity_preserves_source_when_evaluated() -> None:
     model = load_model(SM_DIR / "sm13-time-trigger")
     compiler = syside.Compiler()
     stdlib = syside.Stdlib(model.index)
     pick = _named_attr(model, "SM13::MachineAfterAttribute", "pickDuration")
     value = attributes.bind_value(pick, compiler, stdlib)
     assert value == 120.0
+    builder = RecordingBuilder()
+    StateMachineDriver(model).run("SM13::MachineAfterAttribute", builder)
+    binding = next(b for b in builder.attributes if b.name == "pickDuration")
+    assert binding.value == value
+    assert binding.source_feature == pick
+    assert binding.source_feature is not None
+    assert binding.source_feature.feature_value_expression is not None
 
 
 def test_iter_scope_attributes_yields_root_attribute() -> None:
