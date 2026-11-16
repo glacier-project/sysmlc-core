@@ -22,7 +22,12 @@ import syside
 
 from sysmlc.errors import UnsupportedConstructError
 from sysmlc.semantics.statemachine import actions, states
-from sysmlc.sysml.queries import feature_value, feature_value_relationship
+from sysmlc.sysml.queries import (
+    AttributeFeature,
+    feature_value,
+    feature_value_relationship,
+    is_attribute_feature,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -64,7 +69,7 @@ def is_constant(expr: syside.Expression) -> bool:
 
 
 def require_supported_value(
-    attr: syside.AttributeUsage | syside.ItemUsage,
+    attr: AttributeFeature | syside.ItemUsage,
     *,
     structured: bool = False,
 ) -> None:
@@ -303,10 +308,7 @@ def _fixed_fields(
             continue
         seen.add(definition)
         for field in definition.features.collect():
-            if (
-                not isinstance(field, syside.AttributeUsage)
-                or field.is_library_element
-            ):
+            if not is_attribute_feature(field) or field.is_library_element:
                 continue
             if _is_fixed(effective_value_relationship(field)):
                 yield field
@@ -321,7 +323,9 @@ def _usage_fixed_fields(feature: syside.Feature) -> Iterator[syside.Feature]:
     field created through the low-level editing API is included.
     """
     for member in feature.owned_members.collect():
-        if not isinstance(member, syside.AttributeUsage):
+        if not isinstance(member, syside.Feature) or not is_attribute_feature(
+            member
+        ):
             continue
         if _is_fixed(feature_value_relationship(member)):
             yield member

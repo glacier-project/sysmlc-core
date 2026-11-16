@@ -29,7 +29,9 @@ from sysmlc.sysml.quantities import (
     quantity_parts,
 )
 from sysmlc.sysml.queries import (
+    AttributeFeature,
     feature_value_relationship,
+    is_attribute_feature,
     is_scalar_quantity,
 )
 
@@ -40,7 +42,7 @@ type ValueNode = ValueScalar | dict[str, "ValueNode"]
 _OVERRIDABLE_HINT = "only `default` and `:=` initial values can be overridden"
 
 
-def value_rel(attr: syside.AttributeUsage) -> syside.FeatureValue | None:
+def value_rel(attr: AttributeFeature) -> syside.FeatureValue | None:
     """Return the ``FeatureValue`` owned by *attr*, or ``None``."""
     return feature_value_relationship(attr)
 
@@ -88,9 +90,7 @@ def set_literal_value(lit: syside.Element, value: ValueScalar) -> None:
         lit.value = value
 
 
-def set_value(
-    attr: syside.AttributeUsage, name: str, value: ValueScalar
-) -> None:
+def set_value(attr: AttributeFeature, name: str, value: ValueScalar) -> None:
     """Mutate the attribute's literal initializer, creating it if absent.
 
     Parsed structure cannot be replaced through the editing API (only
@@ -137,7 +137,7 @@ def set_value(
 
 def apply_attribute(
     model: syside.Model,
-    attr: syside.AttributeUsage,
+    attr: AttributeFeature,
     name: str,
     value: ValueNode,
     probe: QuantityProbe,
@@ -159,7 +159,7 @@ def apply_attribute(
 
 def apply_composite(
     model: syside.Model,
-    attr: syside.AttributeUsage,
+    attr: AttributeFeature,
     name: str,
     value: dict[str, ValueNode],
     probe: QuantityProbe,
@@ -172,11 +172,7 @@ def apply_composite(
         raise ValuesError(
             f"attribute {name!r} is not a composite; give it a scalar"
         )
-    local_names = {
-        member.name
-        for member in attr.owned_members.collect()
-        if isinstance(member, syside.AttributeUsage) and member.name
-    }
+    owned = set(attr.owned_members.collect())
     for field_name, field_value in value.items():
         field = fields.get(field_name)
         if field is None:
@@ -185,8 +181,25 @@ def apply_composite(
                 f"attribute {name!r}"
             )
         label = f"{name}.{field_name}"
-        if field_name in local_names:
+        if field in owned:
             apply_attribute(model, field, label, field_value, probe)
+            continue
+        existing = next(
+            (
+                member
+                for member in owned
+                if isinstance(member, syside.Feature)
+                and is_attribute_feature(member)
+                and any(
+                    relation.redefined_feature == field
+                    for relation in member.owned_redefinitions.collect()
+                )
+            ),
+            None,
+        )
+        if existing is not None:
+            check_overridable(value_rel(field), label)
+            apply_attribute(model, existing, label, field_value, probe)
             continue
         # The field lives on the attribute def: create a usage-LOCAL
         # value so the type's default stays untouched for other usages.
@@ -211,7 +224,7 @@ def apply_composite(
 
 def apply_quantity(
     model: syside.Model,
-    attr: syside.AttributeUsage,
+    attr: AttributeFeature,
     name: str,
     value: ValueScalar,
     probe: QuantityProbe,
