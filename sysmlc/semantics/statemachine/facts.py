@@ -127,6 +127,8 @@ class AttributeBinding:
 
     ``direction`` reflects the SysML ``in``/``out``/``inout`` keyword;
     ``AttributeDirection.NONE`` means the attribute is undirected.
+    ``feature`` is the attribute's or item's Syside usage, so a backend can recover
+    its declared type (e.g. a fixed-width numeric type) from the binding.
     """
 
     scope: str
@@ -135,6 +137,7 @@ class AttributeBinding:
     direction: AttributeDirection = AttributeDirection.NONE
     type_name: str | None = None
     type_definition: syside.Definition | None = None
+    feature: syside.AttributeUsage | syside.ItemUsage | None = None
 
 
 @dataclass(frozen=True)

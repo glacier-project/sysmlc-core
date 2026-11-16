@@ -157,3 +157,139 @@ def test_load_model_resolves_imports_from_a_provider(
     _install_points(monkeypatch, [])
     with pytest.raises(ValueError, match="diagnostics"):
         load_model(model_dir)
+
+
+_FIXED_WIDTH_MODEL = """package M {
+    private import FixedWidthScalarValues::*;
+    part def P {
+        attribute c :> uint8 := 0;
+        attribute d :> int16 := 3 * 4;
+    }
+}
+"""
+
+
+def _library_file() -> Path:
+    import sysmlc_library
+
+    (path,) = [
+        Path(p)
+        for p in sysmlc_library.library_files()
+        if Path(p).name == "FixedWidthScalarValues.kerml"
+    ]
+    return path
+
+
+def test_fixed_width_library_is_loaded(tmp_path: Path) -> None:
+    (tmp_path / "m.sysml").write_text(_FIXED_WIDTH_MODEL)
+    model = load_model(tmp_path)
+    attribute = resolve(model, syside.AttributeUsage, "M::P::c")
+    names = [
+        membership.member_element.name
+        for membership in attribute.inherited_memberships.collect()
+        if isinstance(membership.member_element, syside.Invariant)
+    ]
+    assert "uint8Range" in names
+
+
+def test_duplicate_library_copy_is_an_error(tmp_path: Path) -> None:
+    (tmp_path / "m.sysml").write_text(_FIXED_WIDTH_MODEL)
+    copy = tmp_path / "FixedWidthScalarValues.kerml"
+    copy.write_text(_library_file().read_text())
+    with pytest.raises(ValueError) as info:
+        load_model(tmp_path)
+    message = str(info.value)
+    assert "FixedWidthScalarValues" in message
+    assert str(copy) in message
+    assert str(_library_file()) in message
+    assert "copy of an installed library" in message
+    assert "remove the copy" in message
+
+
+def test_duplicate_user_packages_are_an_error(tmp_path: Path) -> None:
+    (tmp_path / "a.sysml").write_text("package A { part def X; }\n")
+    (tmp_path / "b.sysml").write_text("package A { part def Y; }\n")
+    with pytest.raises(ValueError) as info:
+        load_model(tmp_path)
+    message = str(info.value)
+    assert str(tmp_path / "a.sysml") in message
+    assert str(tmp_path / "b.sysml") in message
+    assert "rename or remove one" in message
+    assert "copy of an installed library" not in message
+
+
+def test_duplicate_installed_libraries_are_an_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # two providers ship the same library: no file is a model-directory copy
+    copies = [tmp_path / name / "Lib.kerml" for name in ("alpha", "beta")]
+    for copy in copies:
+        copy.parent.mkdir()
+        copy.write_text(_library_file().read_text())
+    _install_points(
+        monkeypatch,
+        [
+            _FakeEntryPoint(copy.parent.name, provider=lambda c=copy: [c])
+            for copy in copies
+        ],
+    )
+    model_dir = tmp_path / "model"
+    model_dir.mkdir()
+    (model_dir / "m.sysml").write_text(_FIXED_WIDTH_MODEL)
+    with pytest.raises(ValueError) as info:
+        load_model(model_dir)
+    message = str(info.value)
+    assert all(str(copy) in message for copy in copies)
+    assert "rename or remove one" in message
+    assert "copy of an installed library" not in message
+
+
+_FIXED_WIDTH_FEATURES = [
+    ("int8", "Integer"),
+    ("int16", "Integer"),
+    ("int32", "Integer"),
+    ("int64", "Integer"),
+    ("uint8", "Natural"),
+    ("uint16", "Natural"),
+    ("uint32", "Natural"),
+    ("uint64", "Natural"),
+    ("float32", "Real"),
+    ("float64", "Real"),
+]
+
+
+@pytest.mark.parametrize(("name", "scalar"), _FIXED_WIDTH_FEATURES)
+def test_fixed_width_feature_type_and_range(
+    tmp_path: Path, name: str, scalar: str
+) -> None:
+    (tmp_path / "m.sysml").write_text(
+        "package M { private import FixedWidthScalarValues::*; "
+        f"part def P {{ attribute a :> {name}; }} }}\n"
+    )
+    model = load_model(tmp_path)
+    attribute = resolve(model, syside.AttributeUsage, "M::P::a")
+    feature = resolve(model, syside.Feature, f"FixedWidthScalarValues::{name}")
+    declared = [str(t.qualified_name) for t in feature.types.collect()]
+    assert f"ScalarValues::{scalar}" in declared
+    invariants = [
+        membership.member_element.name
+        for membership in attribute.inherited_memberships.collect()
+        if isinstance(membership.member_element, syside.Invariant)
+    ]
+    if scalar == "Real":
+        assert invariants == []
+    else:
+        assert invariants == [f"{name}Range"]
+
+
+def test_warnings_are_logged_in_full(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    # a self-specialization is a Syside warning, not an error
+    (tmp_path / "m.sysml").write_text("package M { part def P :> P; }\n")
+    with caplog.at_level(logging.WARNING, logger=loading.logger.name):
+        load_model(tmp_path)
+    assert any(
+        "Type specialization to itself has no effect" in r.getMessage()
+        for r in caplog.records
+    ), [r.getMessage() for r in caplog.records]

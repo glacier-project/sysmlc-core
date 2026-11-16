@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
-from collections.abc import Mapping  # noqa: TC003
+from collections.abc import Iterable, Mapping  # noqa: TC003
 from typing import Any, ClassVar, TextIO
 
 PACKAGE_LOGGER_NAME = "sysmlc"
@@ -64,11 +64,19 @@ def configure_logging(
     *,
     stream: TextIO | None = None,
     use_color: bool | None = None,
+    packages: Iterable[str] = (),
 ) -> logging.Logger:
     """Configure the package logger.
 
     Explicit level wins over config, which wins over environment, which wins
     over the package default.
+
+    Plugins (backends) log under their own top-level package names, outside
+    the package logger's hierarchy; ``packages`` names them, so their
+    records go through the same handler at the same level. They keep
+    propagating (``propagate=True``), so a host's own logging still sees
+    them; a host that also configures the root logger prints their lines
+    twice.
 
     Args:
         level: Explicit logging level override.
@@ -76,6 +84,7 @@ def configure_logging(
         stream: Optional output stream for the package handler.
         use_color: Optional color override. If omitted, colors are enabled only
             when the selected stream is a TTY.
+        packages: Top-level package names of plugins to configure alike.
 
     Returns:
         The configured package logger.
@@ -101,6 +110,11 @@ def configure_logging(
 
     handler.setLevel(logging.NOTSET)
     handler.setFormatter(PackageFormatter(use_color=selected_use_color))
+    for name in packages:
+        plugin = logging.getLogger(name)
+        plugin.setLevel(resolved_level)
+        if handler not in plugin.handlers:
+            plugin.addHandler(handler)
     return logger
 
 

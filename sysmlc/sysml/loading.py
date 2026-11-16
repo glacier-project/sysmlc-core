@@ -13,6 +13,9 @@ _LIB_DIR = Path(__file__).resolve().parent / "lib"
 # returns the absolute paths of its library files.
 LIBRARY_ENTRY_POINT_GROUP = "sysmlc.libraries"
 
+# Syside reports two files declaring one top-level package under this code.
+_DUPLICATE_PACKAGE_CODE = "global-namespace-distinguishability"
+
 
 def _bundled_library_files() -> list[Path]:
     """Absolute paths of the .sysml libraries shipped with sysmlc."""
@@ -80,9 +83,8 @@ def load_model(model_dir: Path | str) -> syside.Model:
     """
     logger.info("Loading SysML model from %s", model_dir)
     sysml_files = syside.collect_files_recursively(str(model_dir))
-    sysml_files = (
-        _bundled_library_files() + provider_library_files() + list(sysml_files)
-    )
+    library_files = _bundled_library_files() + provider_library_files()
+    sysml_files = library_files + list(sysml_files)
     logger.debug("Collected %d SysML files", len(sysml_files))
     model, diagnostics = syside.try_load_model(paths=sysml_files)
 
@@ -92,6 +94,9 @@ def load_model(model_dir: Path | str) -> syside.Model:
             "syside reported %d warnings while loading the model",
             len(warnings),
         )
+        for warning in warnings:
+            logger.warning("%s", warning)
+    _raise_on_duplicate_packages(warnings, library_files)
 
     if diagnostics.contains_errors():
         errors = list(diagnostics.errors)
@@ -105,6 +110,53 @@ def load_model(model_dir: Path | str) -> syside.Model:
 
     logger.info("Loaded SysML model successfully")
     return model
+
+
+def _raise_on_duplicate_packages(
+    warnings: list[syside.DiagnosticMessage],
+    library_files: list[Path],
+) -> None:
+    """Turn duplicate top-level packages into an error naming the files.
+
+    Syside only warns when two files declare the same top-level package
+    and then binds names to either copy at random from run to run, so
+    such a model must not load.
+
+    Args:
+        warnings: The warnings syside reported for the load.
+        library_files: The library files core passed to syside.
+
+    Raises:
+        ValueError: If any warning is a global-namespace-distinguishability
+            diagnostic. When a model file clashes with a loaded library
+            file the message names both and tells the user to remove the
+            copy; otherwise it lists the clashing files.
+    """
+    clashes = [
+        warning
+        for warning in warnings
+        if warning.code == _DUPLICATE_PACKAGE_CODE
+    ]
+    if not clashes:
+        return
+    files = sorted({str(clash.filename) for clash in clashes})
+    installed = {str(path) for path in library_files}
+    libraries = [name for name in files if name in installed]
+    copies = [name for name in files if name not in installed]
+    details = _format_diagnostic_messages(clashes)
+    if libraries and copies:
+        raise ValueError(
+            "a file in the model directory is a copy of an installed "
+            "library, and syside would bind names to either copy at "
+            "random; remove the copy from the model directory.\n"
+            f"Installed library: {', '.join(libraries)}\n"
+            f"Copy: {', '.join(copies)}\n{details}"
+        )
+    raise ValueError(
+        "these files declare the same top-level name, and syside would "
+        "bind names to either at random; rename or remove one of them.\n"
+        f"Files: {', '.join(files)}\n{details}"
+    )
 
 
 def _format_diagnostic_messages(

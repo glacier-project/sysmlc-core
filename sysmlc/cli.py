@@ -19,7 +19,7 @@ from sysmlc.backends import (
     discover_backends,
 )
 from sysmlc.errors import SysmlcError
-from sysmlc.logging import configure_logging
+from sysmlc.logging import PACKAGE_LOGGER_NAME, configure_logging
 from sysmlc.sysml.foreign_artifact.base import (
     ForeignArtifact,
     collect_foreign_dependencies,
@@ -687,6 +687,14 @@ def _cmd_backends(backends: dict[str, Backend]) -> int:
     return 0
 
 
+def _plugin_packages(backend: Backend | None) -> list[str]:
+    """The selected backend's top-level package, unless it is sysmlc's own."""
+    if backend is None:
+        return []
+    package = type(backend).__module__.partition(".")[0]
+    return [] if package == PACKAGE_LOGGER_NAME else [package]
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Entry point for the ``sysmlc`` command.
 
@@ -699,7 +707,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         backends = discover_backends()
         args = _build_parser(backends).parse_args(argv)
-        configure_logging("DEBUG" if args.verbose else "INFO")
+        configure_logging(
+            "DEBUG" if args.verbose else "INFO",
+            packages=_plugin_packages(backends.get(args.command)),
+        )
         if args.command == "backends":
             return _cmd_backends(backends)
         if args.action == "run":

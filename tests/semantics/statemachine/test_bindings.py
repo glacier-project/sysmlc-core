@@ -87,6 +87,30 @@ def test_literal_constants_are_admitted(model: syside.Model) -> None:
     }
 
 
+def test_bound_attribute_carries_its_feature(model: syside.Model) -> None:
+    builder = _run(model, "Constants")
+    (count,) = [b for b in builder.attributes if b.name == "count"]
+    expected = resolve(
+        model, syside.AttributeUsage, "Bindings::Constants::count"
+    )
+    assert count.feature is not None
+    assert count.feature.name == "count"
+    assert isinstance(count.feature, syside.AttributeUsage)
+    assert count.feature is expected
+
+
+def test_bound_item_carries_its_feature(model: syside.Model) -> None:
+    # `item env` is yielded by the driver alongside attributes; its binding
+    # carries the item usage, not an attribute usage.
+    builder = _run(model, "ReplaceFromReference")
+    (env,) = [b for b in builder.attributes if b.name == "env"]
+    expected = resolve(
+        model, syside.ItemUsage, "Bindings::ReplaceFromReference::env"
+    )
+    assert isinstance(env.feature, syside.ItemUsage)
+    assert env.feature is expected
+
+
 def test_initial_values_stay_assignable(model: syside.Model) -> None:
     builder = _run(model, "Constants")
     assert _assigned(builder) == {

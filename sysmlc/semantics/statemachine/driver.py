@@ -125,6 +125,7 @@ class StateMachineDriver:
                     direction=attributes.direction_of(attr),
                     type_name=type_name,
                     type_definition=type_def,
+                    feature=attr,
                 )
             )
 
