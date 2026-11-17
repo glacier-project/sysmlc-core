@@ -28,6 +28,34 @@ def test_driver_walks_simple_machine(
     assert recording_builder.attributes == []
 
 
+def test_driver_preserves_source_names_separately_from_state_identities(
+    recording_builder: RecordingBuilder,
+) -> None:
+    model = load_model(Path(__file__).parent / "fixtures" / "source-names")
+    StateMachineDriver(model).run("SourceNames::Machine", recording_builder)
+
+    quoted = "'Out\"er'"
+    backslash = quoted + r"::'a\\b'"
+    apostrophe = quoted + r"::'it\'s'"
+    by_name = {state.name: state for state in recording_builder.states}
+    assert {name: state.source_name for name, state in by_name.items()} == {
+        "Machine": "Machine",
+        "'S.1'": "S.1",
+        quoted: 'Out"er',
+        backslash: r"a\b",
+        apostrophe: "it's",
+    }
+    assert by_name["Machine"].initial_substate == "'S.1'"
+    assert by_name[quoted].parent == "Machine"
+    assert by_name[quoted].initial_substate == backslash
+    assert by_name[backslash].parent == quoted
+    assert by_name[apostrophe].parent == quoted
+    assert [(t.source, t.target) for t in recording_builder.transitions] == [
+        ("'S.1'", quoted),
+        (backslash, apostrophe),
+    ]
+
+
 @pytest.mark.parametrize(
     ("second_guard", "enabled"),
     [

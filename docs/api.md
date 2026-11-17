@@ -62,8 +62,16 @@ API reference to render. -->
 
 ## Code generation
 
+`sysmlc.codegen.names.NameRegistry` assigns generated identifiers within one
+target naming scope. Backends supply candidate spellings and comparison rules;
+the registry remembers assignments and avoids reserved or occupied names.
+Reserve fixed interface names first and allocate symbols in a deterministic
+order. Keep source names separately for diagnostics and traces. Candidate rules
+must produce valid identifiers and eventually yield an unoccupied spelling.
+
 ```{eval-rst}
 .. automodule:: sysmlc.codegen.expression
 .. automodule:: sysmlc.codegen.python
 .. automodule:: sysmlc.codegen.c
+.. automodule:: sysmlc.codegen.names
 ```

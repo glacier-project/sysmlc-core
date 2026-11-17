@@ -25,6 +25,7 @@ def test_state_fact_constructible() -> None:
     )
     assert s.kind is StateKind.LEAF
     assert s.parent == "root"
+    assert s.source_name is None
 
 
 def test_attribute_binding_constructible() -> None:
