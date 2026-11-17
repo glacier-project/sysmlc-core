@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, overload
+from typing import TYPE_CHECKING, TypeGuard, overload
 
 import syside
 
@@ -12,9 +12,39 @@ from sysmlc.sysml.names import QualifiedName, normalize_qualified_name
 
 logger = logging.getLogger(__name__)
 
+type AttributeFeature = syside.AttributeUsage | syside.ReferenceUsage
+
+
+def is_attribute_feature(
+    feature: syside.Feature,
+) -> TypeGuard[AttributeFeature]:
+    """Whether a usage is an attribute or redefines an attribute feature.
+
+    A reference merely typed by a data definition is not an attribute field.
+    Shorthand attribute redefinitions are ReferenceUsage nodes whose resolved
+    redefinition chain reaches an AttributeUsage.
+    """
+    if not isinstance(feature, (syside.AttributeUsage, syside.ReferenceUsage)):
+        return False
+    pending: list[syside.Feature] = [feature]
+    seen: set[syside.Feature] = set()
+    while pending:
+        current = pending.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        if isinstance(current, syside.AttributeUsage):
+            return True
+        pending.extend(
+            relation.redefined_feature
+            for relation in current.owned_redefinitions.collect()
+            if relation.redefined_feature is not None
+        )
+    return False
+
 
 def definitions_of(
-    attr: syside.AttributeUsage | syside.ItemUsage,
+    attr: AttributeFeature | syside.ItemUsage,
 ) -> list[syside.Classifier]:
     """Return ``attr``'s type definitions regardless of usage kind.
 
@@ -25,7 +55,7 @@ def definitions_of(
     return defs_iter.collect()
 
 
-def is_scalar_quantity(attr: syside.AttributeUsage | syside.ItemUsage) -> bool:
+def is_scalar_quantity(attr: AttributeFeature | syside.ItemUsage) -> bool:
     """Whether ``attr``'s type is a scalar quantity value.
 
     A scalar quantity value (like ``DurationValue``) is a subtype of
@@ -207,7 +237,7 @@ def feature_value_relationship(
 
 
 def feature_value(
-    attr: syside.AttributeUsage | syside.ItemUsage,
+    attr: AttributeFeature | syside.ItemUsage,
 ) -> syside.Expression | None:
     """Return the attribute's own value expression, if any."""
     return attr.feature_value_expression

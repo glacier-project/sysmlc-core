@@ -12,8 +12,10 @@ from sysmlc.semantics.statemachine.facts import (
     CompositeValue,
 )
 from sysmlc.sysml.queries import (
+    AttributeFeature,
     definitions_of,
     feature_value,
+    is_attribute_feature,
     is_scalar_quantity,
 )
 
@@ -37,35 +39,55 @@ def direction_of(
 
 
 def nested_attributes(
-    attr: syside.AttributeUsage | syside.ItemUsage,
-) -> list[syside.AttributeUsage]:
+    attr: AttributeFeature | syside.ItemUsage,
+) -> list[AttributeFeature]:
     """Return the attributes of ``attr``'s structured definition.
 
     An attribute is structured when its type resolves to an
     ``AttributeDefinition`` or ``ItemDefinition`` that owns attributes; it is
     scalar when its type resolves to a primitive ``DataType``.
 
-    A usage-local attribute of the same name (a ``:>>`` redefinition giving
-    THIS usage its own value) replaces the definition's field, so per-usage
-    redefinitions win over the type's defaults.
+    Usage-local redefinitions replace their resolved definition fields,
+    including shorthand ReferenceUsage nodes. Definition order is preserved.
+
+    Raises:
+        UnsupportedConstructError: A redefinition renames a field, which
+            cannot be represented by the definition's generated field name.
     """
     nested: list[syside.AttributeUsage] = []
     for definition in definitions_of(attr):
         if isinstance(definition, syside.Definition):
             nested.extend(definition.owned_attributes.collect())
     if not nested:
-        return nested
+        return []
     # owned_members (not owned_features): the latter is sema-derived and
     # blind to members created through the low-level editing API.
-    local = {
-        member.name: member
-        for member in attr.owned_members.collect()
-        if isinstance(member, syside.AttributeUsage) and member.name
-    }
-    return [
-        local.get(field.name, field) if field.name else field
-        for field in nested
-    ]
+    local: dict[syside.Feature, AttributeFeature] = {}
+    for member in attr.owned_members.collect():
+        if not isinstance(member, syside.Feature) or not is_attribute_feature(
+            member
+        ):
+            continue
+        for relation in member.owned_redefinitions.collect():
+            field = relation.redefined_feature
+            if field is None or field not in nested:
+                continue
+            if member.name != field.name:
+                raise UnsupportedConstructError(
+                    "renamed structured field redefinitions are not supported",
+                    node=member,
+                )
+            if (
+                isinstance(member, syside.ReferenceUsage)
+                and member.feature_value is None
+                and not any(
+                    isinstance(owned, syside.Feature)
+                    for owned in member.owned_members.collect()
+                )
+            ):
+                continue
+            local[field] = member
+    return [local.get(field, field) for field in nested]
 
 
 def scope_attributes(
@@ -111,7 +133,7 @@ def iter_scope_attributes(
 
 
 def bind_value(
-    attr: syside.AttributeUsage | syside.ItemUsage,
+    attr: AttributeFeature | syside.ItemUsage,
     compiler: syside.Compiler,
     stdlib: syside.Stdlib,
 ) -> AttributeValue:
@@ -170,8 +192,9 @@ def bind_value(
     definition = next(
         (
             d
-            for d in attr.attribute_definitions.collect()
-            if isinstance(d, syside.Definition) and d.owned_attributes.collect()
+            for d in definitions_of(attr)
+            if isinstance(d, syside.AttributeDefinition)
+            and d.owned_attributes.collect()
         ),
         None,
     )

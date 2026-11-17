@@ -129,6 +129,8 @@ class AttributeBinding:
     ``AttributeDirection.NONE`` means the attribute is undirected.
     ``feature`` is the attribute's or item's Syside usage, so a backend can recover
     its declared type (e.g. a fixed-width numeric type) from the binding.
+    ``source_feature`` preserves declaration identity and its original value
+    expression when ``value`` has been evaluated or materialized.
     """
 
     scope: str
@@ -138,6 +140,7 @@ class AttributeBinding:
     type_name: str | None = None
     type_definition: syside.Definition | None = None
     feature: syside.AttributeUsage | syside.ItemUsage | None = None
+    source_feature: syside.Feature | None = None
 
 
 @dataclass(frozen=True)
